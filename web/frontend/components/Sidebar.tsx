@@ -7,12 +7,15 @@ import {
   History,
   Leaf,
   Folder,
+  Shield,
 } from 'lucide-react'
 
 const navItems = [
-  { href: '/', label: 'Dashboard', icon: LayoutDashboard },
+  // { href: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/admin', label: 'Admin', icon: Shield },
   { href: '/projects', label: 'Projects', icon: Folder },
   { href: '/runs', label: 'Run History', icon: History },
+
 ]
 
 export function Sidebar() {

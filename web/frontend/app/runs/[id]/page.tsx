@@ -146,6 +146,9 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
               <p className="text-sm md:text-base text-muted-foreground">
                 {format(new Date(run.timestamp), 'EEEE, MMMM d, yyyy HH:mm')}
               </p>
+              <p className="text-sm text-muted-foreground mt-1">
+                By {run.collaboratorName ?? 'Unassigned'}
+              </p>
             </div>
             <span className={`inline-block px-3 md:px-4 py-2 rounded-lg font-medium whitespace-nowrap ${statusColor}`}>
               {run.status}

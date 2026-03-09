@@ -32,6 +32,12 @@ export const RecentRunsTable = memo(function RecentRunsTable({ runs }: RecentRun
               <th className="text-left py-3 px-4 text-muted-foreground font-medium">
                 Run Name
               </th>
+                            <th className="text-left py-3 px-4 text-muted-foreground font-medium">
+                Run Time-Stamp
+              </th>
+                            <th className="text-left py-3 px-4 text-muted-foreground font-medium">
+                Run Owner
+              </th>
               <th className="text-right py-3 px-4 text-muted-foreground font-medium">
                 Energy (Wh)
               </th>
@@ -53,10 +59,23 @@ export const RecentRunsTable = memo(function RecentRunsTable({ runs }: RecentRun
                 <td className="py-3 px-4">
                   <div>
                     <p className="font-medium text-foreground">{run.name}</p>
-                    <p className="text-xs text-muted-foreground">
+                    {/* <p className="text-xs text-muted-foreground">
                       {format(new Date(run.timestamp), 'MMM d, HH:mm')}
-                    </p>
+                    </p> */}
+                    {/* <p className="text-xs text-muted-foreground">
+                      By {run.collaboratorName ?? 'Unassigned'}
+                    </p> */}
                   </div>
+                </td>
+                <td className='py-3 px-4'>
+                  <p className="text-xs text-muted-foreground">
+                      {format(new Date(run.timestamp), 'MMM d, HH:mm')}
+                    </p> 
+                </td>
+                                <td className='py-3 px-4'>
+<p className="text-xs text-muted-foreground">
+                      By {run.collaboratorName ?? 'Unassigned'}
+                    </p>
                 </td>
                 <td className="text-right py-3 px-4 text-foreground font-medium">
                   {Number(run.totalEnergy.toFixed(2)).toLocaleString()}

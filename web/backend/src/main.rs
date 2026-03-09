@@ -6,15 +6,15 @@ use axum::{
     routing::{get},
     Json, Router,
 };
-use tower_http::cors::{Any, CorsLayer};
-use sqlx::sqlite::SqlitePoolOptions;
 use serde::Serialize;
-use tokio::{time::Duration};
+use sqlx::Row;
+use sqlx::sqlite::SqlitePoolOptions;
+use std::{collections::HashMap, convert::Infallible, path::PathBuf, vec};
+use tokio::time::Duration;
+use tower_http::cors::{Any, CorsLayer};
 
 // use axum_extra::TypedHeader;
 use futures::stream::{Stream, StreamExt};
-use std::{convert::Infallible, vec};
-
 use tokio::sync::broadcast;
 use tokio_stream::wrappers::BroadcastStream;
 
@@ -28,6 +28,10 @@ struct Run {
     id: i64,
     name: String,
     project_id: i64,
+    collaborator_name: Option<String>,
+    status: Option<String>,
+    started_at: Option<String>,
+    ended_at: Option<String>,
 }
 
 #[derive(Serialize, Clone, sqlx::FromRow)]
@@ -55,6 +59,57 @@ struct RunSummary {
     total_igpu_energy: f64,
 }
 
+#[derive(Clone, sqlx::FromRow)]
+struct AdminProjectRow {
+    id: i64,
+    name: String,
+    collaborator_name: Option<String>,
+}
+
+#[derive(Clone, sqlx::FromRow)]
+struct AdminRunRow {
+    id: i64,
+    name: String,
+    project_id: i64,
+    collaborator_name: Option<String>,
+    status: Option<String>,
+    started_at: Option<String>,
+    ended_at: Option<String>,
+}
+
+#[derive(Clone, sqlx::FromRow)]
+struct RunActivityRow {
+    run_id: i64,
+    last_record_at: Option<String>,
+}
+
+#[derive(Clone, sqlx::FromRow)]
+struct ProjectCollaboratorRow {
+    project_id: i64,
+    collaborator_name: String,
+}
+
+#[derive(Serialize, Clone)]
+struct AdminRunInfo {
+    run_id: i64,
+    run_name: String,
+    collaborator_name: Option<String>,
+    status: String,
+    started_at: Option<String>,
+    ended_at: Option<String>,
+    last_record_at: Option<String>,
+}
+
+#[derive(Serialize, Clone)]
+struct AdminProjectInfo {
+    id: i64,
+    name: String,
+    default_collaborator: Option<String>,
+    collaborators: Vec<String>,
+    active_runs: Vec<AdminRunInfo>,
+    latest_run: Option<AdminRunInfo>,
+}
+
 
 #[derive(Clone)]
 struct AppState {
@@ -79,7 +134,7 @@ async fn get_projects(State(state): State<AppState>) -> impl IntoResponse {
 
 async fn get_runs(Path(project_id): Path<i64>, State(state): State<AppState>) -> impl IntoResponse {
     let runs: Vec<Run> = sqlx::query_as::<_, Run>(
-        "SELECT id, name, project_id FROM runs WHERE project_id = ?",
+        "SELECT id, name, project_id, collaborator_name, status, started_at, ended_at FROM runs WHERE project_id = ? ORDER BY started_at DESC, id DESC",
     )
     .bind(project_id)
     .fetch_all(&state.db_pool)
@@ -89,6 +144,21 @@ async fn get_runs(Path(project_id): Path<i64>, State(state): State<AppState>) ->
     match runs.len() {
         0 => (StatusCode::NOT_FOUND, "No runs found for this project").into_response(),
         _ => (StatusCode::OK, Json(runs)).into_response(),
+    }
+}
+
+async fn get_run(Path(run_id): Path<i64>, State(state): State<AppState>) -> impl IntoResponse {
+    let run: Option<Run> = sqlx::query_as::<_, Run>(
+        "SELECT id, name, project_id, collaborator_name, status, started_at, ended_at FROM runs WHERE id = ?",
+    )
+    .bind(run_id)
+    .fetch_optional(&state.db_pool)
+    .await
+    .unwrap();
+
+    match run {
+        Some(run) => (StatusCode::OK, Json(run)).into_response(),
+        None => (StatusCode::NOT_FOUND, "Run not found").into_response(),
     }
 }
 
@@ -117,11 +187,98 @@ async fn get_run_summary(Path(run_id): Path<i64>, State(state): State<AppState>)
     .await
     .unwrap(); // Graceful error handling
 
-    println!("Summary: {:#?}", summary);
     match summary {
         Some(s) => (StatusCode::OK, Json(s)).into_response(),
         None => (StatusCode::NOT_FOUND, "Run not found").into_response(),
     }
+}
+
+async fn get_admin_projects(State(state): State<AppState>) -> impl IntoResponse {
+    let projects: Vec<AdminProjectRow> = sqlx::query_as::<_, AdminProjectRow>(
+        "SELECT id, name, collaborator_name FROM projects ORDER BY name ASC",
+    )
+    .fetch_all(&state.db_pool)
+    .await
+    .unwrap_or_else(|_| vec![]);
+
+    let runs: Vec<AdminRunRow> = sqlx::query_as::<_, AdminRunRow>(
+        "SELECT id, name, project_id, collaborator_name, status, started_at, ended_at
+         FROM runs
+         ORDER BY project_id ASC, started_at DESC, id DESC",
+    )
+    .fetch_all(&state.db_pool)
+    .await
+    .unwrap_or_else(|_| vec![]);
+
+    let activities: Vec<RunActivityRow> = sqlx::query_as::<_, RunActivityRow>(
+        "SELECT run_id, MAX(timestamp) AS last_record_at FROM records GROUP BY run_id",
+    )
+    .fetch_all(&state.db_pool)
+    .await
+    .unwrap_or_else(|_| vec![]);
+
+    let activity_by_run: HashMap<i64, Option<String>> = activities
+        .into_iter()
+        .map(|activity| (activity.run_id, activity.last_record_at))
+        .collect();
+
+    let collaborator_rows: Vec<ProjectCollaboratorRow> = sqlx::query_as::<_, ProjectCollaboratorRow>(
+        "SELECT project_id, collaborator_name
+         FROM project_collaborators
+         ORDER BY project_id ASC, collaborator_name ASC",
+    )
+    .fetch_all(&state.db_pool)
+    .await
+    .unwrap_or_else(|_| vec![]);
+
+    let mut collaborators_by_project: HashMap<i64, Vec<String>> = HashMap::new();
+    for collaborator in collaborator_rows {
+        collaborators_by_project
+            .entry(collaborator.project_id)
+            .or_default()
+            .push(collaborator.collaborator_name);
+    }
+
+    let mut runs_by_project: HashMap<i64, Vec<AdminRunInfo>> = HashMap::new();
+    for run in runs {
+        runs_by_project
+            .entry(run.project_id)
+            .or_default()
+            .push(AdminRunInfo {
+                run_id: run.id,
+                run_name: run.name,
+                collaborator_name: run.collaborator_name,
+                status: run.status.unwrap_or_else(|| "finished".to_string()),
+                started_at: run.started_at,
+                ended_at: run.ended_at,
+                last_record_at: activity_by_run.get(&run.id).cloned().flatten(),
+            });
+    }
+
+    let response: Vec<AdminProjectInfo> = projects
+        .into_iter()
+        .map(|project| {
+            let project_runs = runs_by_project.remove(&project.id).unwrap_or_default();
+            let latest_run = project_runs.first().cloned();
+            let active_runs = project_runs
+                .iter()
+                .filter(|run| run.status == "running")
+                .cloned()
+                .collect();
+            let collaborators = collaborators_by_project.remove(&project.id).unwrap_or_default();
+
+            AdminProjectInfo {
+                id: project.id,
+                name: project.name,
+                default_collaborator: project.collaborator_name,
+                collaborators,
+                active_runs,
+                latest_run,
+            }
+        })
+        .collect();
+
+    (StatusCode::OK, Json(response)).into_response()
 }
 
 // --- SSE ---
@@ -132,11 +289,12 @@ async fn get_run_summary(Path(run_id): Path<i64>, State(state): State<AppState>)
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize the database connection pool
-    let db_url = "sqlite:///home/mak/Desktop/ecocode/ecocode/ecocodeDB.db";
+    let db_url = resolve_db_url();
     let db = SqlitePoolOptions::new()
         .max_connections(5)
-        .connect(db_url)
+        .connect(&db_url)
         .await?;
+    ensure_schema(&db).await?;
 
     let (tx, _) = broadcast::channel::<String>(100);
 
@@ -152,8 +310,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/hello", get(hello_world))
         .route("/api/projects", get(get_projects))
         .route("/api/project/{project_id}/runs", get(get_runs))
+        .route("/api/run/{run_id}", get(get_run))
         .route("/api/run/{run_id}/record_points", get(get_record_points))   
         .route("/api/run/{run_id}/summary", get(get_run_summary))
+        .route("/api/admin/projects", get(get_admin_projects))
         .route("/api/sse", get(sse_handler))
         .layer(
             CorsLayer::new()
@@ -166,6 +326,184 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Run the app with axum, listening globally on port 3001
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3001").await?;
     axum::serve(listener, app).await?;
+
+    Ok(())
+}
+
+fn resolve_db_url() -> String {
+    if let Ok(db_url) = std::env::var("ECOCODE_DB_URL") {
+        return db_url;
+    }
+
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let repo_root = manifest_dir
+        .parent()
+        .and_then(|path| path.parent())
+        .map(|path| path.to_path_buf())
+        .unwrap_or(manifest_dir);
+    let db_path = repo_root.join("ecocode").join("ecocodeDB.db");
+
+    format!("sqlite://{}", db_path.display())
+}
+
+async fn ensure_schema(db: &sqlx::SqlitePool) -> Result<(), Box<dyn std::error::Error>> {
+    sqlx::query("PRAGMA journal_mode=WAL;").execute(db).await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS projects (
+            id INTEGER PRIMARY KEY,
+            name TEXT UNIQUE,
+            collaborator_name TEXT
+        )",
+    )
+    .execute(db)
+    .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS project_collaborators (
+            project_id INTEGER NOT NULL,
+            collaborator_name TEXT NOT NULL,
+            PRIMARY KEY (project_id, collaborator_name),
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        )",
+    )
+    .execute(db)
+    .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS runs (
+            id INTEGER PRIMARY KEY,
+            name TEXT,
+            project_id INTEGER,
+            collaborator_name TEXT,
+            status TEXT NOT NULL DEFAULT 'finished',
+            started_at TEXT,
+            ended_at TEXT,
+            FOREIGN KEY (project_id) REFERENCES projects(id)
+        )",
+    )
+    .execute(db)
+    .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS records (
+            id INTEGER PRIMARY KEY,
+            run_id INTEGER,
+            pid INTEGER,
+            timestamp TEXT,
+            cpu_usage REAL,
+            cpu_energy REAL,
+            gpu_usage REAL,
+            gpu_energy REAL,
+            mem_usage REAL,
+            mem_energy REAL,
+            igpu_usage REAL,
+            igpu_energy REAL,
+            FOREIGN KEY (run_id) REFERENCES runs(id)
+        )",
+    )
+    .execute(db)
+    .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS runsummary (
+            id INTEGER PRIMARY KEY,
+            run_id INTEGER,
+            total_cpu_energy REAL,
+            total_gpu_energy REAL,
+            total_mem_energy REAL,
+            total_igpu_energy REAL,
+            FOREIGN KEY (run_id) REFERENCES runs(id)
+        )",
+    )
+    .execute(db)
+    .await?;
+
+    ensure_column(db, "projects", "collaborator_name", "ALTER TABLE projects ADD COLUMN collaborator_name TEXT").await?;
+    ensure_column(db, "runs", "collaborator_name", "ALTER TABLE runs ADD COLUMN collaborator_name TEXT").await?;
+    ensure_column(
+        db,
+        "runs",
+        "status",
+        "ALTER TABLE runs ADD COLUMN status TEXT NOT NULL DEFAULT 'finished'",
+    )
+    .await?;
+    ensure_column(db, "runs", "started_at", "ALTER TABLE runs ADD COLUMN started_at TEXT").await?;
+    ensure_column(db, "runs", "ended_at", "ALTER TABLE runs ADD COLUMN ended_at TEXT").await?;
+    backfill_project_collaborators(db).await?;
+    sync_project_shortcuts(db).await?;
+
+    Ok(())
+}
+
+async fn ensure_column(
+    db: &sqlx::SqlitePool,
+    table: &str,
+    column: &str,
+    alter_sql: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if has_column(db, table, column).await? {
+        return Ok(());
+    }
+
+    sqlx::query(alter_sql).execute(db).await?;
+    Ok(())
+}
+
+async fn has_column(
+    db: &sqlx::SqlitePool,
+    table: &str,
+    column: &str,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    let rows = sqlx::query(&format!("PRAGMA table_info({table})"))
+        .fetch_all(db)
+        .await?;
+
+    Ok(rows
+        .iter()
+        .any(|row| row.get::<String, _>("name") == column))
+}
+
+async fn backfill_project_collaborators(
+    db: &sqlx::SqlitePool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    sqlx::query(
+        "INSERT OR IGNORE INTO project_collaborators (project_id, collaborator_name)
+         SELECT id, collaborator_name
+         FROM projects
+         WHERE collaborator_name IS NOT NULL AND TRIM(collaborator_name) <> ''",
+    )
+    .execute(db)
+    .await?;
+
+    sqlx::query(
+        "INSERT OR IGNORE INTO project_collaborators (project_id, collaborator_name)
+         SELECT DISTINCT project_id, collaborator_name
+         FROM runs
+         WHERE collaborator_name IS NOT NULL AND TRIM(collaborator_name) <> ''",
+    )
+    .execute(db)
+    .await?;
+
+    Ok(())
+}
+
+async fn sync_project_shortcuts(
+    db: &sqlx::SqlitePool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    sqlx::query(
+        "UPDATE projects
+         SET collaborator_name = (
+             SELECT CASE
+                 WHEN COUNT(*) = 1 THEN MAX(collaborator_name)
+                 ELSE NULL
+             END
+             FROM project_collaborators
+             WHERE project_id = projects.id
+         )",
+    )
+    .execute(db)
+    .await?;
 
     Ok(())
 }

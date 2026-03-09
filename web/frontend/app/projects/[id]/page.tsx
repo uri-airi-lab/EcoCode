@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Folder, Zap, Clock } from 'lucide-react'
+import { Activity, ArrowLeft, Folder, Zap, Clock } from 'lucide-react'
 import { DashboardLayout } from '@/components/DashboardLayout'
 import { RecentRunsTable } from '@/components/RecentRunsTable'
 import { ProjectDetail, fetchProjectRuns } from '@/lib/api-client'
@@ -71,7 +71,6 @@ export default function ProjectPage({ params }: ProjectPageProps) {
     }
 
     const totalCoreHours = project.runs.reduce((sum, r) => sum + r.totalCoreHours, 0)
-    const avgCpuUsage = project.runs.length ? project.runs.reduce((sum, r) => sum + r.avgCpuUsage, 0) / project.runs.length : 0
 
     return (
         <DashboardLayout>
@@ -102,7 +101,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                     <h2 className="text-lg md:text-xl font-semibold text-foreground mb-4">
                         Project Overview
                     </h2>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 md:gap-4">
                         <MetricCard
                             icon={Zap}
                             label="Total Energy"
@@ -118,6 +117,34 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                             loading={loading}
                         />
                         <MetricCard
+                            icon={Zap}
+                            label="CPU Energy"
+                            value={Number(project.totalCpuEnergy.toFixed(2)).toLocaleString()}
+                            unit="Wh"
+                            loading={loading}
+                        />
+                        <MetricCard
+                            icon={Zap}
+                            label="GPU Energy"
+                            value={Number(project.totalGpuEnergy.toFixed(2)).toLocaleString()}
+                            unit="Wh"
+                            loading={loading}
+                        />
+                        <MetricCard
+                            icon={Zap}
+                            label="Memory Energy"
+                            value={Number(project.totalMemEnergy.toFixed(2)).toLocaleString()}
+                            unit="Wh"
+                            loading={loading}
+                        />
+                        <MetricCard
+                            icon={Zap}
+                            label="iGPU Energy"
+                            value={Number(project.totalIgpuEnergy.toFixed(2)).toLocaleString()}
+                            unit="Wh"
+                            loading={loading}
+                        />
+                        <MetricCard
                             icon={Folder}
                             label="Total Runs"
                             value={project.totalRuns.toString()}
@@ -125,9 +152,23 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                             loading={loading}
                         />
                         <MetricCard
-                            icon={Clock}
+                            icon={Activity}
                             label="Avg CPU Usage"
-                            value={avgCpuUsage.toFixed(1)}
+                            value={project.avgCpuUsage.toFixed(1)}
+                            unit="%"
+                            loading={loading}
+                        />
+                        <MetricCard
+                            icon={Activity}
+                            label="Avg GPU Usage"
+                            value={project.avgGpuUsage.toFixed(1)}
+                            unit="%"
+                            loading={loading}
+                        />
+                        <MetricCard
+                            icon={Activity}
+                            label="Avg Memory Usage"
+                            value={project.avgMemUsage.toFixed(1)}
                             unit="%"
                             loading={loading}
                         />

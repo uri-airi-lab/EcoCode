@@ -3,7 +3,7 @@
 //! Starts a background HTTP server on port 9091 using `warp`, serving metrics
 //! in the Prometheus text exposition format.
 
-use crate::exporter::{Exporter, ExporterType, Record};
+use crate::exporter::{Exporter, ExporterType, ProjectInfo, Record};
 use async_trait::async_trait;
 use prometheus::{Encoder, Gauge, Registry, TextEncoder};
 use std::error::Error;
@@ -115,26 +115,35 @@ impl Exporter for PrometheusExporter {
         Ok(())
     }
 
-    async fn project_exists(
+    async fn get_or_create_project(
         &mut self,
-        project_name: &str,
-    ) -> Result<i64, Box<dyn std::error::Error>> {
-        Ok(0)
-    }
-    async fn create_project(
-        &mut self,
-        project_name: &str,
-    ) -> Result<i64, Box<dyn std::error::Error>> {
-        Ok(0)
+        _project_name: &str,
+        collaborator_name: Option<&str>,
+    ) -> Result<ProjectInfo, Box<dyn std::error::Error>> {
+        Ok(ProjectInfo {
+            id: 0,
+            selected_collaborator_name: collaborator_name.map(str::to_owned),
+            collaborators: collaborator_name.into_iter().map(str::to_owned).collect(),
+        })
     }
     async fn create_run(
         &mut self,
-        run_name: &str,
-        project_id: i64,
+        _run_name: &str,
+        _project_id: i64,
+        _collaborator_name: Option<&str>,
+        _started_at: Option<&str>,
     ) -> Result<i64, Box<dyn std::error::Error>> {
         Ok(0)
     }
-    async fn run_summary(&mut self, run_id: i64) -> Result<(), Box<dyn std::error::Error>> {
+    async fn complete_run(
+        &mut self,
+        _run_id: i64,
+        _status: &str,
+        _ended_at: Option<&str>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(())
+    }
+    async fn run_summary(&mut self, _run_id: i64) -> Result<(), Box<dyn std::error::Error>> {
         Ok(())
     }
 }

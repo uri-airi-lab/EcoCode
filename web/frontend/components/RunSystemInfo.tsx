@@ -9,6 +9,10 @@ interface RunSystemInfoProps {
 export function RunSystemInfo({ run }: RunSystemInfoProps) {
   const specs = [
     {
+      label: 'Collaborator',
+      value: run.collaboratorName ?? 'Unassigned',
+    },
+    {
       label: 'Total Records',
       value: run.records.length,
     },

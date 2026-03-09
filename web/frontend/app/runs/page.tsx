@@ -41,6 +41,7 @@ export default function RunsPage() {
     const filtered = runs.filter((run) => {
       // Search by run name
       if (run.name.toLowerCase().includes(lowerQuery)) return true
+      if (run.collaboratorName?.toLowerCase().includes(lowerQuery)) return true
 
       // Parse filters like "status:finished" or "energy < 50"
       if (query.includes(':')) {

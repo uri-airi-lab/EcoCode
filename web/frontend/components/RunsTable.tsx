@@ -124,6 +124,9 @@ export function RunsTable({ runs }: RunsTableProps) {
                       <p className="text-xs text-muted-foreground">
                         {format(new Date(run.timestamp), 'MMM d, yyyy HH:mm')}
                       </p>
+                      <p className="text-xs text-muted-foreground">
+                        By {run.collaboratorName ?? 'Unassigned'}
+                      </p>
                     </div>
                   </td>
                   <td className="py-4 px-4 text-center">

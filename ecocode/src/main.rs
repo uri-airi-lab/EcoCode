@@ -1,6 +1,7 @@
 use clap::Parser;
 use nvml_wrapper::Nvml;
 use sqlx::types::chrono::Utc;
+use std::io;
 use std::process::Command;
 use std::time::Duration;
 use sysinfo::{Pid, ProcessesToUpdate, RefreshKind, System};
@@ -18,7 +19,7 @@ use exporter::json::JsonExporter;
 use exporter::local::SqliteExporter;
 use exporter::online::OnlineExporter;
 use exporter::terminal::TerminalExporter;
-use exporter::{Exporter, Record};
+use exporter::{Exporter, ExporterType, Record};
 
 use crate::exporter::prometheus::PrometheusExporter;
 use crate::sensor::rapl::{delta_cpu_energy_per_pid_w, get_all_energies};
@@ -30,6 +31,10 @@ struct Args {// TODO: Add run name
     //project name
     #[arg(short, long, default_value = "ecocode")]
     project: String,
+
+    /// Collaborator name to save/reuse for local project runs
+    #[arg(long)]
+    collaborator: Option<String>,
 
     /// Output format: "terminal" or "csv"
     #[arg(short, long, default_value = "terminal")]
@@ -54,6 +59,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let interval = args.interval;
     let output = args.output.to_lowercase();
     let project_name = args.project;
+    let collaborator = args
+        .collaborator
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned);
 
 
 
@@ -80,11 +91,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     println!("Exporter type: {:?}", exporter.exporter_type());
 
-    // Check if the project exists, if not it will create it and return the id
-    let project_id = exporter.project_exists(&project_name).await?;
+    let project = exporter
+        .get_or_create_project(&project_name, collaborator.as_deref())
+        .await?;
 
-    // Create a new run for this execution and get the run_id
-    let run_id = exporter.create_run(&format!("run_{}", Utc::now().timestamp()), project_id).await?;
+    let available_collaborators = if project.collaborators.is_empty() {
+        "no saved collaborators".to_string()
+    } else {
+        format!("saved collaborators: {}", project.collaborators.join(", "))
+    };
+
+    let run_collaborator = if exporter.exporter_type() == ExporterType::Local {
+        project.selected_collaborator_name.clone().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "Project '{project_name}' needs an explicit collaborator selection ({available_collaborators}). Re-run with --collaborator <name>."
+                ),
+            )
+        })?
+    } else {
+        collaborator
+            .clone()
+            .or(project.selected_collaborator_name.clone())
+            .unwrap_or_else(|| "unassigned".to_string())
+    };
+
+    let run_started_at = Utc::now().to_rfc3339();
+    let run_name = format!("run_{}", Utc::now().timestamp());
+    let run_id = exporter
+        .create_run(
+            &run_name,
+            project.id,
+            Some(run_collaborator.as_str()),
+            Some(run_started_at.as_str()),
+        )
+        .await?;
 
 
     
@@ -106,8 +148,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut sys = System::new_with_specifics(RefreshKind::everything());
     let num_cores = sys.cpus().len();
     let sys_memo = sys.total_memory();
-    let mut cpu_usage;
-    let mut mem_usage;
+    let mut cpu_usage = 0.0_f32;
+    let mut mem_usage = 0.0_f64;
 
     // --- NVML / GPU setup ---
     let nvml = Nvml::init()?;
@@ -135,121 +177,116 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut ticker = time::interval_at(last_sample + period, period);
     ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
-    // --- Main measurement loop ---
-    loop {
-        iteration += 1;
+    let execution_result: Result<(), Box<dyn std::error::Error>> = async {
+        // --- Main measurement loop ---
+        loop {
+            iteration += 1;
 
-        // Wait for the next sample interval, accounting for any delays to maintain consistent timing
-        ticker.tick().await;
-        let now = Instant::now();
-        let elapsed_secs = now.duration_since(last_sample).as_secs_f64();
-        // dbg!(&elapsed_secs);
-        last_sample = now;
+            // Wait for the next sample interval, accounting for any delays to maintain consistent timing
+            ticker.tick().await;
+            let now = Instant::now();
+            let elapsed_secs = now.duration_since(last_sample).as_secs_f64();
+            last_sample = now;
 
-        // Refresh process data
-        sys.refresh_processes(ProcessesToUpdate::All, true);
+            // Refresh process data
+            sys.refresh_processes(ProcessesToUpdate::All, true);
 
-        // Check if the process is still running
-        cpu_usage = if sys.process(pid).is_none() {
-            println!("Process {} finished", pid);
-            break;
-        } else {
-            // cpu_usage() returns total % across all cores; divide by num_cores
-            // to get a normalized 0–100% value for the whole system
-            sys.process(pid).unwrap().cpu_usage() / num_cores as f32
-        };
-        // TODO: Add memory and Igpu handeling
-        mem_usage = (sys.process(pid).unwrap().memory() as f64 / sys_memo as f64) * 100.0;
+            // Check if the process is still running
+            cpu_usage = if sys.process(pid).is_none() {
+                println!("Process {} finished", pid);
+                break;
+            } else {
+                // cpu_usage() returns total % across all cores; divide by num_cores
+                // to get a normalized 0–100% value for the whole system
+                sys.process(pid).unwrap().cpu_usage() / num_cores as f32
+            };
+            // TODO: Add memory and Igpu handeling
+            mem_usage = (sys.process(pid).unwrap().memory() as f64 / sys_memo as f64) * 100.0;
 
-        // --- CPU energy calculation ---
-        let cpu_energy_2 = get_all_energies(&mut rapl_readers)?;
+            // --- CPU energy calculation ---
+            let cpu_energy_2 = get_all_energies(&mut rapl_readers)?;
 
-        
-        // Calculate delta energy per domain (cpu, dram, igpu) and convert to watts using the elapsed time and CPU usage
-        let delta_cpu_energy_w = delta_cpu_energy_per_pid_w(
-            &cpu_energy_1,
-            &cpu_energy_2,
-            elapsed_secs, // can pass the interval duration instead of elapsed_secs if we assume the loop runs perfectly on time, but using elapsed_secs is more accurate in case of any delays
-            cpu_usage as f64,
-        
-        );
-       
-        // Map the delta energies to their respective domains (cpu, dram, igpu)
-        let (cpu_w, mem_w, igpu_w) =
-            delta_cpu_energy_w
-                .iter()
-                .fold((0.0_f64, 0.0_f64, 0.0_f64), |mut acc, d| {
-                    match d.domain.as_str() { // FIX: This only do the last socket not accumulate all the cpu or ram from all the sockets
-                        "cpu" => acc.0 += d.delta_energy,
-                        "dram" => acc.1 += d.delta_energy,
-                        "igpu" => acc.2 += d.delta_energy,
-                        _ => {}
-                    }
-                    acc
-                }); 
-                // TODO: handle multiple sockets and show accumulated and each socket energy
-                // If you eventually want to display both per-socket and total values (useful for multi-socket server monitoring):
+            // Calculate delta energy per domain (cpu, dram, igpu) and convert to watts using the elapsed time and CPU usage
+            let delta_cpu_energy_w = delta_cpu_energy_per_pid_w(
+                &cpu_energy_1,
+                &cpu_energy_2,
+                elapsed_secs,
+                cpu_usage as f64,
+            );
 
-                // Change the fold's output structure from a tuple 
+            // Map the delta energies to their respective domains (cpu, dram, igpu)
+            let (cpu_w, mem_w, igpu_w) =
+                delta_cpu_energy_w
+                    .iter()
+                    .fold((0.0_f64, 0.0_f64, 0.0_f64), |mut acc, d| {
+                        match d.domain.as_str() {
+                            "cpu" => acc.0 += d.delta_energy,
+                            "dram" => acc.1 += d.delta_energy,
+                            "igpu" => acc.2 += d.delta_energy,
+                            _ => {}
+                        }
+                        acc
+                    });
 
-                // (f64, f64, f64)
-                //  to a HashMap<(i16, String), f64> keyed by 
+            // --- GPU energy calculation ---
+            let gpu_energy_2 = get_gpu_energy(&device)?;
 
-                // (socket, domain)
-                // .
-                // After the fold, you can sum across sockets for the total, or inspect individual sockets.
-                // Update the Record struct to optionally carry per-socket breakdowns.
+            let (gpu_power_pid, gpu_util_pid, next_timestamp) = get_gpu_energy_by_pid(
+                &device,
+                pid.as_u32(),
+                gpu_energy_1,
+                gpu_energy_2,
+                timestamp,
+                elapsed_secs,
+            );
 
+            // Carry forward: the end-of-interval reading becomes the start of the next interval
+            cpu_energy_1 = cpu_energy_2;
+            gpu_energy_1 = gpu_energy_2;
+            timestamp = next_timestamp;
 
-        // --- GPU energy calculation ---
-        let gpu_energy_2 = get_gpu_energy(&device)?;
+            // --- Export the measurement record ---
+            let record = Record::new(
+                iteration,
+                run_id,
+                pid.as_u32(),
+                Utc::now().to_rfc3339(),
+                cpu_usage as f64,
+                cpu_w,
+                gpu_util_pid,
+                gpu_power_pid,
+                Some((mem_usage * 100.0).round() / 100.0),
+                Some(mem_w),
+                None,
+                Some(igpu_w),
+            );
 
-        let (gpu_power_pid, gpu_util_pid, next_timestamp) = get_gpu_energy_by_pid(
-            &device,
-            pid.as_u32(),
-            gpu_energy_1,
-            gpu_energy_2,
-            timestamp,
-            elapsed_secs,
-        );
+            exporter.add_record(record).await?;
+            exporter.export_line().await?;
 
-        // Carry forward: the end-of-interval reading becomes the start of the next interval
-        cpu_energy_1 = cpu_energy_2;
-        gpu_energy_1 = gpu_energy_2;
-        timestamp = next_timestamp;
-
-        // --- Export the measurement record ---
-        let record = Record::new(
-            iteration,
-            run_id, // run_id will be set by the exporter if needed
-            pid.as_u32(),
-            Utc::now().to_rfc3339(),
-            cpu_usage as f64,
-            cpu_w, // replaces cpu_energy_per_pid
-            gpu_util_pid,
-            gpu_power_pid,
-            Some((mem_usage * 100.0).round() / 100.0), //temporary fix until i test on a another system with memory domaine in rapl
-            Some(mem_w),
-            None,
-            Some(igpu_w), // FIXME:  mem usage and igpu usage null values if not available, dead 0
-        );
-        // record.mem_energy = mem_w;
-        // record.igpu_energy = igpu_w;
-
-        exporter.add_record(record).await?;
-        exporter.export_line().await?;
-
-        if cpu_usage <= 0.0 && gpu_util_pid <= 0.0 && gpu_power_pid <= 0.0 {
-            println!("Process finished");
-            break;
+            if cpu_usage <= 0.0 && gpu_util_pid <= 0.0 && gpu_power_pid <= 0.0 {
+                println!("Process finished");
+                break;
+            }
         }
-    }
 
-    // Export final results
-    exporter.export().await?;
+        exporter.export().await?;
+        Ok(())
+    }
+    .await;
+
+    let run_ended_at = Utc::now().to_rfc3339();
+    let final_status = if execution_result.is_ok() {
+        "finished"
+    } else {
+        "failed"
+    };
+
+    exporter
+        .complete_run(run_id, final_status, Some(run_ended_at.as_str()))
+        .await?;
     exporter.run_summary(run_id).await?;
+    execution_result?;
 
     Ok(())
 }
-
-

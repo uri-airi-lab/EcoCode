@@ -91,6 +91,13 @@ pub enum ExporterType {
     Prometheus,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct ProjectInfo {
+    pub id: i64,
+    pub selected_collaborator_name: Option<String>,
+    pub collaborators: Vec<String>,
+}
+
 /// Trait for different export formats
 #[async_trait(?Send)]
 pub trait Exporter {
@@ -98,8 +105,23 @@ pub trait Exporter {
     async fn add_record(&mut self, record: Record) -> Result<(), Box<dyn std::error::Error>>;
     async fn export(&mut self) -> Result<(), Box<dyn std::error::Error>>;
     async fn export_line(&mut self) -> Result<(), Box<dyn std::error::Error>>;
-    async fn project_exists(&mut self, project_name: &str) -> Result<i64, Box<dyn std::error::Error>>;
-    async fn create_project(&mut self, project_name: &str) -> Result<i64, Box<dyn std::error::Error>>;
-    async fn create_run(&mut self, run_name: &str, project_id: i64) -> Result<i64, Box<dyn std::error::Error>>;
+    async fn get_or_create_project(
+        &mut self,
+        project_name: &str,
+        collaborator_name: Option<&str>,
+    ) -> Result<ProjectInfo, Box<dyn std::error::Error>>;
+    async fn create_run(
+        &mut self,
+        run_name: &str,
+        project_id: i64,
+        collaborator_name: Option<&str>,
+        started_at: Option<&str>,
+    ) -> Result<i64, Box<dyn std::error::Error>>;
+    async fn complete_run(
+        &mut self,
+        run_id: i64,
+        status: &str,
+        ended_at: Option<&str>,
+    ) -> Result<(), Box<dyn std::error::Error>>;
     async fn run_summary(&mut self, run_id: i64) -> Result<(), Box<dyn std::error::Error>>;
 }

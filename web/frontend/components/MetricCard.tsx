@@ -49,11 +49,11 @@ export function MetricCard({
             </h3>
             {unit && <span className="text-sm text-muted-foreground">{unit}</span>}
           </div>
-          {trend && (
+          {/* {trend && (
             <p className={`text-xs mt-2 font-medium ${trendColor}`}>
               {trendSymbol} {Math.abs(trend.value).toFixed(1)}% vs last run
             </p>
-          )}
+          )} */}
         </div>
         <div className="ml-4 p-3 rounded-lg bg-primary/10">
           <Icon className="w-6 h-6 text-primary" />

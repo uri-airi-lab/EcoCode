@@ -19,7 +19,12 @@ export interface Run {
   name: string
   timestamp: number
   status: 'running' | 'finished' | 'failed'
+  collaboratorName?: string | null
   totalEnergy: number // Wh
+  totalCpuEnergy: number // Wh
+  totalGpuEnergy: number // Wh
+  totalMemEnergy: number // Wh
+  totalIgpuEnergy: number // Wh
   totalCoreHours: number
   avgCpuUsage: number // percentage
   avgGpuUsage: number // percentage
@@ -81,6 +86,10 @@ function calculateRunMetrics(records: MetricRecord[]) {
 
   return {
     totalEnergy,
+    totalCpuEnergy,
+    totalGpuEnergy,
+    totalMemEnergy,
+    totalIgpuEnergy,
     avgCpuUsage,
     avgGpuUsage,
     avgMemUsage,
@@ -105,7 +114,12 @@ export function generateMockRuns(): Run[] {
       name: `Training Run ${i + 1}`,
       timestamp: now - (10 - i) * 86400000,
       status: i < 2 ? 'running' : i === 2 ? 'failed' : 'finished',
+      collaboratorName: null,
       totalEnergy: metrics.totalEnergy,
+      totalCpuEnergy: metrics.totalCpuEnergy,
+      totalGpuEnergy: metrics.totalGpuEnergy,
+      totalMemEnergy: metrics.totalMemEnergy,
+      totalIgpuEnergy: metrics.totalIgpuEnergy,
       totalCoreHours: (metrics.totalEnergy / 1000) * 24, // Rough estimate
       avgCpuUsage: metrics.avgCpuUsage,
       avgGpuUsage: metrics.avgGpuUsage,
