@@ -46,7 +46,7 @@ struct RecordPoint {
     igpu_energy: f64,
 }
 
-#[derive(Serialize, Clone, sqlx::FromRow)]
+#[derive(Serialize, Clone, sqlx::FromRow, Debug)]
 struct RunSummary {
     run_id: i64,
     total_cpu_energy: f64,
@@ -109,14 +109,15 @@ async fn get_record_points(Path(run_id): Path<i64>, State(state): State<AppState
 }
 
 async fn get_run_summary(Path(run_id): Path<i64>, State(state): State<AppState>) -> impl IntoResponse {
-    let summary: Option<RunSummary> = sqlx::query_as::<_, RunSummary>( // fix: do the calculations after the run and save them.
-        "SELECT run_id, SUM(cpu_energy) AS total_cpu_energy, SUM(gpu_energy) AS total_gpu_energy, SUM(mem_energy) AS total_mem_energy, SUM(igpu_energy) AS total_igpu_energy FROM records WHERE run_id = ? GROUP BY run_id",
+    let summary: Option<RunSummary> = sqlx::query_as::<_, RunSummary>(
+        "SELECT run_id, total_cpu_energy, total_gpu_energy, total_mem_energy, total_igpu_energy FROM runsummary WHERE run_id = ?",
     )
     .bind(run_id)
     .fetch_optional(&state.db_pool)
     .await
     .unwrap(); // Graceful error handling
 
+    println!("Summary: {:#?}", summary);
     match summary {
         Some(s) => (StatusCode::OK, Json(s)).into_response(),
         None => (StatusCode::NOT_FOUND, "Run not found").into_response(),

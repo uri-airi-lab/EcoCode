@@ -64,7 +64,7 @@ export const ProjectsTable = memo(function ProjectsTable({ projects }: ProjectsT
                                     {project.totalRuns}
                                 </td>
                                 <td className="text-right py-3 px-4 text-foreground font-medium">
-                                    {Math.round(project.totalEnergy).toLocaleString()}
+                                    {Number(project.totalEnergy.toFixed(2)).toLocaleString()}
                                 </td>
                                 <td className="text-right py-3 px-4 text-muted-foreground">
                                     {project.lastRunTimestamp ? format(new Date(project.lastRunTimestamp), 'MMM d, yyyy') : '-'}

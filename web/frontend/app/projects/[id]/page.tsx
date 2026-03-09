@@ -106,7 +106,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                         <MetricCard
                             icon={Zap}
                             label="Total Energy"
-                            value={Math.round(project.totalEnergy).toLocaleString()}
+                            value={Number(project.totalEnergy.toFixed(2)).toLocaleString()}
                             unit="Wh"
                             loading={loading}
                         />

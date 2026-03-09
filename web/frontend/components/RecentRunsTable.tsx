@@ -59,10 +59,10 @@ export const RecentRunsTable = memo(function RecentRunsTable({ runs }: RecentRun
                   </div>
                 </td>
                 <td className="text-right py-3 px-4 text-foreground font-medium">
-                  {Math.round(run.totalEnergy).toLocaleString()}
+                  {Number(run.totalEnergy.toFixed(2)).toLocaleString()}
                 </td>
                 <td className="text-right py-3 px-4 text-foreground font-medium">
-                  {Math.round(run.carbonFootprint).toLocaleString()}
+                  {Number(run.carbonFootprint.toFixed(2)).toLocaleString()}
                 </td>
                 <td className="text-center py-3 px-4">
                   <span

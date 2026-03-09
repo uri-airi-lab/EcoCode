@@ -22,15 +22,15 @@ export function RunSystemInfo({ run }: RunSystemInfoProps) {
     },
     {
       label: 'Total Energy',
-      value: `${Math.round(run.totalEnergy)} Wh`,
+      value: `${Number(run.totalEnergy.toFixed(2))} Wh`,
     },
     // {
     //   label: 'Carbon Footprint',
-    //   value: `${Math.round(run.carbonFootprint)} g CO₂`,
+    //   value: `${Number(run.carbonFootprint.toFixed(2))} g CO₂`,
     // },
     // {
     //   label: 'Water Consumption',
-    //   value: `${Math.round(run.waterConsumption)} mL`,
+    //   value: `${Number(run.waterConsumption.toFixed(2))} mL`,
     // },
   ]
 

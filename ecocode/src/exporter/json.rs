@@ -70,4 +70,7 @@ impl Exporter for JsonExporter {
     async fn create_run(&mut self, run_name: &str, project_id: i64) -> Result<i64, Box<dyn std::error::Error>> {
         Ok(0)
     }
+    async fn run_summary(&mut self, run_id: i64) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(())
+    }
 }

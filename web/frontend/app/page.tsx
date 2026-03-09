@@ -128,13 +128,13 @@ export default function Dashboard() {
 
     return {
       energyTrend:
-        ((prevRun.totalEnergy - lastRun.totalEnergy) /
-          prevRun.totalEnergy) *
-        100,
+        prevRun.totalEnergy === 0
+          ? lastRun.totalEnergy === 0 ? 0 : 100
+          : ((prevRun.totalEnergy - lastRun.totalEnergy) / prevRun.totalEnergy) * 100,
       carbonTrend:
-        ((prevRun.carbonFootprint - lastRun.carbonFootprint) /
-          prevRun.carbonFootprint) *
-        100,
+        prevRun.carbonFootprint === 0
+          ? lastRun.carbonFootprint === 0 ? 0 : 100
+          : ((prevRun.carbonFootprint - lastRun.carbonFootprint) / prevRun.carbonFootprint) * 100,
     }
   }, [runs])
 
@@ -160,7 +160,7 @@ export default function Dashboard() {
             <MetricCard
               icon={Zap}
               label="Total Energy"
-              value={Math.round(stats.totalEnergy).toLocaleString()}
+              value={Number(stats.totalEnergy.toFixed(2)).toLocaleString()}
               unit="Wh"
               trend={
                 trend
@@ -182,7 +182,7 @@ export default function Dashboard() {
             {/* <MetricCard
               icon={Leaf}
               label="Carbon Footprint"
-              value={Math.round(stats.totalCarbonFootprint).toLocaleString()}
+              value={Number(stats.totalCarbonFootprint.toFixed(2)).toLocaleString()}
               unit="g CO₂"
               trend={
                 trend

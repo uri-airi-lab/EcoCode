@@ -107,9 +107,8 @@ export function RunsTable({ runs }: RunsTableProps) {
               return (
                 <tr
                   key={run.id}
-                  className={`border-b border-white/5 transition-colors ${
-                    isSelected ? 'bg-primary/10' : 'hover:bg-white/5'
-                  }`}
+                  className={`border-b border-white/5 transition-colors ${isSelected ? 'bg-primary/10' : 'hover:bg-white/5'
+                    }`}
                 >
                   <td className="py-4 px-4">
                     <input
@@ -136,13 +135,13 @@ export function RunsTable({ runs }: RunsTableProps) {
                     {Math.round(run.duration / 60)}m
                   </td>
                   <td className="text-right py-4 px-4 text-foreground font-medium">
-                    {Math.round(run.totalEnergy).toLocaleString()}
+                    {Number(run.totalEnergy.toFixed(2)).toLocaleString()}
                   </td>
                   <td className="text-right py-4 px-4 text-foreground font-medium">
                     {run.avgCpuUsage.toFixed(1)}%
                   </td>
                   <td className="text-right py-4 px-4 text-foreground font-medium">
-                    {Math.round(run.carbonFootprint).toLocaleString()}
+                    {Number(run.carbonFootprint.toFixed(2)).toLocaleString()}
                   </td>
                   <td className="text-right py-4 px-4">
                     <Link href={`/runs/${run.id}`}>

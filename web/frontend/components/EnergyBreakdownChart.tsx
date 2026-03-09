@@ -45,10 +45,10 @@ export function EnergyBreakdownChart({ run }: EnergyBreakdownChartProps) {
       .slice(-20) // Last 20 buckets
       .map(([time, data]) => ({
         time,
-        cpu: Math.round(data.cpu / data.count),
-        gpu: Math.round(data.gpu / data.count),
-        mem: Math.round(data.mem / data.count),
-        igpu: Math.round(data.igpu / data.count),
+        cpu: Number((data.cpu / data.count).toFixed(2)),
+        gpu: Number((data.gpu / data.count).toFixed(2)),
+        mem: Number((data.mem / data.count).toFixed(2)),
+        igpu: Number((data.igpu / data.count).toFixed(2)),
       }))
   }, [run.records])
 
@@ -69,6 +69,7 @@ export function EnergyBreakdownChart({ run }: EnergyBreakdownChartProps) {
             stroke="rgba(255,255,255,0.4)"
             style={{ fontSize: '12px' }}
             label={{ value: 'Watts', angle: -90, position: 'insideLeft' }}
+
           />
           <Tooltip
             contentStyle={{

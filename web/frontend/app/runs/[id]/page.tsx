@@ -183,7 +183,7 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
                   Total Energy Consumption
                 </p>
                 <p className="text-3xl font-bold text-foreground">
-                  {Math.round(run.totalEnergy).toLocaleString()}
+                  {Number(run.totalEnergy.toFixed(2)).toLocaleString()}
                 </p>
                 <p className="text-xs text-muted-foreground mt-2">Wh</p>
               </div>
@@ -200,7 +200,7 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
                   Carbon Footprint
                 </p>
                 <p className="text-3xl font-bold text-foreground">
-                  {Math.round(run.carbonFootprint).toLocaleString()}
+                  {Number(run.carbonFootprint.toFixed(2)).toLocaleString()}
                 </p>
                 <p className="text-xs text-muted-foreground mt-2">
                   g CO₂e (World avg: 0.475 kg/kWh)

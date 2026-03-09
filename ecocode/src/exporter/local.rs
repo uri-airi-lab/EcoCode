@@ -56,7 +56,18 @@ impl SqliteExporter {
                 igpu_usage REAL,
                 igpu_energy REAL,
                 FOREIGN KEY (run_id) REFERENCES runs(id)
-            )",
+            );
+            CREATE TABLE IF NOT EXISTS runsummary (
+                    id INTEGER PRIMARY KEY,
+                    run_id INTEGER,
+                    total_cpu_energy REAL,
+                    total_gpu_energy REAL,
+                    total_mem_energy REAL,
+                    total_igpu_energy REAL,
+                    FOREIGN KEY (run_id) REFERENCES runs(id)          
+            )
+            
+            ",
         )
         .execute(&db)
         .await?;
@@ -196,5 +207,38 @@ impl Exporter for SqliteExporter {
             .await?;
 
         Ok(result.last_insert_rowid())
+    }
+
+    async fn run_summary(&mut self, run_id: i64) -> Result<(), Box<dyn std::error::Error>> {//fix
+        let record_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM records WHERE run_id = ?")
+            .bind(run_id)
+            .fetch_one(&self.db)
+            .await?;
+
+        sqlx::query("DELETE FROM runsummary WHERE run_id = ?")
+            .bind(run_id)
+            .execute(&self.db)
+            .await?;
+
+        if record_count == 0 {
+            return Ok(());
+        }
+
+        sqlx::query(
+            "INSERT INTO runsummary (run_id, total_cpu_energy, total_gpu_energy, total_mem_energy, total_igpu_energy)
+            SELECT
+                ?,
+                COALESCE(SUM(cpu_energy), 0.0),
+                COALESCE(SUM(gpu_energy), 0.0),
+                COALESCE(SUM(mem_energy), 0.0),
+                COALESCE(SUM(igpu_energy), 0.0)
+            FROM records
+            WHERE run_id = ?",
+        )
+        .bind(run_id)
+        .bind(run_id)
+        .execute(&self.db)
+        .await?;
+        Ok(())
     }
 }

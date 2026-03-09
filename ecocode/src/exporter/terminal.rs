@@ -105,4 +105,7 @@ impl Exporter for TerminalExporter {
     async fn create_run(&mut self, _run_name: &str, _project_id: i64) -> Result<i64, Box<dyn std::error::Error>> {
         Ok(0)
     }
+    async fn run_summary(&mut self, _run_id: i64) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(()) //TODO: implement
+    }
 }

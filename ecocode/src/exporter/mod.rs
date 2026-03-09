@@ -101,4 +101,5 @@ pub trait Exporter {
     async fn project_exists(&mut self, project_name: &str) -> Result<i64, Box<dyn std::error::Error>>;
     async fn create_project(&mut self, project_name: &str) -> Result<i64, Box<dyn std::error::Error>>;
     async fn create_run(&mut self, run_name: &str, project_id: i64) -> Result<i64, Box<dyn std::error::Error>>;
+    async fn run_summary(&mut self, run_id: i64) -> Result<(), Box<dyn std::error::Error>>;
 }

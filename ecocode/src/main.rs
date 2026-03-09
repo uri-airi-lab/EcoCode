@@ -60,6 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Before running the command run sudo chmod -R +r /sys/class/powercap/intel-rapl/
     //promp the user for their password to access
+    println!("Running: sudo chmod -R +r /sys/class/powercap/intel-rapl/ , please enter your password if needed.");
     let _access = Command::new("sudo")
         .arg("chmod")
         .arg("-R")
@@ -246,6 +247,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Export final results
     exporter.export().await?;
+    exporter.run_summary(run_id).await?;
 
     Ok(())
 }
