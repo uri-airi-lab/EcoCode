@@ -6,10 +6,12 @@
 //! - [`json`] — JSON array file
 //! - [`sqlite`] — SQLite database
 //! - [`prometheus`] — Prometheus metrics endpoint via HTTP
+//! - [`logfile`] — formatted log file
 
 pub mod csv;
 pub mod json;
 pub mod local;
+pub mod logfile;
 pub mod online;
 pub mod terminal;
 pub mod prometheus;
@@ -17,6 +19,22 @@ pub mod prometheus;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+
+/// Per-GPU metrics for a single measurement record
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GpuMetric {
+    pub device_index: u32,
+    pub gpu_usage: f64,  // percentage (0-100)
+    pub gpu_energy: f64, // watts
+}
+
+/// Per-socket RAPL metrics for a single measurement record
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SocketMetric {
+    pub socket: i16,
+    pub domain: String, // "cpu", "dram", "igpu"
+    pub energy: f64,    // watts
+}
 
 /// Represents a single measurement record
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -26,13 +44,15 @@ pub struct Record {
     pub pid: u32,
     pub timestamp: String, // RFC3339 UTC timestamp
     pub cpu_usage: f64,    // percentage (0-100)
-    pub cpu_energy: f64,   // watts
-    pub gpu_usage: f64,    // percentage (0-100)
-    pub gpu_energy: f64,   // watts
+    pub cpu_energy: f64,   // watts (aggregate across sockets)
+    pub gpu_usage: f64,    // percentage (0-100) (aggregate across GPUs)
+    pub gpu_energy: f64,   // watts (aggregate across GPUs)
     pub mem_usage: f64,    // percentage (0-100) Dram
     pub mem_energy: f64,   // watts
-    pub igpu_usage: f64,   //igpu
+    pub igpu_usage: f64,   // igpu
     pub igpu_energy: f64,
+    pub gpu_metrics: Vec<GpuMetric>,       // per-GPU breakdown
+    pub socket_metrics: Vec<SocketMetric>, // per-socket RAPL breakdown
 }
 
 impl Record {
@@ -49,6 +69,8 @@ impl Record {
         mem_energy: Option<f64>,
         igpu_usage: Option<f64>,
         igpu_energy: Option<f64>,
+        gpu_metrics: Vec<GpuMetric>,
+        socket_metrics: Vec<SocketMetric>,
     ) -> Record {
         Record {
             id,
@@ -63,10 +85,12 @@ impl Record {
             mem_energy: mem_energy.unwrap_or(0.0),
             igpu_usage: igpu_usage.unwrap_or(0.0),
             igpu_energy: igpu_energy.unwrap_or(0.0),
+            gpu_metrics,
+            socket_metrics,
         }
     }
     pub fn to_vec(&self) -> Vec<String> {
-        vec![
+        let mut v = vec![
             self.id.to_string(),
             self.run_id.to_string(),
             self.pid.to_string(),
@@ -77,7 +101,14 @@ impl Record {
             self.gpu_energy.to_string(),
             self.mem_usage.to_string(),
             self.mem_energy.to_string(),
-        ]
+            self.igpu_usage.to_string(),
+            self.igpu_energy.to_string(),
+        ];
+        for gm in &self.gpu_metrics {
+            v.push(gm.gpu_usage.to_string());
+            v.push(gm.gpu_energy.to_string());
+        }
+        v
     }
 }
 
@@ -89,6 +120,7 @@ pub enum ExporterType {
     Local,
     Online,
     Prometheus,
+    LogFile,
 }
 
 #[derive(Clone, Debug, Default)]

@@ -10,16 +10,16 @@ mod exporter;
 mod sensor;
 use sensor::RAPL_PATH;
 
-use sensor::gpu::DEFAULT_GPU_DEVICE_INDEX;
-use sensor::gpu::{get_gpu_energy, get_gpu_energy_by_pid};
+use sensor::gpu::{get_all_gpu_devices, get_all_gpu_energies, get_all_gpu_energies_by_pid};
 use sensor::rapl::scan_rapl_files;
 
 use exporter::csv::CsvExporter;
 use exporter::json::JsonExporter;
 use exporter::local::SqliteExporter;
+use exporter::logfile::LogFileExporter;
 use exporter::online::OnlineExporter;
 use exporter::terminal::TerminalExporter;
-use exporter::{Exporter, ExporterType, Record};
+use exporter::{Exporter, ExporterType, GpuMetric, Record, SocketMetric};
 
 use crate::exporter::prometheus::PrometheusExporter;
 use crate::sensor::rapl::{delta_cpu_energy_per_pid_w, get_all_energies};
@@ -36,11 +36,11 @@ struct Args {// TODO: Add run name
     #[arg(long)]
     collaborator: Option<String>,
 
-    /// Output format: "terminal" or "csv"
+    /// Output format: "terminal", "csv", "json", "local", "online", "prometheus", "logfile"
     #[arg(short, long, default_value = "terminal")]
     output: String,
 
-    /// CSV output file path (required if output=csv, json)
+    /// Output file path (required if output=csv, json, logfile)
     #[arg(short, long)]
     file: Option<String>,
 
@@ -80,13 +80,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .status();
 
     // --- Exporter setup ---
+    let require_file = |format: &str| -> String {
+        args.file.clone().unwrap_or_else(|| {
+            eprintln!("Error: --file (-f) is required for the '{}' exporter.", format);
+            std::process::exit(1);
+        })
+    };
+
     let mut exporter: Box<dyn Exporter> = match output.as_str() {
         "terminal" => Box::new(TerminalExporter::new()),
-        "csv" => Box::new(CsvExporter::new(args.file.unwrap())?),
-        "json" => Box::new(JsonExporter::new(args.file.unwrap())?),
+        "csv" => Box::new(CsvExporter::new(require_file("csv"))?),
+        "json" => Box::new(JsonExporter::new(require_file("json"))?),
         "local" => Box::new(SqliteExporter::new().await?),
-        "online" => Box::new(OnlineExporter::new().await?), // Does't need an input, it will read the .env
+        "online" => Box::new(OnlineExporter::new().await?),
         "prometheus" => Box::new(PrometheusExporter::new()),
+        "logfile" => Box::new(LogFileExporter::new(require_file("logfile"))?),
         _ => Box::new(TerminalExporter::new()),
     };
     println!("Exporter type: {:?}", exporter.exporter_type());
@@ -151,26 +159,60 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut cpu_usage = 0.0_f32;
     let mut mem_usage = 0.0_f64;
 
-    // --- NVML / GPU setup ---
+    // --- NVML / GPU setup (multi-GPU) ---
     let nvml = Nvml::init()?;
-    // Get the GPU device (default index 0)
-    let device = nvml.device_by_index(DEFAULT_GPU_DEVICE_INDEX)?;
+    let devices = get_all_gpu_devices(&nvml)?;
+    let gpu_count = devices.len();
+
+    // --- Print system info summary ---
+    println!();
+    println!("╔════════════════════════════════════════════════════╗");
+    println!("║              EcoCode System Summary                ║");
+    println!("╠════════════════════════════════════════════════════╣");
+    // CPU info
+    if let Some(cpu) = sys.cpus().first() {
+        println!("║  CPU: {:44}║", cpu.brand().trim());
+    }
+    println!("║  Cores / Threads: {:32}║", format!("{}", num_cores));
+    println!("║  Total RAM: {:38}║", format!("{:.1} GB", sys_memo as f64 / 1_073_741_824.0));
+
+    // Socket / RAPL summary
+    let mut sockets: std::collections::BTreeSet<i16> = std::collections::BTreeSet::new();
+    let mut domains_per_socket: std::collections::BTreeMap<i16, Vec<String>> = std::collections::BTreeMap::new();
+    for r in &rapl_readers {
+        sockets.insert(r.socket);
+        domains_per_socket.entry(r.socket).or_default().push(r.domain.clone());
+    }
+    println!("║  CPU Sockets (RAPL): {:29}║", sockets.len());
+    for (socket, domains) in &domains_per_socket {
+        println!("║    Socket {}: {:37}║", socket, domains.join(", "));
+    }
+
+    // GPU info
+    println!("║  NVIDIA GPUs: {:36}║", gpu_count);
+    for (i, dev) in devices.iter().enumerate() {
+        if let Ok(name) = dev.name() {
+            println!("║    GPU {}: {:40}║", i, name);
+        }
+    }
+
+    println!("║  Exporter: {:39}║", format!("{:?}", exporter.exporter_type()));
+    println!("║  Interval: {:39}║", format!("{}s", args.interval));
+    println!("╚════════════════════════════════════════════════════╝");
+    println!();
 
 
     // --- Measurement state ---
     let mut iteration = 0;
     
-    // Initial timestamp in microseconds for NVML (0 targets all samples initially)
-    let mut timestamp: u64 = 0;
+    // Per-GPU timestamps for process utilization sampling
+    let mut gpu_timestamps: Vec<u64> = vec![0; gpu_count];
 
-    // Take initial energy readings before the loop so that the second reading
-    // of each iteration can be reused as the first reading of the next one.
-    // for all the rapl domains (cpu, dram, igpu) and sockets (in case of multisocket servers)
+    // Take initial energy readings before the loop
     sys.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
-    let mut cpu_energy_1 = get_all_energies(&mut rapl_readers)?; //energies of the cpu sockets
+    let mut cpu_energy_1 = get_all_energies(&mut rapl_readers)?;
 
-
-    let mut gpu_energy_1 = get_gpu_energy(&device)?;
+    let mut gpu_energies_1 = get_all_gpu_energies(&devices)?;
 
     let period = Duration::from_secs(interval);
     let mut last_sample = Instant::now();
@@ -228,22 +270,54 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         acc
                     });
 
-            // --- GPU energy calculation ---
-            let gpu_energy_2 = get_gpu_energy(&device)?;
+            // Build per-socket metrics from the RAPL deltas
+            let socket_metrics: Vec<SocketMetric> = delta_cpu_energy_w
+                .iter()
+                .map(|d| SocketMetric {
+                    socket: d.socket,
+                    domain: d.domain.clone(),
+                    energy: d.delta_energy,
+                })
+                .collect();
 
-            let (gpu_power_pid, gpu_util_pid, next_timestamp) = get_gpu_energy_by_pid(
-                &device,
+            // --- GPU energy calculation (multi-GPU) ---
+            let gpu_energies_2 = get_all_gpu_energies(&devices)?;
+
+            let gpu_results = get_all_gpu_energies_by_pid(
+                &devices,
                 pid.as_u32(),
-                gpu_energy_1,
-                gpu_energy_2,
-                timestamp,
+                &gpu_energies_1,
+                &gpu_energies_2,
+                &gpu_timestamps,
                 elapsed_secs,
             );
 
+            // Build per-GPU metrics and compute aggregates
+            let mut total_gpu_power: f64 = 0.0;
+            let mut total_gpu_util: f64 = 0.0;
+            let mut gpu_metrics: Vec<GpuMetric> = Vec::with_capacity(gpu_count);
+
+            for result in &gpu_results {
+                total_gpu_power += result.power_w;
+                total_gpu_util += result.util_pct;
+                gpu_metrics.push(GpuMetric {
+                    device_index: result.device_index,
+                    gpu_usage: result.util_pct,
+                    gpu_energy: result.power_w,
+                });
+                gpu_timestamps[result.device_index as usize] = result.next_timestamp;
+            }
+
+            // Average utilization across GPUs for the aggregate field
+            let avg_gpu_util = if gpu_count > 0 {
+                total_gpu_util / gpu_count as f64
+            } else {
+                0.0
+            };
+
             // Carry forward: the end-of-interval reading becomes the start of the next interval
             cpu_energy_1 = cpu_energy_2;
-            gpu_energy_1 = gpu_energy_2;
-            timestamp = next_timestamp;
+            gpu_energies_1 = gpu_energies_2;
 
             // --- Export the measurement record ---
             let record = Record::new(
@@ -253,18 +327,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Utc::now().to_rfc3339(),
                 cpu_usage as f64,
                 cpu_w,
-                gpu_util_pid,
-                gpu_power_pid,
+                avg_gpu_util,
+                total_gpu_power,
                 Some((mem_usage * 100.0).round() / 100.0),
                 Some(mem_w),
                 None,
                 Some(igpu_w),
+                gpu_metrics,
+                socket_metrics,
             );
 
             exporter.add_record(record).await?;
             exporter.export_line().await?;
 
-            if cpu_usage <= 0.0 && gpu_util_pid <= 0.0 && gpu_power_pid <= 0.0 {
+            if cpu_usage <= 0.0 && total_gpu_util <= 0.0 && total_gpu_power <= 0.0 {
                 println!("Process finished");
                 break;
             }
@@ -290,3 +366,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+

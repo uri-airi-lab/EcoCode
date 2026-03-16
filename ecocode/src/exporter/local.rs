@@ -101,6 +101,32 @@ impl SqliteExporter {
         .await?;
 
         sqlx::query(
+            "CREATE TABLE IF NOT EXISTS gpu_records (
+                id INTEGER PRIMARY KEY,
+                record_id INTEGER NOT NULL,
+                device_index INTEGER NOT NULL,
+                gpu_usage REAL,
+                gpu_energy REAL,
+                FOREIGN KEY (record_id) REFERENCES records(id) ON DELETE CASCADE
+            )",
+        )
+        .execute(db)
+        .await?;
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS socket_records (
+                id INTEGER PRIMARY KEY,
+                record_id INTEGER NOT NULL,
+                socket INTEGER NOT NULL,
+                domain TEXT NOT NULL,
+                energy REAL,
+                FOREIGN KEY (record_id) REFERENCES records(id) ON DELETE CASCADE
+            )",
+        )
+        .execute(db)
+        .await?;
+
+        sqlx::query(
             "CREATE TABLE IF NOT EXISTS runsummary (
                 id INTEGER PRIMARY KEY,
                 run_id INTEGER,
@@ -270,7 +296,7 @@ impl Exporter for SqliteExporter {
         )
         .bind(record.run_id)
         .bind(record.pid as i64)
-        .bind(record.timestamp)
+        .bind(&record.timestamp)
         .bind(record.cpu_usage)
         .bind(record.cpu_energy)
         .bind(record.gpu_usage)
@@ -282,10 +308,36 @@ impl Exporter for SqliteExporter {
         .execute(&self.db)
         .await?;
 
+        let record_id = result.last_insert_rowid();
+
+        // Insert per-GPU records
+        for gm in &record.gpu_metrics {
+            sqlx::query(
+                "INSERT INTO gpu_records (record_id, device_index, gpu_usage, gpu_energy) VALUES (?, ?, ?, ?)",
+            )
+            .bind(record_id)
+            .bind(gm.device_index as i64)
+            .bind(gm.gpu_usage)
+            .bind(gm.gpu_energy)
+            .execute(&self.db)
+            .await?;
+        }
+
+        // Insert per-socket RAPL records
+        for sm in &record.socket_metrics {
+            sqlx::query(
+                "INSERT INTO socket_records (record_id, socket, domain, energy) VALUES (?, ?, ?, ?)",
+            )
+            .bind(record_id)
+            .bind(sm.socket as i64)
+            .bind(&sm.domain)
+            .bind(sm.energy)
+            .execute(&self.db)
+            .await?;
+        }
+
         // Bump user_version so polling readers can detect DB updates.
-        let version = result
-            .last_insert_rowid()
-            .clamp(i32::MIN as i64, i32::MAX as i64);
+        let version = record_id.clamp(i32::MIN as i64, i32::MAX as i64);
         let pragma = format!("PRAGMA user_version = {version}");
         sqlx::query(&pragma).execute(&self.db).await?;
 
