@@ -10,7 +10,7 @@
  * 3. Add error handling and retry logic as needed
  */
 
-import { Run, MetricRecord } from './mock-data'
+import { Run, MetricRecord, GpuMetric, SocketMetric } from './mock-data'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -47,6 +47,24 @@ interface BackendRecordPoint {
   mem_energy: number
   igpu_usage: number
   igpu_energy: number
+  gpu_details?: BackendGpuRecordPoint[]
+  socket_details?: BackendSocketRecordPoint[]
+}
+
+interface BackendGpuRecordPoint {
+  id: number
+  record_id: number
+  device_index: number
+  gpu_usage: number
+  gpu_energy: number
+}
+
+interface BackendSocketRecordPoint {
+  id: number
+  record_id: number
+  socket: number
+  domain: string
+  energy: number
 }
 
 interface BackendRunSummary {
@@ -100,6 +118,16 @@ function mapRecord(r: BackendRecordPoint): MetricRecord {
     mem_energy: r.mem_energy,
     igpu_usage: r.igpu_usage,
     igpu_energy: r.igpu_energy,
+    gpu_details: (r.gpu_details ?? []).map(g => ({
+      device_index: g.device_index,
+      gpu_usage: g.gpu_usage,
+      gpu_energy: g.gpu_energy,
+    })),
+    socket_details: (r.socket_details ?? []).map(s => ({
+      socket: s.socket,
+      domain: s.domain,
+      energy: s.energy,
+    })),
   }
 }
 
@@ -474,18 +502,29 @@ export async function fetchRunDetail(id: string): Promise<RunDetail> {
       fetch(`${API_BASE_URL}/api/run/${id}/record_points`),
     ])
 
-    if (!runRes.ok || !summaryRes.ok) throw new Error(`Run ${id} not found`)
+    if (!runRes.ok) throw new Error(`Run ${id} not found`)
 
     const backendRun: BackendRun = await runRes.json()
-    const summary: BackendRunSummary = await summaryRes.json()
+    const summary: BackendRunSummary | null = summaryRes.ok ? await summaryRes.json() : null
     const backendRecords: BackendRecordPoint[] = recordsRes.ok ? await recordsRes.json() : []
     const records = backendRecords
       .map(mapRecord)
       .sort((left, right) => left.timestamp - right.timestamp)
-    const totalCpuEnergy = summary.total_cpu_energy
-    const totalGpuEnergy = summary.total_gpu_energy
-    const totalMemEnergy = summary.total_mem_energy
-    const totalIgpuEnergy = summary.total_igpu_energy
+
+    // Use summary if available, otherwise compute from records
+    let totalCpuEnergy: number, totalGpuEnergy: number, totalMemEnergy: number, totalIgpuEnergy: number
+    if (summary) {
+      totalCpuEnergy = summary.total_cpu_energy
+      totalGpuEnergy = summary.total_gpu_energy
+      totalMemEnergy = summary.total_mem_energy
+      totalIgpuEnergy = summary.total_igpu_energy
+    } else {
+      totalCpuEnergy = records.reduce((sum, r) => sum + r.cpu_energy, 0)
+      totalGpuEnergy = records.reduce((sum, r) => sum + r.gpu_energy, 0)
+      totalMemEnergy = records.reduce((sum, r) => sum + r.mem_energy, 0)
+      totalIgpuEnergy = records.reduce((sum, r) => sum + r.igpu_energy, 0)
+    }
+
     const totalEnergy = totalCpuEnergy + totalGpuEnergy + totalMemEnergy + totalIgpuEnergy
     const energyKwh = totalEnergy / 1000
     const avgCpuUsage = records.length > 0 ? records.reduce((sum, r) => sum + r.cpu_usage, 0) / records.length : 0

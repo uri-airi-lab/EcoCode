@@ -33,6 +33,16 @@ export function useSSE() {
                         mem_energy: record.mem_energy,
                         igpu_usage: record.igpu_usage,
                         igpu_energy: record.igpu_energy,
+                        gpu_details: (record.gpu_details ?? []).map((g: any) => ({
+                            device_index: g.device_index,
+                            gpu_usage: g.gpu_usage,
+                            gpu_energy: g.gpu_energy,
+                        })),
+                        socket_details: (record.socket_details ?? []).map((s: any) => ({
+                            socket: s.socket,
+                            domain: s.domain,
+                            energy: s.energy,
+                        })),
                     }
 
                     setLatestRecord(mappedRecord)

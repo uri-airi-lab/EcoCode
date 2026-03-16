@@ -7,7 +7,7 @@ import {
   History,
   Leaf,
   Folder,
-  Shield,
+  Shield
 } from 'lucide-react'
 
 const navItems = [

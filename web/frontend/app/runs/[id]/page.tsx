@@ -7,6 +7,7 @@ import { DashboardLayout } from '@/components/DashboardLayout'
 import { EnergyChart } from '@/components/EnergyChart'
 import { UtilizationChart } from '@/components/UtilizationChart'
 import { EnergyBreakdownChart } from '@/components/EnergyBreakdownChart'
+import { SocketEnergyChart } from '@/components/SocketEnergyChart'
 import { RunSystemInfo } from '@/components/RunSystemInfo'
 import { Run } from '@/lib/mock-data'
 import { fetchRunDetail } from '@/lib/api-client'
@@ -172,6 +173,11 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
         {/* Energy Breakdown */}
         <div className="mb-8">
           <EnergyBreakdownChart run={run} />
+        </div>
+
+        {/* Per-Socket RAPL Energy */}
+        <div className="mb-8">
+          <SocketEnergyChart data={run.records} />
         </div>
 
         {/* Summary Cards */}

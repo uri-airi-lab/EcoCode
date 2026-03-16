@@ -1,166 +1,65 @@
 # EcoCode 🌍⚡
 
+<div align="center">
+
+<img src="ecocode-logo.png" alt="EcoCode Logo" width="150"/>
+
+**High-precision, multi-GPU energy monitoring for sustainable software development**
+
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![Next.js](https://img.shields.io/badge/Next.js-15-black.svg)](https://nextjs.org/)
 
-> **High-precision resource monitoring for sustainable AI development**
-
-EcoCode is a comprehensive monitoring application that tracks the complete resource footprint of computing tasks, with specialized focus on machine learning training and inference. Built in Rust for minimal overhead, EcoCode provides real-time visibility into CPU, GPU, RAM, and energy consumption across complex process trees.
+</div>
 
 ---
 
-## 🎯 Mission
-
-We're building a future where **energy awareness is fundamental to AI development—not an afterthought**. By providing developers and researchers with real-time visibility into the environmental impact of their computational work, EcoCode makes sustainable AI practices accessible and actionable from day one.
-
-Our mission directly supports:
-- 🌱 **UN SDG 12**: Responsible Consumption and Production
-- 🌍 **UN SDG 13**: Climate Action
-
----
+EcoCode monitors the real-time energy footprint of any process on your Linux machine — tracking **CPU, multiple GPUs, RAM, and integrated GPU** power consumption per process using RAPL and NVML. It includes a **web dashboard** (Rust/Axum backend + Next.js frontend) for visualizing historical runs, and supports **multiple export formats** including terminal, CSV, JSON, SQLite, Prometheus, and log files.
 
 ## ✨ Key Features
 
-### 🔍 **Comprehensive Monitoring**
-- **Process Tree Tracking**: Automatically discovers parent processes and all child processes (data loaders, distributed workers, preprocessing pipelines)
-- **Real-time Metrics**: Track CPU, RAM, and GPU utilization across your entire workflow
-- **Multi-GPU Support**: Monitor heterogeneous GPU clusters with VRAM consumption, utilization, and power draw per device
-
-### ⚡ **Energy & Cost Analysis**
-- **Energy Attribution**: Mathematical models estimate precise electrical energy consumption (Joules/Watt-hours) for entire process trees
-- **Hardware-Aware**: Accounts for CPU, GPU, and RAM usage based on hardware specifications using Intel/AMD RAPL and NVIDIA/AMD SMI
-- **Cost Calculation**: Real-time financial cost analysis based on energy consumption and GPU usage patterns
-
-### 📊 **Visualization & Export**
-- **Terminal UI (TUI)**: Lightweight, real-time dashboard for server environments without GUI access
-- **Grafana Integration**: Rich, customizable dashboards for metric visualization and long-term trend analysis
-- **Multiple Export Formats**: CSV, JSON, and Prometheus metrics endpoint
-
-### 🐍 **Python Integration** *(Planned)*
-- Simple decorator-based tracking: `@ecotrack.track()`
-- Context manager: `with ecotrack.monitor():`
-- ML framework hooks for PyTorch, TensorFlow, and Hugging Face
+| Feature | Description |
+|---------|-------------|
+| **Multi-GPU Monitoring** | Automatically detects and monitors all NVIDIA GPUs via NVML, with per-GPU energy and utilization breakdown |
+| **Multi-Socket CPU** | Per-socket RAPL energy readings across CPU, DRAM, and iGPU domains |
+| **Process-Level Attribution** | Tracks energy usage per PID using RAPL + NVML process utilization stats |
+| **7 Export Formats** | Terminal, CSV, JSON, SQLite (local), PostgreSQL (online), Prometheus metrics, and **log file** |
+| **Web Dashboard** | Real-time SSE-powered dashboard with per-GPU/socket charts, energy breakdown, and run history |
+| **< 1% Overhead** | Built in Rust with zero-cost abstractions and async I/O |
 
 ---
 
-## 🚀 Why EcoCode?
-
-### The Problem
-The AI industry's carbon footprint is growing exponentially. Training large language models can emit as much CO₂ as multiple transatlantic flights, yet most developers lack visibility into their computational impact.
-
-### Our Solution
-EcoCode provides:
-1. **<1% CPU overhead** through Rust's zero-cost abstractions
-2. **Real-time attribution** down to individual processes and functions
-3. **Actionable insights** for optimizing both performance and sustainability
-4. **Production-ready monitoring** for local development and cluster deployments
-
-### Comparison with Existing Tools
-
-| Feature | EcoCode | Scaphandre | CodeCarbon | Zeus |
-|---------|---------|------------|------------|------|
-| **Process Tree Tracking** | ✅ Full hierarchy | ⚠️ Basic PID | ⚠️ Limited | ❌ DL-focused |
-| **Multi-GPU Support** | ✅ NVIDIA + AMD | ❌ No GPU | ✅ NVIDIA only | ✅ NVIDIA |
-| **Real-time TUI** | ✅ Built-in | ❌ Prometheus only | ❌ No | ❌ No |
-| **Windows Support** | 🔄 Planned | ❌ Linux only | ✅ Yes | ❌ Linux only |
-| **Python API** | 🔄 Planned | ❌ No | ✅ Yes | ✅ Yes |
-| **Overhead** | **<1% CPU** | Low | Medium (15s polling) | Low |
-| **Attribution Accuracy** | High | High | Underestimates 20-30% | High |
-
----
-
-## 🛠️ Technical Architecture
-
-### Core Technologies
-
-| Component | Technology | Justification |
-|-----------|-----------|---------------|
-| **Primary Language** | Rust | Minimal observer effect (<1% CPU), zero-cost abstractions, no GC-induced power spikes |
-| **TUI Framework** | Ratatui | High-frequency rendering (1000+ data points/sec), 30-40% less memory than alternatives |
-| **System Metrics** | sysinfo | Cross-platform process monitoring with efficient state management |
-| **NVIDIA Interface** | nvml-wrapper | Direct NVML access for board-level power and VRAM mapping |
-| **AMD Interface** | rocm_smi_lib | ROCm SMI bindings for AMD GPU power tracking |
-| **Energy Sensors** | Linux powercap | Direct RAPL interface access (microjoule precision) |
-| **Async Runtime** | Tokio | Non-blocking concurrent data flow between sensors and UI |
-
-### Energy Measurement
-
-**CPU & RAM**: Intel/AMD RAPL (Running Average Power Limit)
-- Direct energy counter readings from `/sys/class/powercap/intel-rapl/`
-- Tracks Package Domain (CPU cores), DRAM Domain (memory), and Integrated GPU
-
-**NVIDIA GPUs**: NVIDIA Management Library (NVML)
-- Real-time power draw, temperature, utilization, and memory usage
-- Process-level GPU attribution
-
-**AMD GPUs**: ROCm SMI / AMD SMI
-- Driver-level metrics via sysfs filesystem
-- Power consumption, temperature, and utilization tracking
-
-### Attribution Model
-
-EcoCode uses **Time-Based Proportionality** to attribute power consumption:
+## 🏗️ Architecture
 
 ```
-P_process = P_socket × (CPU_time_process / Σ CPU_time_all)
+┌─────────────────────────────────────────────────────────────────┐
+│                        EcoCode Core (Rust)                      │
+│  ┌─────────┐  ┌──────────────┐  ┌──────────────────────────┐   │
+│  │  RAPL   │  │  NVML (GPU)  │  │     sysinfo (CPU/Mem)    │   │
+│  │ Sensors │  │  Multi-GPU   │  │     Process Tracking     │   │
+│  └────┬────┘  └──────┬───────┘  └───────────┬──────────────┘   │
+│       └──────────────┼──────────────────────┘                   │
+│                      ▼                                          │
+│             ┌────────────────┐                                   │
+│             │  Record Engine │─── gpu_metrics[]                  │
+│             │                │─── socket_metrics[]               │
+│             └───────┬────────┘                                   │
+│                     │                                            │
+│   ┌─────────────────┼──────────────────────────────────┐        │
+│   ▼        ▼        ▼        ▼       ▼        ▼       ▼        │
+│ Terminal  CSV     JSON    SQLite  Postgres Prometheus LogFile   │
+└─────────────────────┬───────────────────────────────────────────┘
+                      │ SQLite DB (shared)
+┌─────────────────────┼───────────────────────────────────────────┐
+│              Web Backend (Axum)                                  │
+│  REST API + SSE  ── gpu_records / socket_records tables         │
+└─────────────────────┬───────────────────────────────────────────┘
+                      │ HTTP
+┌─────────────────────┼───────────────────────────────────────────┐
+│              Web Frontend (Next.js)                              │
+│  Dashboard ── Charts ── Per-GPU/Socket visualization            │
+└─────────────────────────────────────────────────────────────────┘
 ```
-
-Where:
-- `P_socket`: Total socket power from RAPL (Watts)
-- `CPU_time_process`: Process CPU time in jiffies from `/proc/[pid]/stat`
-- `Σ CPU_time_all`: Sum of all process CPU times
-
-Energy is then integrated over time:
-```
-E_process = ∫ P_process dt (Joules)
-```
-
----
-
-## 📋 Roadmap
-
-### Phase 1: The Sensing Engine (Telemetry)
-- [ ] CPU & Process metadata collection
-- [ ] Linux CPU energy (RAPL integration)
-- [ ] Windows CPU energy (PCM + TDP fallback)
-- [ ] Multi-GPU support (NVIDIA via nvml-wrapper)
-- [ ] Multi-GPU support (AMD via rocm_smi_lib)
-
-### Phase 2: Hierarchical Aggregation Logic
-- [ ] Process tree construction
-- [ ] Unique process identification with timestamp
-- [ ] Memory-efficient parent-child relationship storage
-
-### Phase 3: The Metrology Brain (Attribution)
-- [ ] Power attribution model implementation
-- [ ] GPU power mapping
-- [ ] Energy integration (Watts → Joules)
-
-### Phase 4: Ratatui TUI Dashboard
-- [ ] Elm Architecture (TEA) pattern
-- [ ] Async communication pipeline
-- [ ] Sparklines and hierarchical tree view
-- [ ] Multi-panel layout with keyboard navigation
-
-### Phase 5: Analytics & Cluster Support
-- [ ] CO₂ calculation with grid intensity
-- [ ] Water usage estimation
-- [ ] Cost prediction
-- [ ] CSV/JSON exporters
-- [ ] Distributed agent architecture
-- [ ] Cluster aggregation via gRPC
-
-### Phase 6: Integration & Polish
-- [ ] Prometheus exporter
-- [ ] Grafana dashboards
-- [ ] Comprehensive documentation
-
-### Phase 7: Python Ecosystem Integration
-- [ ] PyO3 bindings
-- [ ] Context manager and decorator API
-- [ ] ML framework hooks (PyTorch, TensorFlow, Hugging Face)
-- [ ] PyPI package distribution
 
 ---
 
@@ -168,166 +67,151 @@ E_process = ∫ P_process dt (Joules)
 
 ### Prerequisites
 
-- **Linux** (primary support, Windows planned)
-- **Rust 1.70+**
-- **Root/sudo access** for RAPL energy readings
-- **NVIDIA drivers** (optional, for GPU monitoring)
-- **AMD ROCm** (optional, for AMD GPU monitoring)
+| Requirement | Details |
+|-------------|---------|
+| **OS** | Linux (kernel 3.10+) |
+| **Rust** | 1.70+ (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh`) |
+| **NVIDIA Drivers** | For GPU monitoring (NVML must be available) |
+| **Node.js** | 18+ (for web dashboard) |
+| **pnpm** | `npm install -g pnpm` (for web frontend) |
+| **sudo** | Required to read RAPL energy counters |
 
-### Installation
+### Step 1: Clone & Build the Core Tool
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/ecocode.git
+git clone https://github.com/MohamedAziz-Khezami/EcoCode.git
+cd EcoCode
+
+# Build the core monitoring tool
 cd ecocode
-
-# Build from source
 cargo build --release
-
-# Run with sudo for RAPL access
-sudo ./target/release/ecocode
 ```
 
-### Quick Start
+### Step 2: Run the Core Tool
+
+The core tool wraps any command and monitors its energy consumption:
 
 ```bash
-# Monitor a specific process
-sudo ecocode monitor --pid <PID>
+# Basic usage with terminal output
+sudo ./target/release/ecocode -- python train.py
 
-# Monitor a command and all its children
-sudo ecocode run -- python train_model.py
+# Save to SQLite (used by the web dashboard)
+sudo ./target/release/ecocode -o local --collaborator "your-name" -- python train.py
 
-# Launch TUI dashboard
-sudo ecocode dashboard
+# Save to CSV file
+sudo ./target/release/ecocode -o csv -f results.csv -- python train.py
 
-# Export metrics to CSV
-sudo ecocode export --format csv --output metrics.csv
+# Save to log file
+sudo ./target/release/ecocode -o logfile -f run.log -- python train.py
+
+# Save as JSON
+sudo ./target/release/ecocode -o json -f results.json -- python train.py
+
+# Prometheus metrics endpoint (port 9091)
+sudo ./target/release/ecocode -o prometheus -- python train.py
+
+# Custom measurement interval (default: 1 second)
+sudo ./target/release/ecocode -i 2 -o terminal -- sleep 10
 ```
 
-### Python Integration *(Coming Soon)*
+**CLI options:**
 
-```python
-import ecotrack
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-o, --output` | Export format: `terminal`, `csv`, `json`, `local`, `online`, `prometheus`, `logfile` | `terminal` |
+| `-f, --file` | Output file path (required for `csv`, `json`, `logfile`) | — |
+| `-p, --project` | Project name for grouping runs | `ecocode` |
+| `--collaborator` | Collaborator name (required for `local`) | — |
+| `-i, --interval` | Measurement interval in seconds | `1` |
 
-# Decorator for functions
-@ecotrack.track()
-def train_model():
-    # Your training code
-    pass
+### Step 3: Run the Web Dashboard
 
-# Context manager for code blocks
-with ecotrack.monitor():
-    model.fit(X_train, y_train)
+The web dashboard consists of a **Rust backend** (Axum) and a **Next.js frontend**:
+
+```bash
+# Terminal 1: Start the backend (reads from the same SQLite DB)
+cd web/backend
+cargo run
+# → Backend starts at http://localhost:3001
+
+# Terminal 2: Start the frontend
+cd web/frontend
+pnpm install   # first time only
+pnpm dev
+# → Frontend starts at http://localhost:3000
 ```
+
+Open **http://localhost:3000** in your browser to see your runs, energy charts, and per-GPU/socket breakdowns.
 
 ---
 
-## 📊 Example Output
+## 📊 What Gets Monitored
 
-### Terminal Dashboard
-```
-┌─ EcoCode Real-time Monitoring ─────────────────────────────────┐
-│                                                                │
-│  Process Tree                    CPU    RAM     GPU    Power   │
-│  ├─ python (12345)               45%    2.1GB   N/A    15.2W   │
-│  │  ├─ DataLoader-0              12%    512MB   N/A    4.1W    │
-│  │  └─ DataLoader-1              11%    498MB   N/A    3.9W    │
-│  └─ GPU Process                  N/A    N/A     87%    145W    │
-│                                                                │
-│  Total Energy: 125.4 kJ                                        │
-│  Estimated Cost: $0.0042                                       │
-│  CO₂ Equivalent: 42g                                           │
-│                                                                │
-│  [CPU Usage ▂▃▅▇█▇▅▃▂]  [GPU Util ▁▃▅▇█████]                   │
-└────────────────────────────────────────────────────────────────┘
-```
+| Metric | Source | Granularity |
+|--------|--------|-------------|
+| CPU Usage (%) | `sysinfo` | Per-process |
+| CPU Energy (W) | RAPL `/sys/class/powercap/intel-rapl/` | Per-socket, per-domain (cpu, dram, igpu) |
+| GPU Usage (%) | NVML `process_utilization_stats` | Per-GPU, per-process |
+| GPU Energy (W) | NVML `total_energy_consumption` | Per-GPU |
+| Memory Usage (%) | `sysinfo` | Per-process |
+| Memory Energy (W) | RAPL DRAM domain | Per-socket |
+| iGPU Energy (W) | RAPL iGPU domain | Per-socket |
+
+### Multi-GPU Support
+
+EcoCode automatically detects all NVIDIA GPUs and monitors each independently:
+
+- **Aggregate metrics** (`gpu_usage`, `gpu_energy`) are stored as totals for backward-compatible summaries
+- **Per-GPU metrics** are stored in a separate `gpu_records` table with `device_index`, `gpu_usage`, and `gpu_energy` per record
+- Charts in the web dashboard dynamically render per-GPU lines/bars when multiple GPUs are present
+
+### Multi-Socket Support
+
+RAPL scanning already handles multiple CPU sockets. Per-socket energy deltas are stored in a `socket_records` table with `socket`, `domain` (cpu/dram/igpu), and `energy` per record.
+
+---
+
+## 🗃️ Database Schema
+
+When using the `local` (SQLite) exporter, EcoCode creates these tables:
+
+| Table | Purpose |
+|-------|---------|
+| `projects` | Project grouping with collaborator management |
+| `runs` | Individual monitoring runs with timestamps and status |
+| `records` | Per-second aggregate measurements (cpu/gpu/mem/igpu usage + energy) |
+| `gpu_records` | Per-GPU breakdown per record (device_index, usage, energy) |
+| `socket_records` | Per-socket RAPL breakdown per record (socket, domain, energy) |
+| `runsummary` | Total energy sums per run |
 
 ---
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
+We welcome contributions! Key areas:
 
-### Development Setup
+- 🪟 Windows RAPL/PCM integration
+- 🎨 Dashboard UI improvements
+- 🧪 Testing on multi-GPU setups
+- 📚 Documentation
 
 ```bash
-# Install development dependencies
-cargo install cargo-watch cargo-edit
-
-# Run tests
-cargo test
-
-# Run with hot reload
-cargo watch -x run
-
-# Format code
-cargo fmt
-
-# Run linter
-cargo clippy
+# Dev workflow
+cargo fmt          # format code
+cargo clippy       # lint
+cargo build        # build
 ```
-
-### Areas We Need Help
-- 🪟 Windows RAPL/PCM integration
-- 🎨 UI/UX improvements for the TUI
-- 📚 Documentation and tutorials
-- 🧪 Testing on different hardware configurations
-- 🐛 Bug reports and feature requests
-
----
-
-## 📚 Documentation
-
-- **[Architecture Overview](docs/architecture.md)**: System design and component interaction
-- **[Energy Attribution](docs/attribution.md)**: Deep dive into power calculation methodology
-- **[API Reference](docs/api.md)**: Complete API documentation
-- **[Hardware Support](docs/hardware.md)**: Supported CPUs, GPUs, and platforms
-
----
-
-## 🔗 Resources
-
-### Research & Background
-- [Linux CPU Percentage Calculation](https://www.anshulpatel.in/posts/linux_cpu_percentage/)
-- [Linux Powercap Documentation](https://docs.kernel.org/power/powercap/powercap.html)
-- [Scaphandre Project](https://github.com/hubblo-org/scaphandre)
-
-### Related Projects
-- **Scaphandre**: Rust-based energy monitoring agent
-- **CodeCarbon**: Python CO₂ emissions tracker
-- **Zeus**: Deep learning energy optimization framework
-- **Green Algorithms**: Web-based carbon calculator
 
 ---
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-## 🌟 Acknowledgments
-
-EcoCode builds upon the pioneering work of:
-- The [Scaphandre](https://github.com/hubblo-org/scaphandre) project for RAPL-based attribution methodology
-- The [CodeCarbon](https://github.com/mlco2/codecarbon) team for raising awareness about ML sustainability
-- The Rust community for providing exceptional systems programming tools
-
----
-
-## 📬 Contact & Support
-
-- **Issues**: [GitHub Issues](https://github.com/yourusername/ecocode/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/ecocode/discussions)
-- **Email**: your.email@example.com
-- **Twitter**: [@ecocode_dev](https://twitter.com/ecocode_dev)
+MIT License — see [LICENSE](LICENSE) for details.
 
 ---
 
 <div align="center">
 
 **Building a sustainable future for AI, one watt at a time** 💚
-
-[⭐ Star us on GitHub](https://github.com/yourusername/ecocode) • [🐛 Report Bug](https://github.com/yourusername/ecocode/issues) • [💡 Request Feature](https://github.com/yourusername/ecocode/issues)
 
 </div>

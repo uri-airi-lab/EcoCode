@@ -1,4 +1,17 @@
 // EcoCode MetricRecord types
+
+export interface GpuMetric {
+  device_index: number
+  gpu_usage: number // percentage 0-100
+  gpu_energy: number // watts
+}
+
+export interface SocketMetric {
+  socket: number
+  domain: string // "cpu", "dram", "igpu"
+  energy: number // watts
+}
+
 export interface MetricRecord {
   id: string
   run_id: string
@@ -6,12 +19,14 @@ export interface MetricRecord {
   timestamp: number
   cpu_usage: number // percentage 0-100
   cpu_energy: number // watts
-  gpu_usage: number // percentage 0-100
-  gpu_energy: number // watts
+  gpu_usage: number // percentage 0-100 (aggregate)
+  gpu_energy: number // watts (aggregate)
   mem_usage: number // percentage 0-100
   mem_energy: number // watts
   igpu_usage: number // percentage 0-100
   igpu_energy: number // watts
+  gpu_details: GpuMetric[]
+  socket_details: SocketMetric[]
 }
 
 export interface Run {
@@ -43,8 +58,21 @@ const WATER_FACTOR = 1.8 // L/kWh
 function generateRunRecords(count: number, startTime: number): MetricRecord[] {
   const records: MetricRecord[] = []
   const timeStep = 60000 // 1 minute intervals in ms
+  const gpuCount = 2 // simulate 2 GPUs
 
   for (let i = 0; i < count; i++) {
+    const gpuDetails: GpuMetric[] = []
+    let totalGpuUsage = 0
+    let totalGpuEnergy = 0
+
+    for (let g = 0; g < gpuCount; g++) {
+      const usage = Math.random() > 0.3 ? 10 + Math.random() * 80 : 0
+      const energy = Math.random() > 0.3 ? 30 + Math.random() * 200 : 0
+      gpuDetails.push({ device_index: g, gpu_usage: usage, gpu_energy: energy })
+      totalGpuUsage += usage
+      totalGpuEnergy += energy
+    }
+
     records.push({
       id: `record-${i}`,
       run_id: 'mock-run',
@@ -52,12 +80,17 @@ function generateRunRecords(count: number, startTime: number): MetricRecord[] {
       timestamp: startTime + i * timeStep,
       cpu_usage: 20 + Math.random() * 70,
       cpu_energy: 50 + Math.random() * 150,
-      gpu_usage: Math.random() > 0.3 ? 10 + Math.random() * 80 : 0,
-      gpu_energy: Math.random() > 0.3 ? 30 + Math.random() * 200 : 0,
+      gpu_usage: totalGpuUsage / gpuCount,
+      gpu_energy: totalGpuEnergy,
       mem_usage: 10 + Math.random() * 40,
       mem_energy: 5 + Math.random() * 15,
       igpu_usage: Math.random() > 0.8 ? 5 + Math.random() * 20 : 0,
       igpu_energy: Math.random() > 0.8 ? 2 + Math.random() * 10 : 0,
+      gpu_details: gpuDetails,
+      socket_details: [
+        { socket: 0, domain: 'cpu', energy: 50 + Math.random() * 100 },
+        { socket: 0, domain: 'dram', energy: 5 + Math.random() * 15 },
+      ],
     })
   }
 
@@ -173,8 +206,11 @@ export function getImprovements(): MetricRecord[] {
       mem_energy: ((prev.totalEnergy - curr.totalEnergy) / prev.totalEnergy) * 100,
       igpu_usage: 0,
       igpu_energy: 0,
+      gpu_details: [],
+      socket_details: [],
     })
   }
 
   return improvements
 }
+

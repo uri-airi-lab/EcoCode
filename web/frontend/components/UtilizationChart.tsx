@@ -13,21 +13,49 @@ import {
 import { MetricRecord } from '@/lib/mock-data'
 import { format } from 'date-fns'
 
+const GPU_COLORS = [
+  'hsl(49 89% 52%)',   // GPU 0 - gold
+  'hsl(20 89% 55%)',   // GPU 1 - orange
+  'hsl(340 82% 52%)',  // GPU 2 - pink
+  'hsl(300 70% 50%)',  // GPU 3 - magenta
+  'hsl(180 80% 45%)',  // GPU 4 - teal
+  'hsl(60 80% 50%)',   // GPU 5 - lime
+  'hsl(0 85% 55%)',    // GPU 6 - red
+  'hsl(240 70% 60%)',  // GPU 7 - indigo
+]
+
 interface UtilizationChartProps {
   data: MetricRecord[]
 }
 
 export function UtilizationChart({ data }: UtilizationChartProps) {
+  const gpuCount = useMemo(() => {
+    let maxIdx = -1
+    for (const record of data) {
+      for (const g of record.gpu_details ?? []) {
+        if (g.device_index > maxIdx) maxIdx = g.device_index
+      }
+    }
+    return maxIdx + 1
+  }, [data])
+
   const chartData = useMemo(() => {
-    // Limit to the last 100 records for performance
     const records = data.slice(-100)
 
-    return records.map((record) => ({
-      time: format(new Date(record.timestamp), 'HH:mm:ss'),
-      cpu: Number(record.cpu_usage.toFixed(2)),
-      gpu: Number(record.gpu_usage.toFixed(2)),
-      mem: Number(record.mem_usage.toFixed(2)),
-    }))
+    return records.map((record) => {
+      const point: Record<string, string | number> = {
+        time: format(new Date(record.timestamp), 'HH:mm:ss'),
+        cpu: Number(record.cpu_usage.toFixed(2)),
+        gpu: Number(record.gpu_usage.toFixed(2)),
+        mem: Number(record.mem_usage.toFixed(2)),
+      }
+
+      for (const g of record.gpu_details ?? []) {
+        point[`gpu${g.device_index}`] = Number(g.gpu_usage.toFixed(2))
+      }
+
+      return point
+    })
   }, [data])
 
   return (
@@ -86,9 +114,22 @@ export function UtilizationChart({ data }: UtilizationChartProps) {
             stroke="hsl(49 89% 52%)"
             fillOpacity={1}
             fill="url(#colorGpu)"
-            name="GPU Usage"
+            name={gpuCount > 1 ? "GPU Usage (Avg)" : "GPU Usage"}
             isAnimationActive={false}
           />
+          {gpuCount > 1 && Array.from({ length: gpuCount }, (_, i) => (
+            <Area
+              key={`gpu${i}`}
+              type="monotone"
+              dataKey={`gpu${i}`}
+              stroke={GPU_COLORS[i % GPU_COLORS.length]}
+              strokeDasharray="4 2"
+              fillOpacity={0}
+              fill="transparent"
+              name={`GPU ${i}`}
+              isAnimationActive={false}
+            />
+          ))}
           <Area
             type="monotone"
             dataKey="mem"
@@ -103,3 +144,4 @@ export function UtilizationChart({ data }: UtilizationChartProps) {
     </div>
   )
 }
+

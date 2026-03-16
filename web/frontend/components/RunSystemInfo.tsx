@@ -1,5 +1,6 @@
 'use client'
 
+import { useMemo } from 'react'
 import { Run } from '@/lib/mock-data'
 
 interface RunSystemInfoProps {
@@ -7,14 +8,35 @@ interface RunSystemInfoProps {
 }
 
 export function RunSystemInfo({ run }: RunSystemInfoProps) {
+  const gpuCount = useMemo(() => {
+    if (run.records.length === 0) return 0
+    const firstRecord = run.records[0]
+    return firstRecord.gpu_details?.length ?? 0
+  }, [run.records])
+
+  const socketCount = useMemo(() => {
+    if (run.records.length === 0) return 0
+    const firstRecord = run.records[0]
+    const sockets = new Set(firstRecord.socket_details?.map(s => s.socket))
+    return sockets.size
+  }, [run.records])
+
   const specs = [
     {
       label: 'Collaborator',
       value: run.collaboratorName ?? 'Unassigned',
     },
     {
-      label: 'Total Records',
-      value: run.records.length,
+      label: 'Status',
+      value: run.status.charAt(0).toUpperCase() + run.status.slice(1),
+    },
+    {
+      label: 'Duration',
+      value: `${run.records.length}s`,
+    },
+    {
+      label: 'Hardware',
+      value: `${socketCount} Socket${socketCount !== 1 ? 's' : ''}${gpuCount > 0 ? ` + ${gpuCount} GPU${gpuCount !== 1 ? 's' : ''}` : ''}`,
     },
     {
       label: 'Avg CPU Usage',
@@ -28,14 +50,6 @@ export function RunSystemInfo({ run }: RunSystemInfoProps) {
       label: 'Total Energy',
       value: `${Number(run.totalEnergy.toFixed(2))} Wh`,
     },
-    // {
-    //   label: 'Carbon Footprint',
-    //   value: `${Number(run.carbonFootprint.toFixed(2))} g CO₂`,
-    // },
-    // {
-    //   label: 'Water Consumption',
-    //   value: `${Number(run.waterConsumption.toFixed(2))} mL`,
-    // },
   ]
 
   return (

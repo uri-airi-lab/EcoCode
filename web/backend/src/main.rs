@@ -35,6 +35,22 @@ struct Run {
 }
 
 #[derive(Serialize, Clone, sqlx::FromRow)]
+struct RecordPointRow {
+    id: i64,
+    run_id: i64,
+    pid: i64,
+    timestamp: String,
+    cpu_usage: f64,
+    cpu_energy: f64,
+    gpu_usage: f64,
+    gpu_energy: f64,
+    mem_usage: f64,
+    mem_energy: f64,
+    igpu_usage: f64,
+    igpu_energy: f64,
+}
+
+#[derive(Serialize, Clone)]
 struct RecordPoint {
     id: i64,
     run_id: i64,
@@ -48,6 +64,26 @@ struct RecordPoint {
     mem_energy: f64,
     igpu_usage: f64,
     igpu_energy: f64,
+    gpu_details: Vec<GpuRecordPoint>,
+    socket_details: Vec<SocketRecordPoint>,
+}
+
+#[derive(Serialize, Clone, sqlx::FromRow)]
+struct GpuRecordPoint {
+    id: i64,
+    record_id: i64,
+    device_index: i64,
+    gpu_usage: f64,
+    gpu_energy: f64,
+}
+
+#[derive(Serialize, Clone, sqlx::FromRow)]
+struct SocketRecordPoint {
+    id: i64,
+    record_id: i64,
+    socket: i64,
+    domain: String,
+    energy: f64,
 }
 
 #[derive(Serialize, Clone, sqlx::FromRow, Debug)]
@@ -164,18 +200,105 @@ async fn get_run(Path(run_id): Path<i64>, State(state): State<AppState>) -> impl
 
 
 async fn get_record_points(Path(run_id): Path<i64>, State(state): State<AppState>) -> impl IntoResponse {
-    let record_points: Vec<RecordPoint> = sqlx::query_as::<_, RecordPoint>(
+    let rows: Vec<RecordPointRow> = sqlx::query_as::<_, RecordPointRow>(
         "SELECT id, run_id, pid, timestamp, cpu_usage, cpu_energy, gpu_usage, gpu_energy, mem_usage, mem_energy, igpu_usage, igpu_energy FROM records WHERE run_id = ?",
     )
     .bind(run_id)
     .fetch_all(&state.db_pool)
     .await
-    .unwrap(); // Graceful error handling
+    .unwrap_or_else(|_| vec![]);
 
-    match record_points.len() {
-        0 => (StatusCode::NOT_FOUND, "No record points found for this run").into_response(),
-        _ => (StatusCode::OK, Json(record_points)).into_response(),
+    if rows.is_empty() {
+        return (StatusCode::NOT_FOUND, "No record points found for this run").into_response();
     }
+
+    let record_ids: Vec<i64> = rows.iter().map(|r| r.id).collect();
+
+    // Fetch per-GPU records for all records in one query
+    let placeholders: String = record_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let gpu_query = format!(
+        "SELECT id, record_id, device_index, gpu_usage, gpu_energy FROM gpu_records WHERE record_id IN ({})",
+        placeholders
+    );
+    let mut gpu_q = sqlx::query_as::<_, GpuRecordPoint>(&gpu_query);
+    for id in &record_ids {
+        gpu_q = gpu_q.bind(*id);
+    }
+    let gpu_records: Vec<GpuRecordPoint> = gpu_q.fetch_all(&state.db_pool).await.unwrap_or_else(|_| vec![]);
+
+    // Fetch per-socket records
+    let socket_query = format!(
+        "SELECT id, record_id, socket, domain, energy FROM socket_records WHERE record_id IN ({})",
+        placeholders
+    );
+    let mut socket_q = sqlx::query_as::<_, SocketRecordPoint>(&socket_query);
+    for id in &record_ids {
+        socket_q = socket_q.bind(*id);
+    }
+    let socket_records: Vec<SocketRecordPoint> = socket_q.fetch_all(&state.db_pool).await.unwrap_or_else(|_| vec![]);
+
+    // Group by record_id
+    let mut gpu_by_record: std::collections::HashMap<i64, Vec<GpuRecordPoint>> = std::collections::HashMap::new();
+    for gr in gpu_records {
+        gpu_by_record.entry(gr.record_id).or_default().push(gr);
+    }
+    let mut socket_by_record: std::collections::HashMap<i64, Vec<SocketRecordPoint>> = std::collections::HashMap::new();
+    for sr in socket_records {
+        socket_by_record.entry(sr.record_id).or_default().push(sr);
+    }
+
+    let record_points: Vec<RecordPoint> = rows.into_iter().map(|r| {
+        RecordPoint {
+            id: r.id,
+            run_id: r.run_id,
+            pid: r.pid,
+            timestamp: r.timestamp,
+            cpu_usage: r.cpu_usage,
+            cpu_energy: r.cpu_energy,
+            gpu_usage: r.gpu_usage,
+            gpu_energy: r.gpu_energy,
+            mem_usage: r.mem_usage,
+            mem_energy: r.mem_energy,
+            igpu_usage: r.igpu_usage,
+            igpu_energy: r.igpu_energy,
+            gpu_details: gpu_by_record.remove(&r.id).unwrap_or_default(),
+            socket_details: socket_by_record.remove(&r.id).unwrap_or_default(),
+        }
+    }).collect();
+
+    (StatusCode::OK, Json(record_points)).into_response()
+}
+
+async fn get_gpu_records(Path(run_id): Path<i64>, State(state): State<AppState>) -> impl IntoResponse {
+    let gpu_records: Vec<GpuRecordPoint> = sqlx::query_as::<_, GpuRecordPoint>(
+        "SELECT gr.id, gr.record_id, gr.device_index, gr.gpu_usage, gr.gpu_energy
+         FROM gpu_records gr
+         INNER JOIN records r ON r.id = gr.record_id
+         WHERE r.run_id = ?
+         ORDER BY gr.record_id ASC, gr.device_index ASC",
+    )
+    .bind(run_id)
+    .fetch_all(&state.db_pool)
+    .await
+    .unwrap_or_else(|_| vec![]);
+
+    (StatusCode::OK, Json(gpu_records)).into_response()
+}
+
+async fn get_socket_records(Path(run_id): Path<i64>, State(state): State<AppState>) -> impl IntoResponse {
+    let socket_records: Vec<SocketRecordPoint> = sqlx::query_as::<_, SocketRecordPoint>(
+        "SELECT sr.id, sr.record_id, sr.socket, sr.domain, sr.energy
+         FROM socket_records sr
+         INNER JOIN records r ON r.id = sr.record_id
+         WHERE r.run_id = ?
+         ORDER BY sr.record_id ASC, sr.socket ASC, sr.domain ASC",
+    )
+    .bind(run_id)
+    .fetch_all(&state.db_pool)
+    .await
+    .unwrap_or_else(|_| vec![]);
+
+    (StatusCode::OK, Json(socket_records)).into_response()
 }
 
 async fn get_run_summary(Path(run_id): Path<i64>, State(state): State<AppState>) -> impl IntoResponse {
@@ -313,6 +436,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/run/{run_id}", get(get_run))
         .route("/api/run/{run_id}/record_points", get(get_record_points))   
         .route("/api/run/{run_id}/summary", get(get_run_summary))
+        .route("/api/run/{run_id}/gpu_records", get(get_gpu_records))
+        .route("/api/run/{run_id}/socket_records", get(get_socket_records))
         .route("/api/admin/projects", get(get_admin_projects))
         .route("/api/sse", get(sse_handler))
         .layer(
@@ -400,6 +525,32 @@ async fn ensure_schema(db: &sqlx::SqlitePool) -> Result<(), Box<dyn std::error::
             igpu_usage REAL,
             igpu_energy REAL,
             FOREIGN KEY (run_id) REFERENCES runs(id)
+        )",
+    )
+    .execute(db)
+    .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS gpu_records (
+            id INTEGER PRIMARY KEY,
+            record_id INTEGER NOT NULL,
+            device_index INTEGER NOT NULL,
+            gpu_usage REAL,
+            gpu_energy REAL,
+            FOREIGN KEY (record_id) REFERENCES records(id) ON DELETE CASCADE
+        )",
+    )
+    .execute(db)
+    .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS socket_records (
+            id INTEGER PRIMARY KEY,
+            record_id INTEGER NOT NULL,
+            socket INTEGER NOT NULL,
+            domain TEXT NOT NULL,
+            energy REAL,
+            FOREIGN KEY (record_id) REFERENCES records(id) ON DELETE CASCADE
         )",
     )
     .execute(db)
@@ -545,11 +696,45 @@ async fn watch_db_changes(db: sqlx::SqlitePool, tx: broadcast::Sender<String>) {
         if let Ok((current_version,)) = res {
             if current_version > last_version {
                 // Something changed! Fetch the newest row
-                let new_data: Result<RecordPoint, sqlx::Error>   = sqlx::query_as::<_, RecordPoint>("SELECT id, run_id, pid, timestamp, cpu_usage, cpu_energy, gpu_usage, gpu_energy, mem_usage, mem_energy, igpu_usage, igpu_energy FROM records ORDER BY id DESC LIMIT 1")
+                let new_data: Result<RecordPointRow, sqlx::Error> = sqlx::query_as::<_, RecordPointRow>("SELECT id, run_id, pid, timestamp, cpu_usage, cpu_energy, gpu_usage, gpu_energy, mem_usage, mem_energy, igpu_usage, igpu_energy FROM records ORDER BY id DESC LIMIT 1")
                     .fetch_one(&db)
                     .await;
 
-                if let Ok(record) = new_data {
+                if let Ok(row) = new_data {
+                    // Fetch per-GPU and per-socket details for this record
+                    let gpu_details: Vec<GpuRecordPoint> = sqlx::query_as::<_, GpuRecordPoint>(
+                        "SELECT id, record_id, device_index, gpu_usage, gpu_energy FROM gpu_records WHERE record_id = ?"
+                    )
+                    .bind(row.id)
+                    .fetch_all(&db)
+                    .await
+                    .unwrap_or_else(|_| vec![]);
+
+                    let socket_details: Vec<SocketRecordPoint> = sqlx::query_as::<_, SocketRecordPoint>(
+                        "SELECT id, record_id, socket, domain, energy FROM socket_records WHERE record_id = ?"
+                    )
+                    .bind(row.id)
+                    .fetch_all(&db)
+                    .await
+                    .unwrap_or_else(|_| vec![]);
+
+                    let record = RecordPoint {
+                        id: row.id,
+                        run_id: row.run_id,
+                        pid: row.pid,
+                        timestamp: row.timestamp,
+                        cpu_usage: row.cpu_usage,
+                        cpu_energy: row.cpu_energy,
+                        gpu_usage: row.gpu_usage,
+                        gpu_energy: row.gpu_energy,
+                        mem_usage: row.mem_usage,
+                        mem_energy: row.mem_energy,
+                        igpu_usage: row.igpu_usage,
+                        igpu_energy: row.igpu_energy,
+                        gpu_details,
+                        socket_details,
+                    };
+
                     let _ = tx.send(format!("New Project: {}", serde_json::to_string(&record).unwrap_or_else(|_| "Failed to serialize".to_string())));
                 }
                 last_version = current_version;
