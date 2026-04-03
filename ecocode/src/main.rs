@@ -59,16 +59,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let interval = args.interval;
     let output = args.output.to_lowercase();
     let project_name = args.project;
-    let collaborator = args
-        .collaborator
-        .as_deref()
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-        .map(str::to_owned);
+    let collaborator = match args.collaborator {
+        Some(name) => {
+            let trimmed = name.trim();
+            if trimmed.len() > 0 {
+                Some(trimmed.to_string())
+            } else {
+                None
+            }
+        }
+        None => None,
+    };
 
 
+    // Idiomatic Rust way.
+    // let collaborator = args
+    //     .collaborator
+    //     // Option<String> → Option<&str>
+    //     // Converts from owned String to a string slice reference
+    //     // This avoids cloning or moving the String at this stage
+    //     .as_deref()
+
+    //     // If Some(&str), apply trim()
+    //     // Removes leading and trailing whitespace
+    //     // Example: "  Alice  " → "Alice"
+    //     .map(str::trim)
+
+    //     // Keep only non-empty strings
+    //     // If the string is "" after trimming, convert it to None
+    //     // This acts as a validation step
+    //     .filter(|name| !name.is_empty())
+
+    //     // Convert &str back to owned String
+    //     // Needed because final variable likely requires ownership
+    //     .map(str::to_owned);
 
 
+    
     // Before running the command run sudo chmod -R +r /sys/class/powercap/intel-rapl/
     //promp the user for their password to access
     println!("Running: sudo chmod -R +r /sys/class/powercap/intel-rapl/ , please enter your password if needed.");
