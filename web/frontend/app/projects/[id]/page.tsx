@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Activity, ArrowLeft, Folder, Zap, Clock } from 'lucide-react'
+import { useDataSource } from '@/components/DataSourceProvider'
 import { DashboardLayout } from '@/components/DashboardLayout'
 import { RecentRunsTable } from '@/components/RecentRunsTable'
 import { ProjectDetail, fetchProjectRuns } from '@/lib/api-client'
@@ -16,6 +17,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
     const [project, setProject] = useState<ProjectDetail | null>(null)
     const [loading, setLoading] = useState(true)
     const [paramId, setParamId] = useState<string | null>(null)
+    const { source } = useDataSource()
 
     useEffect(() => {
         const initParams = async () => {
@@ -28,18 +30,32 @@ export default function ProjectPage({ params }: ProjectPageProps) {
     useEffect(() => {
         if (!paramId) return
 
+        let cancelled = false
+
         const loadProject = async () => {
+            setLoading(true)
             try {
-                const data = await fetchProjectRuns(paramId)
-                setProject(data)
+                const data = await fetchProjectRuns(paramId, source)
+                if (!cancelled) {
+                    setProject(data)
+                }
             } catch (error) {
-                console.error('Failed to fetch project:', error)
+                if (!cancelled) {
+                    console.error('Failed to fetch project:', error)
+                    setProject(null)
+                }
             } finally {
-                setLoading(false)
+                if (!cancelled) {
+                    setLoading(false)
+                }
             }
         }
         loadProject()
-    }, [paramId])
+
+        return () => {
+            cancelled = true
+        }
+    }, [paramId, source])
 
     if (loading) {
         return (

@@ -13,7 +13,6 @@ impl TerminalExporter {
             first_record: true,
         }
     }
-
 }
 
 #[async_trait(?Send)]
@@ -30,14 +29,33 @@ impl Exporter for TerminalExporter {
         println!("\n[TERMINAL EXPORT]");
         println!("\n{}", "=".repeat(128));
         println!(
-            "{:<5} {:<8} {:<32} {:<10} {:<10} {:<12} {:<12} {:<12}",
-            "ID", "PID", "Timestamp", "CPU%", "CPU(W)", "GPU%", "GPU(W), MEM%", "MEM(W)"
+            "{:<5} {:<8} {:<32} {:<10} {:<10} {:<12} {:<12} {:<12} {:<12} {:<12} {:<12}",
+            "ID",
+            "PID",
+            "Timestamp",
+            "CPU%",
+            "CPU(W)",
+            "GPU%",
+            "GPU(W)",
+            "MEM%",
+            "MEM(W)",
+            "IGPU%",
+            "IGPU(W)"
         );
         println!("{}", "-".repeat(128));
 
         for record in &self.records {
+            let mem_energy_s = record
+                .mem_energy
+                .map_or_else(|| "N/A".to_string(), |v| format!("{:.3}", v));
+            let igpu_usage_s = record
+                .igpu_usage
+                .map_or_else(|| "N/A".to_string(), |v| format!("{:.3}", v));
+            let igpu_energy_s = record
+                .igpu_energy
+                .map_or_else(|| "N/A".to_string(), |v| format!("{:.3}", v));
             println!(
-                "{:<5} {:<8} {:<32} {:<10.2} {:<10.2} {:<12.3} {:<12.3} {:<12.3} {:<12.3}",
+                "{:<5} {:<8} {:<32} {:<10.2} {:<10.2} {:<12.3} {:<12.3} {:<12.3} {:<12} {:<12} {:<12}",
                 record.id,
                 record.pid,
                 record.timestamp,
@@ -46,8 +64,22 @@ impl Exporter for TerminalExporter {
                 record.gpu_usage,
                 record.gpu_energy,
                 record.mem_usage,
-                record.mem_energy
+                mem_energy_s,
+                igpu_usage_s,
+                igpu_energy_s
             );
+            for gm in &record.gpu_metrics {
+                println!(
+                    "      └─ GPU {}: Usage {:.1}%, Energy {:.3} W",
+                    gm.device_index, gm.gpu_usage, gm.gpu_energy
+                );
+            }
+            for sm in &record.socket_metrics {
+                println!(
+                    "      └─ Socket {} ({}): {:.4} W",
+                    sm.socket, sm.domain, sm.energy
+                );
+            }
         }
         println!("{}\n", "=".repeat(128));
 
@@ -55,7 +87,6 @@ impl Exporter for TerminalExporter {
     }
 
     async fn export_line(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        //export the last record
         let r = self.records.last().unwrap();
 
         if self.first_record {
@@ -78,8 +109,18 @@ impl Exporter for TerminalExporter {
             self.first_record = false;
         }
 
+        let mem_energy_s = r
+            .mem_energy
+            .map_or_else(|| "N/A".to_string(), |v| format!("{:.3}", v));
+        let igpu_usage_s = r
+            .igpu_usage
+            .map_or_else(|| "N/A".to_string(), |v| format!("{:.3}", v));
+        let igpu_energy_s = r
+            .igpu_energy
+            .map_or_else(|| "N/A".to_string(), |v| format!("{:.3}", v));
+
         println!(
-            "{:<5} {:<8} {:<40} {:<10.2} {:<10.2} {:<12.3} {:<12.3} {:<12.3} {:<12.3} {:<12.3} {:<12.3}",
+            "{:<5} {:<8} {:<40} {:<10.2} {:<10.2} {:<12.3} {:<12.3} {:<12.3} {:<12} {:<12} {:<12}",
             r.id,
             r.pid,
             r.timestamp,
@@ -88,10 +129,23 @@ impl Exporter for TerminalExporter {
             r.gpu_usage,
             r.gpu_energy,
             r.mem_usage,
-            r.mem_energy,
-            r.igpu_usage,
-            r.igpu_energy
+            mem_energy_s,
+            igpu_usage_s,
+            igpu_energy_s
         );
+
+        for gm in &r.gpu_metrics {
+            println!(
+                "      └─ GPU {}: Usage {:.1}%, Energy {:.3} W",
+                gm.device_index, gm.gpu_usage, gm.gpu_energy
+            );
+        }
+        for sm in &r.socket_metrics {
+            println!(
+                "      └─ Socket {} ({}): {:.4} W",
+                sm.socket, sm.domain, sm.energy
+            );
+        }
 
         Ok(())
     }

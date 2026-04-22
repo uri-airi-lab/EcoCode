@@ -40,7 +40,9 @@ pub fn get_gpu_count(nvml: &Nvml) -> Result<u32, Box<dyn std::error::Error>> {
 }
 
 /// Collects Device handles for all GPUs.
-pub fn get_all_gpu_devices<'a>(nvml: &'a Nvml) -> Result<Vec<Device<'a>>, Box<dyn std::error::Error>> {
+pub fn get_all_gpu_devices<'a>(
+    nvml: &'a Nvml,
+) -> Result<Vec<Device<'a>>, Box<dyn std::error::Error>> {
     let count = nvml.device_count()?;
     let mut devices = Vec::with_capacity(count as usize);
     for i in 0..count {
@@ -50,13 +52,13 @@ pub fn get_all_gpu_devices<'a>(nvml: &'a Nvml) -> Result<Vec<Device<'a>>, Box<dy
 }
 
 pub fn get_gpu_energy(device: &Device) -> Result<f64, Box<dyn std::error::Error>> {
-    let energy_milij = device.total_energy_consumption()?; // in mJ
+    let energy_milij = device.total_energy_consumption()?; // in milliJ
     Ok(energy_milij as f64)
 }
 
 /// Reads energy (mJ) from all GPU devices.
 pub fn get_all_gpu_energies(devices: &[Device]) -> Result<Vec<f64>, Box<dyn std::error::Error>> {
-    devices.iter().map(|d| get_gpu_energy(d)).collect()
+    devices.iter().map(|d| get_gpu_energy(d)).collect() // in milliJ
 }
 
 pub fn get_gpu_energy_by_pid(
@@ -66,6 +68,7 @@ pub fn get_gpu_energy_by_pid(
     energy_2: f64,
     timestamp: u64,
     interval_secs: f64,
+    max_energy_seen: f64,
 ) -> (f64, f64, u64) {
     let stats = match device.process_utilization_stats(timestamp) {
         Ok(s) => s,
@@ -89,11 +92,24 @@ pub fn get_gpu_energy_by_pid(
         (sum as f64 / pid_samples.len() as f64) / 100.0
     };
 
+    // NVML's total_energy_consumption is a monotonically-increasing u64 mJ counter
+    // that resets to 0 on driver reload or GPU reset (mathematical u64 overflow
+    // would take ~1.5 million years at full load and never happens in practice).
+    //
+    // When the counter goes backwards we reconstruct the true delta using the
+    // highest value observed so far as the rollover point:
+    //   delta = energy_2 + (max_energy_seen - energy_1)
+    //
+    // This recovers any energy accumulated between energy_1 and the reset moment.
+    // When max_energy_seen == energy_1 (the common case) it reduces to energy_2.
     let delta_energy_mj = if energy_2 >= energy_1 {
         energy_2 - energy_1
     } else {
-        println!("Warning: GPU energy counter wrapped or reset.");
-        energy_2
+        eprintln!(
+            "Warning: GPU energy counter decreased — driver reload or GPU reset detected. \
+             Applying rollover correction."
+        );
+        (energy_2 + (max_energy_seen - energy_1)).max(0.0)
     };
 
     let total_gpu_power_w = delta_energy_mj / 1000.0 / interval_secs;
@@ -114,6 +130,7 @@ pub fn get_all_gpu_energies_by_pid(
     energies_2: &[f64],
     timestamps: &[u64],
     interval_secs: f64,
+    max_energies: &[f64],
 ) -> Vec<GpuPidResult> {
     devices
         .iter()
@@ -126,6 +143,7 @@ pub fn get_all_gpu_energies_by_pid(
                 energies_2[i],
                 timestamps[i],
                 interval_secs,
+                max_energies[i],
             );
             GpuPidResult {
                 device_index: i as u32,

@@ -10,6 +10,7 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
+  Brush,
 } from 'recharts'
 import { MetricRecord } from '@/lib/mock-data'
 import { format } from 'date-fns'
@@ -44,15 +45,20 @@ export function SocketEnergyChart({ data }: SocketEnergyChartProps) {
   }, [data])
 
   const chartData = useMemo(() => {
-    const records = data.slice(-100)
+    const records = data
 
     return records.map((record) => {
       const point: Record<string, string | number> = {
         time: format(new Date(record.timestamp), 'HH:mm:ss'),
       }
 
+      // Pre-fill all known socket keys with 0 to prevent gaps
+      for (const key of socketKeys) {
+        point[key] = 0
+      }
+
       for (const s of record.socket_details ?? []) {
-        point[`s${s.socket}_${s.domain}`] = Number(s.energy.toFixed(2))
+        point[`s${s.socket}_${s.domain}`] = Number((s.energy ?? 0).toFixed(2))
       }
 
       return point
@@ -109,9 +115,17 @@ export function SocketEnergyChart({ data }: SocketEnergyChartProps) {
                 dot={false}
                 name={`Socket ${socketNum} · ${domain.toUpperCase()}`}
                 isAnimationActive={false}
+                connectNulls={true}
               />
             )
           })}
+          <Brush
+            dataKey="time"
+            height={30}
+            stroke="rgba(255,255,255,0.2)"
+            fill="rgba(0,0,0,0.5)"
+            travellerWidth={10}
+          />
         </LineChart>
       </ResponsiveContainer>
     </div>

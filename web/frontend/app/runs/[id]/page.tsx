@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Zap, Leaf } from 'lucide-react'
+import { ArrowLeft, Zap } from 'lucide-react'
+import { useDataSource } from '@/components/DataSourceProvider'
 import { DashboardLayout } from '@/components/DashboardLayout'
 import { EnergyChart } from '@/components/EnergyChart'
 import { UtilizationChart } from '@/components/UtilizationChart'
@@ -22,7 +23,8 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
   const [run, setRun] = useState<Run | null>(null)
   const [loading, setLoading] = useState(true)
   const [paramId, setParamId] = useState<string | null>(null)
-  const { latestRecord } = useSSE()
+  const { source } = useDataSource()
+  const { latestRecord } = useSSE(source)
 
   useEffect(() => {
     const initParams = async () => {
@@ -48,17 +50,17 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
       // Calculate new total energy incrementally (O(1))
       const newTotalEnergy =
         prevRun.totalEnergy +
-        (latestRecord.cpu_energy +
-          latestRecord.gpu_energy +
-          latestRecord.mem_energy +
-          latestRecord.igpu_energy)
+        ((latestRecord.cpu_energy ?? 0) +
+          (latestRecord.gpu_energy ?? 0) +
+          (latestRecord.mem_energy ?? 0) +
+          (latestRecord.igpu_energy ?? 0))
 
       const energyKwh = newTotalEnergy / 1000
 
       // Incremental averages
-      const avgCpuUsage = (prevRun.avgCpuUsage * (count - 1) + latestRecord.cpu_usage) / count
-      const avgGpuUsage = (prevRun.avgGpuUsage * (count - 1) + latestRecord.gpu_usage) / count
-      const avgMemUsage = (prevRun.avgMemUsage * (count - 1) + latestRecord.mem_usage) / count
+      const avgCpuUsage = (prevRun.avgCpuUsage * (count - 1) + (latestRecord.cpu_usage ?? 0)) / count
+      const avgGpuUsage = (prevRun.avgGpuUsage * (count - 1) + (latestRecord.gpu_usage ?? 0)) / count
+      const avgMemUsage = (prevRun.avgMemUsage * (count - 1) + (latestRecord.mem_usage ?? 0)) / count
 
       return {
         ...prevRun,
@@ -76,19 +78,33 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
   useEffect(() => {
     if (!paramId) return
 
+    let cancelled = false
+
     const fetchRun = async () => {
+      setLoading(true)
       try {
-        const data = await fetchRunDetail(paramId)
-        setRun(data)
+        const data = await fetchRunDetail(paramId, source)
+        if (!cancelled) {
+          setRun(data)
+        }
       } catch (error) {
-        console.error('Failed to fetch run:', error)
+        if (!cancelled) {
+          console.error('Failed to fetch run:', error)
+          setRun(null)
+        }
       } finally {
-        setLoading(false)
+        if (!cancelled) {
+          setLoading(false)
+        }
       }
     }
 
     fetchRun()
-  }, [paramId])
+
+    return () => {
+      cancelled = true
+    }
+  }, [paramId, source])
 
   if (loading) {
     return (

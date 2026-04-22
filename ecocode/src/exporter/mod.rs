@@ -13,9 +13,8 @@ pub mod json;
 pub mod local;
 pub mod logfile;
 pub mod online;
-pub mod terminal;
 pub mod prometheus;
-
+pub mod terminal;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -42,16 +41,16 @@ pub struct Record {
     pub id: u32,
     pub run_id: i64,
     pub pid: u32,
-    pub timestamp: String, // RFC3339 UTC timestamp
-    pub cpu_usage: f64,    // percentage (0-100)
-    pub cpu_energy: f64,   // watts (aggregate across sockets)
-    pub gpu_usage: f64,    // percentage (0-100) (aggregate across GPUs)
-    pub gpu_energy: f64,   // watts (aggregate across GPUs)
-    pub mem_usage: f64,    // percentage (0-100) Dram
-    pub mem_energy: f64,   // watts
-    pub igpu_usage: f64,   // igpu
-    pub igpu_energy: f64,
-    pub gpu_metrics: Vec<GpuMetric>,       // per-GPU breakdown
+    pub timestamp: String,                 // RFC3339 UTC timestamp
+    pub cpu_usage: f64,                    // percentage (0-100)
+    pub cpu_energy: f64,                   // watts (aggregate across sockets)
+    pub gpu_usage: f64,                    // percentage (0-100) (aggregate across GPUs)
+    pub gpu_energy: f64,                   // watts (aggregate across GPUs)
+    pub mem_usage: f64,                    // percentage (0-100), always available from sysinfo
+    pub mem_energy: Option<f64>, // watts — None when DRAM RAPL domain absent on this system
+    pub igpu_usage: Option<f64>, // None — no per-process iGPU sensor available
+    pub igpu_energy: Option<f64>, // None when iGPU RAPL domain absent on this system
+    pub gpu_metrics: Vec<GpuMetric>, // per-GPU breakdown
     pub socket_metrics: Vec<SocketMetric>, // per-socket RAPL breakdown
 }
 
@@ -82,9 +81,9 @@ impl Record {
             gpu_usage,
             gpu_energy,
             mem_usage: mem_usage.unwrap_or(0.0),
-            mem_energy: mem_energy.unwrap_or(0.0),
-            igpu_usage: igpu_usage.unwrap_or(0.0),
-            igpu_energy: igpu_energy.unwrap_or(0.0),
+            mem_energy,
+            igpu_usage,
+            igpu_energy,
             gpu_metrics,
             socket_metrics,
         }
@@ -100,9 +99,12 @@ impl Record {
             self.gpu_usage.to_string(),
             self.gpu_energy.to_string(),
             self.mem_usage.to_string(),
-            self.mem_energy.to_string(),
-            self.igpu_usage.to_string(),
-            self.igpu_energy.to_string(),
+            self.mem_energy
+                .map_or_else(|| "N/A".to_string(), |v| v.to_string()),
+            self.igpu_usage
+                .map_or_else(|| "N/A".to_string(), |v| v.to_string()),
+            self.igpu_energy
+                .map_or_else(|| "N/A".to_string(), |v| v.to_string()),
         ];
         for gm in &self.gpu_metrics {
             v.push(gm.gpu_usage.to_string());

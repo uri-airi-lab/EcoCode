@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useDataSource } from '@/components/DataSourceProvider'
 import { DashboardLayout } from '@/components/DashboardLayout'
 import { ProjectsTable } from '@/components/ProjectsTable'
 import { ProjectSummary, fetchAllProjects } from '@/lib/api-client'
@@ -9,20 +10,35 @@ import { Folder } from 'lucide-react'
 export default function ProjectsPage() {
     const [projects, setProjects] = useState<ProjectSummary[]>([])
     const [loading, setLoading] = useState(true)
+    const { source } = useDataSource()
 
     useEffect(() => {
+        let cancelled = false
+
         const loadProjects = async () => {
+            setLoading(true)
             try {
-                const data = await fetchAllProjects()
-                setProjects(data)
+                const data = await fetchAllProjects(source)
+                if (!cancelled) {
+                    setProjects(data)
+                }
             } catch (error) {
-                console.error('Failed to load projects:', error)
+                if (!cancelled) {
+                    console.error('Failed to load projects:', error)
+                    setProjects([])
+                }
             } finally {
-                setLoading(false)
+                if (!cancelled) {
+                    setLoading(false)
+                }
             }
         }
         loadProjects()
-    }, [])
+
+        return () => {
+            cancelled = true
+        }
+    }, [source])
 
     return (
         <DashboardLayout>

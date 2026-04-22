@@ -1,6 +1,8 @@
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 
+import { DataSourceProvider } from '@/components/DataSourceProvider'
+
 import './globals.css'
 
 const inter = Inter({ subsets: ['latin'] })
@@ -27,7 +29,7 @@ export default function RootLayout({
         suppressHydrationWarning
         className={`${inter.className} font-sans antialiased bg-background text-foreground`}
       >
-        {children}
+        <DataSourceProvider>{children}</DataSourceProvider>
       </body>
     </html>
   )

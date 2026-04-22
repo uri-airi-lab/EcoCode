@@ -20,7 +20,6 @@ impl CsvExporter {
             first_record: true,
         })
     }
-
 }
 
 #[async_trait(?Send)]
@@ -28,26 +27,29 @@ impl Exporter for CsvExporter {
     fn exporter_type(&self) -> ExporterType {
         ExporterType::Csv
     }
-        async fn add_record(&mut self, record: Record) -> Result<(), Box<dyn std::error::Error>> {
+    async fn add_record(&mut self, record: Record) -> Result<(), Box<dyn std::error::Error>> {
         if self.first_record {
-            self.writer
-                .write_record(vec![
-                    "ID",
-                    "Run ID",
-                    "PID",
-                    "Timestamp",
-                    "CPU%",
-                    "CPU(W)",
-                    "GPU%",
-                    "GPU(W)",
-                    "MEM%",
-                    "MEM(W)",
-                    "IGPU%",
-                    "IGPU(W)",
-                ])
-                .unwrap();
+            let mut header: Vec<String> = vec![
+                "ID".into(),
+                "Run ID".into(),
+                "PID".into(),
+                "Timestamp".into(),
+                "CPU%".into(),
+                "CPU(W)".into(),
+                "GPU%".into(),
+                "GPU(W)".into(),
+                "MEM%".into(),
+                "MEM(W)".into(),
+                "IGPU%".into(),
+                "IGPU(W)".into(),
+            ];
+            for gm in &record.gpu_metrics {
+                header.push(format!("GPU{}%", gm.device_index));
+                header.push(format!("GPU{}(W)", gm.device_index));
+            }
+            self.writer.write_record(&header).unwrap();
+            self.first_record = false;
         }
-        self.first_record = false;
         self.writer.write_record(&record.to_vec()).unwrap();
         self.writer.flush().unwrap();
         Ok(())

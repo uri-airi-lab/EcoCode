@@ -19,7 +19,11 @@ impl LogFileExporter {
     pub fn new(file_path: String) -> Result<LogFileExporter, Box<dyn std::error::Error>> {
         let file = File::create(&file_path)?;
         let mut writer = BufWriter::new(file);
-        writeln!(writer, "EcoCode Log — started at {}", chrono::Utc::now().to_rfc3339())?;
+        writeln!(
+            writer,
+            "EcoCode Log — started at {}",
+            chrono::Utc::now().to_rfc3339()
+        )?;
         writeln!(writer, "{}", "=".repeat(140))?;
         writer.flush()?;
         Ok(LogFileExporter {
@@ -49,14 +53,42 @@ impl Exporter for LogFileExporter {
         if !self.records.is_empty() {
             let total_cpu_energy: f64 = self.records.iter().map(|r| r.cpu_energy).sum();
             let total_gpu_energy: f64 = self.records.iter().map(|r| r.gpu_energy).sum();
-            let total_mem_energy: f64 = self.records.iter().map(|r| r.mem_energy).sum();
-            let total_igpu_energy: f64 = self.records.iter().map(|r| r.igpu_energy).sum();
-            let total_energy = total_cpu_energy + total_gpu_energy + total_mem_energy + total_igpu_energy;
+
+            // Accumulate optional domains: None means the domain was absent on this system.
+            let total_mem_energy: Option<f64> =
+                self.records
+                    .iter()
+                    .fold(None, |acc, r| match (acc, r.mem_energy) {
+                        (Some(a), Some(b)) => Some(a + b),
+                        (None, Some(b)) => Some(b),
+                        (acc, None) => acc,
+                    });
+            let total_igpu_energy: Option<f64> =
+                self.records
+                    .iter()
+                    .fold(None, |acc, r| match (acc, r.igpu_energy) {
+                        (Some(a), Some(b)) => Some(a + b),
+                        (None, Some(b)) => Some(b),
+                        (acc, None) => acc,
+                    });
+
+            let total_energy = total_cpu_energy
+                + total_gpu_energy
+                + total_mem_energy.unwrap_or(0.0)
+                + total_igpu_energy.unwrap_or(0.0);
 
             writeln!(self.writer, "Total CPU Energy:  {:.4} W", total_cpu_energy)?;
             writeln!(self.writer, "Total GPU Energy:  {:.4} W", total_gpu_energy)?;
-            writeln!(self.writer, "Total MEM Energy:  {:.4} W", total_mem_energy)?;
-            writeln!(self.writer, "Total iGPU Energy: {:.4} W", total_igpu_energy)?;
+            writeln!(
+                self.writer,
+                "Total MEM Energy:  {}",
+                total_mem_energy.map_or_else(|| "N/A".to_string(), |v| format!("{:.4} W", v))
+            )?;
+            writeln!(
+                self.writer,
+                "Total iGPU Energy: {}",
+                total_igpu_energy.map_or_else(|| "N/A".to_string(), |v| format!("{:.4} W", v))
+            )?;
             writeln!(self.writer, "Total Energy:      {:.4} W", total_energy)?;
         }
 
@@ -73,15 +105,35 @@ impl Exporter for LogFileExporter {
             writeln!(
                 self.writer,
                 "{:<5} {:<8} {:<40} {:<10} {:<10} {:<12} {:<12} {:<12} {:<12} {:<12} {:<12}",
-                "ID", "PID", "Timestamp", "CPU%", "CPU(W)", "GPU%", "GPU(W)", "MEM%", "MEM(W)", "IGPU%", "IGPU(W)"
+                "ID",
+                "PID",
+                "Timestamp",
+                "CPU%",
+                "CPU(W)",
+                "GPU%",
+                "GPU(W)",
+                "MEM%",
+                "MEM(W)",
+                "IGPU%",
+                "IGPU(W)"
             )?;
             writeln!(self.writer, "{}", "-".repeat(140))?;
             self.first_record = false;
         }
 
+        let mem_energy_s = r
+            .mem_energy
+            .map_or_else(|| "N/A".to_string(), |v| format!("{:.3}", v));
+        let igpu_usage_s = r
+            .igpu_usage
+            .map_or_else(|| "N/A".to_string(), |v| format!("{:.3}", v));
+        let igpu_energy_s = r
+            .igpu_energy
+            .map_or_else(|| "N/A".to_string(), |v| format!("{:.3}", v));
+
         writeln!(
             self.writer,
-            "{:<5} {:<8} {:<40} {:<10.2} {:<10.2} {:<12.3} {:<12.3} {:<12.3} {:<12.3} {:<12.3} {:<12.3}",
+            "{:<5} {:<8} {:<40} {:<10.2} {:<10.2} {:<12.3} {:<12.3} {:<12.3} {:<12} {:<12} {:<12}",
             r.id,
             r.pid,
             r.timestamp,
@@ -90,9 +142,9 @@ impl Exporter for LogFileExporter {
             r.gpu_usage,
             r.gpu_energy,
             r.mem_usage,
-            r.mem_energy,
-            r.igpu_usage,
-            r.igpu_energy
+            mem_energy_s,
+            igpu_usage_s,
+            igpu_energy_s
         )?;
 
         // Log per-GPU details if available
@@ -136,7 +188,12 @@ impl Exporter for LogFileExporter {
         _collaborator_name: Option<&str>,
         started_at: Option<&str>,
     ) -> Result<i64, Box<dyn std::error::Error>> {
-        writeln!(self.writer, "Run: {} | Started: {}", run_name, started_at.unwrap_or("N/A"))?;
+        writeln!(
+            self.writer,
+            "Run: {} | Started: {}",
+            run_name,
+            started_at.unwrap_or("N/A")
+        )?;
         writeln!(self.writer, "{}", "-".repeat(140))?;
         self.writer.flush()?;
         Ok(0)
@@ -148,7 +205,12 @@ impl Exporter for LogFileExporter {
         status: &str,
         ended_at: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        writeln!(self.writer, "\nRun completed | Status: {} | Ended: {}", status, ended_at.unwrap_or("N/A"))?;
+        writeln!(
+            self.writer,
+            "\nRun completed | Status: {} | Ended: {}",
+            status,
+            ended_at.unwrap_or("N/A")
+        )?;
         self.writer.flush()?;
         Ok(())
     }

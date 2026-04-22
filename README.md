@@ -16,7 +16,8 @@
 
 EcoCode monitors the real-time energy footprint of any process on your Linux machine — tracking **CPU, multiple GPUs, RAM, and integrated GPU** power consumption per process using RAPL and NVML. It includes a **web dashboard** (Rust/Axum backend + Next.js frontend) for visualizing historical runs, and supports **multiple export formats** including terminal, CSV, JSON, SQLite, Prometheus, and log files.
 
-## ✨ Key Features
+## ✨ Key Featuressource "$HOME/.cargo/env"
+
 
 | Feature | Description |
 |---------|-------------|

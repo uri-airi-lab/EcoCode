@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { Activity, ArrowUpRight, Folder, History, PlayCircle, Users, Zap } from 'lucide-react'
 
+import { useDataSource } from '@/components/DataSourceProvider'
 import { DashboardLayout } from '@/components/DashboardLayout'
 import { MetricCard } from '@/components/MetricCard'
 import { AdminProjectMonitor, ProjectSummary, fetchAdminProjects, fetchAllProjects } from '@/lib/api-client'
@@ -30,15 +31,17 @@ export default function AdminPage() {
   const [projectSummaries, setProjectSummaries] = useState<ProjectSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const { source } = useDataSource()
 
   useEffect(() => {
     let cancelled = false
 
     const loadProjects = async () => {
+      setLoading(true)
       try {
         const [adminData, summaryData] = await Promise.all([
-          fetchAdminProjects(),
-          fetchAllProjects(),
+          fetchAdminProjects(source),
+          fetchAllProjects(source),
         ])
 
         if (!cancelled) {
@@ -65,7 +68,7 @@ export default function AdminPage() {
       cancelled = true
       window.clearInterval(intervalId)
     }
-  }, [])
+  }, [source])
 
   const stats = useMemo(() => {
     const activeProjects = projects.filter((project) => project.activeRuns.length > 0).length

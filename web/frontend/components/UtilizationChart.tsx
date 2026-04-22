@@ -8,7 +8,9 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
+  Legend,
   ResponsiveContainer,
+  Brush,
 } from 'recharts'
 import { MetricRecord } from '@/lib/mock-data'
 import { format } from 'date-fns'
@@ -40,18 +42,22 @@ export function UtilizationChart({ data }: UtilizationChartProps) {
   }, [data])
 
   const chartData = useMemo(() => {
-    const records = data.slice(-100)
+    const records = data
 
     return records.map((record) => {
       const point: Record<string, string | number> = {
         time: format(new Date(record.timestamp), 'HH:mm:ss'),
-        cpu: Number(record.cpu_usage.toFixed(2)),
-        gpu: Number(record.gpu_usage.toFixed(2)),
-        mem: Number(record.mem_usage.toFixed(2)),
+        cpu: Number((record.cpu_usage ?? 0).toFixed(2)),
+        gpu: Number((record.gpu_usage ?? 0).toFixed(2)),
+        mem: Number((record.mem_usage ?? 0).toFixed(2)),
       }
 
+      // Initialize all GPU keys to 0 to prevent gaps
+      for (let i = 0; i < gpuCount; i++) {
+        point[`gpu${i}`] = 0
+      }
       for (const g of record.gpu_details ?? []) {
-        point[`gpu${g.device_index}`] = Number(g.gpu_usage.toFixed(2))
+        point[`gpu${g.device_index}`] = Number((g.gpu_usage ?? 0).toFixed(2))
       }
 
       return point
@@ -107,6 +113,7 @@ export function UtilizationChart({ data }: UtilizationChartProps) {
             fill="url(#colorCpu)"
             name="CPU Usage"
             isAnimationActive={false}
+            connectNulls={true}
           />
           <Area
             type="monotone"
@@ -116,6 +123,7 @@ export function UtilizationChart({ data }: UtilizationChartProps) {
             fill="url(#colorGpu)"
             name={gpuCount > 1 ? "GPU Usage (Avg)" : "GPU Usage"}
             isAnimationActive={false}
+            connectNulls={true}
           />
           {gpuCount > 1 && Array.from({ length: gpuCount }, (_, i) => (
             <Area
@@ -128,6 +136,7 @@ export function UtilizationChart({ data }: UtilizationChartProps) {
               fill="transparent"
               name={`GPU ${i}`}
               isAnimationActive={false}
+              connectNulls={true}
             />
           ))}
           <Area
@@ -138,6 +147,14 @@ export function UtilizationChart({ data }: UtilizationChartProps) {
             fill="url(#colorMem)"
             name="Memory Usage"
             isAnimationActive={false}
+            connectNulls={true}
+          />
+          <Brush
+            dataKey="time"
+            height={30}
+            stroke="rgba(255,255,255,0.2)"
+            fill="rgba(0,0,0,0.5)"
+            travellerWidth={10}
           />
         </AreaChart>
       </ResponsiveContainer>

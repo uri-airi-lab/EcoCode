@@ -68,8 +68,10 @@ pub fn get_all_energies(
 pub fn delta_cpu_energy_per_pid_w(
     energies_1: &[RaplEnergy],
     energies_2: &[RaplEnergy],
-    elapced_secs: f64,
+    elapsed_secs: f64,
     cpu_usage: f64,
+    mem_usage: f64,
+    igpu_usage: f64,
 ) -> Vec<RaplEnergyDelta> {
     //Check the lengths
     if energies_1.len() != energies_2.len() {
@@ -88,8 +90,20 @@ pub fn delta_cpu_energy_per_pid_w(
             energy_2
         };
 
+        // Each domain is attributed using the process's share of the relevant resource.
+        // Domains absent on this system simply won't appear in the energies vectors,
+        // so missing DRAM or iGPU domains are handled naturally — no entries, no delta.
+        let usage_fraction = match energies_1[i].domain.as_str() {
+            "cpu" => cpu_usage / 100.0,
+            "dram" => mem_usage / 100.0,
+            // No dedicated per-process iGPU sensor exists; cpu_usage is the best proxy
+            // for processes that drive integrated graphics alongside CPU work.
+            "igpu" => igpu_usage / 100.0,
+            _ => cpu_usage / 100.0,
+        };
+
         let delta_energy_per_pid =
-            ((((energy_2 - energy_1) / 1_000_000.0) / elapced_secs) * (cpu_usage / 100.0)).max(0.0); // convert to joules, divide by time to get power in watts, then multiply by cpu usage percentage to get the power attributed to the process
+            (((energy_2 - energy_1) / 1_000_000.0) / elapsed_secs * usage_fraction).max(0.0);
 
         delta_energy.push(RaplEnergyDelta {
             socket: energies_1[i].socket,

@@ -5,27 +5,33 @@
 
 use crate::exporter::{Exporter, ExporterType, ProjectInfo, Record};
 use async_trait::async_trait;
-use prometheus::{Encoder, Gauge, Registry, TextEncoder};
+use prometheus::{Encoder, Gauge, GaugeVec, Opts, Registry, TextEncoder};
 use std::error::Error;
 use warp::Filter;
 
 /// Exports records as Prometheus gauge metrics available at `http://localhost:9091/metrics`.
 ///
-/// Exposed metrics:
-/// - `ecocode_cpu_usage` — CPU usage percentage
-/// - `ecocode_cpu_energy_watts` — CPU energy consumption in Watts
-/// - `ecocode_gpu_usage` — GPU usage percentage
-/// - `ecocode_gpu_energy_watts` — GPU energy consumption in Watts
+/// Aggregate metrics (across all GPUs):
+/// - `ecocode_cpu_usage`, `ecocode_cpu_energy_watts`
+/// - `ecocode_gpu_usage`, `ecocode_gpu_energy_watts`
+/// - `ecocode_mem_usage`, `ecocode_mem_energy_watts`
+/// - `ecocode_igpu_usage`, `ecocode_igpu_energy_watts`
+///
+/// Per-device metrics (labeled by `device_index`, absent when no GPU present):
+/// - `ecocode_gpu_usage_per_device{device_index="N"}`
+/// - `ecocode_gpu_energy_watts_per_device{device_index="N"}`
 pub struct PrometheusExporter {
     registry: Registry,
     cpu_usage: Gauge,
     cpu_energy: Gauge,
     gpu_usage: Gauge,
     gpu_energy: Gauge,
-    mem_usage: Gauge,    // percentage (0-100) Dram
-    mem_energy: Gauge,   // watts
-    igpu_usage: Gauge,   //igpu
+    mem_usage: Gauge,
+    mem_energy: Gauge,
+    igpu_usage: Gauge,
     igpu_energy: Gauge,
+    gpu_usage_per_device: GaugeVec,
+    gpu_energy_per_device: GaugeVec,
 }
 
 impl PrometheusExporter {
@@ -46,9 +52,33 @@ impl PrometheusExporter {
         )
         .unwrap();
         let mem_usage = Gauge::new("ecocode_mem_usage", "Memory usage percentage").unwrap();
-        let mem_energy = Gauge::new("ecocode_mem_energy_watts", "Memory energy consumption in Watts").unwrap();
+        let mem_energy = Gauge::new(
+            "ecocode_mem_energy_watts",
+            "Memory energy consumption in Watts",
+        )
+        .unwrap();
         let igpu_usage = Gauge::new("ecocode_igpu_usage", "IGPU usage percentage").unwrap();
-        let igpu_energy = Gauge::new("ecocode_igpu_energy_watts", "IGPU energy consumption in Watts").unwrap();
+        let igpu_energy = Gauge::new(
+            "ecocode_igpu_energy_watts",
+            "IGPU energy consumption in Watts",
+        )
+        .unwrap();
+        let gpu_usage_per_device = GaugeVec::new(
+            Opts::new(
+                "ecocode_gpu_usage_per_device",
+                "GPU usage percentage per device",
+            ),
+            &["device_index"],
+        )
+        .unwrap();
+        let gpu_energy_per_device = GaugeVec::new(
+            Opts::new(
+                "ecocode_gpu_energy_watts_per_device",
+                "GPU energy consumption in Watts per device",
+            ),
+            &["device_index"],
+        )
+        .unwrap();
 
         registry.register(Box::new(cpu_usage.clone())).unwrap();
         registry.register(Box::new(cpu_energy.clone())).unwrap();
@@ -58,6 +88,12 @@ impl PrometheusExporter {
         registry.register(Box::new(mem_energy.clone())).unwrap();
         registry.register(Box::new(igpu_usage.clone())).unwrap();
         registry.register(Box::new(igpu_energy.clone())).unwrap();
+        registry
+            .register(Box::new(gpu_usage_per_device.clone()))
+            .unwrap();
+        registry
+            .register(Box::new(gpu_energy_per_device.clone()))
+            .unwrap();
 
         let exporter = PrometheusExporter {
             registry,
@@ -69,6 +105,8 @@ impl PrometheusExporter {
             mem_energy,
             igpu_usage,
             igpu_energy,
+            gpu_usage_per_device,
+            gpu_energy_per_device,
         };
 
         // Spawn a warp HTTP server in the background to serve metrics
@@ -99,9 +137,26 @@ impl Exporter for PrometheusExporter {
         self.gpu_usage.set(record.gpu_usage);
         self.gpu_energy.set(record.gpu_energy);
         self.mem_usage.set(record.mem_usage);
-        self.mem_energy.set(record.mem_energy);
-        self.igpu_usage.set(record.igpu_usage);
-        self.igpu_energy.set(record.igpu_energy);
+        // Only update optional gauges when the domain is present on this system.
+        // Absent domains leave the gauge at its last value (or 0.0 on first run).
+        if let Some(v) = record.mem_energy {
+            self.mem_energy.set(v);
+        }
+        if let Some(v) = record.igpu_usage {
+            self.igpu_usage.set(v);
+        }
+        if let Some(v) = record.igpu_energy {
+            self.igpu_energy.set(v);
+        }
+        for gm in &record.gpu_metrics {
+            let idx = gm.device_index.to_string();
+            self.gpu_usage_per_device
+                .with_label_values(&[&idx])
+                .set(gm.gpu_usage);
+            self.gpu_energy_per_device
+                .with_label_values(&[&idx])
+                .set(gm.gpu_energy);
+        }
         Ok(())
     }
 
@@ -147,8 +202,6 @@ impl Exporter for PrometheusExporter {
         Ok(())
     }
 }
-
-
 
 fn encode_metrics(registry: &Registry) -> String {
     let mut buffer = Vec::new();

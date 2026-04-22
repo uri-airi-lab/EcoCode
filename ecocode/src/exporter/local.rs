@@ -140,8 +140,20 @@ impl SqliteExporter {
         .execute(db)
         .await?;
 
-        Self::ensure_column(db, "projects", "collaborator_name", "ALTER TABLE projects ADD COLUMN collaborator_name TEXT").await?;
-        Self::ensure_column(db, "runs", "collaborator_name", "ALTER TABLE runs ADD COLUMN collaborator_name TEXT").await?;
+        Self::ensure_column(
+            db,
+            "projects",
+            "collaborator_name",
+            "ALTER TABLE projects ADD COLUMN collaborator_name TEXT",
+        )
+        .await?;
+        Self::ensure_column(
+            db,
+            "runs",
+            "collaborator_name",
+            "ALTER TABLE runs ADD COLUMN collaborator_name TEXT",
+        )
+        .await?;
         Self::ensure_column(
             db,
             "runs",
@@ -149,8 +161,20 @@ impl SqliteExporter {
             "ALTER TABLE runs ADD COLUMN status TEXT NOT NULL DEFAULT 'finished'",
         )
         .await?;
-        Self::ensure_column(db, "runs", "started_at", "ALTER TABLE runs ADD COLUMN started_at TEXT").await?;
-        Self::ensure_column(db, "runs", "ended_at", "ALTER TABLE runs ADD COLUMN ended_at TEXT").await?;
+        Self::ensure_column(
+            db,
+            "runs",
+            "started_at",
+            "ALTER TABLE runs ADD COLUMN started_at TEXT",
+        )
+        .await?;
+        Self::ensure_column(
+            db,
+            "runs",
+            "ended_at",
+            "ALTER TABLE runs ADD COLUMN ended_at TEXT",
+        )
+        .await?;
         Self::backfill_project_collaborators(db).await?;
         Self::sync_all_project_shortcuts(db).await?;
 
@@ -262,9 +286,7 @@ impl SqliteExporter {
         Ok(shortcut)
     }
 
-    async fn sync_all_project_shortcuts(
-        db: &SqlitePool,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    async fn sync_all_project_shortcuts(db: &SqlitePool) -> Result<(), Box<dyn std::error::Error>> {
         sqlx::query(
             "UPDATE projects
              SET collaborator_name = (
@@ -361,12 +383,10 @@ impl Exporter for SqliteExporter {
             .map(str::trim)
             .filter(|name| !name.is_empty());
 
-        let existing_project = sqlx::query(
-            "SELECT id FROM projects WHERE name = ?",
-        )
-        .bind(project_name)
-        .fetch_optional(&self.db)
-        .await?;
+        let existing_project = sqlx::query("SELECT id FROM projects WHERE name = ?")
+            .bind(project_name)
+            .fetch_optional(&self.db)
+            .await?;
 
         if let Some(row) = existing_project {
             let id = row.get::<i64, _>("id");
@@ -416,19 +436,18 @@ impl Exporter for SqliteExporter {
             )
         })?;
 
-        let result = sqlx::query(
-            "INSERT INTO projects (name, collaborator_name) VALUES (?, ?)",
-        )
-        .bind(project_name)
-        .bind(collaborator_name)
-        .execute(&self.db)
-        .await?;
+        let result = sqlx::query("INSERT INTO projects (name, collaborator_name) VALUES (?, ?)")
+            .bind(project_name)
+            .bind(collaborator_name)
+            .execute(&self.db)
+            .await?;
 
         let project_id = result.last_insert_rowid();
         self.add_project_collaborator(project_id, collaborator_name)
             .await?;
         let collaborators = self.load_project_collaborators(project_id).await?;
-        self.sync_project_shortcut(project_id, &collaborators).await?;
+        self.sync_project_shortcut(project_id, &collaborators)
+            .await?;
 
         Ok(ProjectInfo {
             id: project_id,

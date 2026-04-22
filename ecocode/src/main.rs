@@ -24,10 +24,12 @@ use exporter::{Exporter, ExporterType, GpuMetric, Record, SocketMetric};
 use crate::exporter::prometheus::PrometheusExporter;
 use crate::sensor::rapl::{delta_cpu_energy_per_pid_w, get_all_energies};
 
+// TODO: Make it prettier dynamic with rattatui
 // --- Command-line argument parsing ---
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
-struct Args {// TODO: Add run name 
+struct Args {
+    // TODO: Add run name
     //project name
     #[arg(short, long, default_value = "ecocode")]
     project: String,
@@ -71,7 +73,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None => None,
     };
 
-
     // Idiomatic Rust way.
     // let collaborator = args
     //     .collaborator
@@ -94,11 +95,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     //     // Needed because final variable likely requires ownership
     //     .map(str::to_owned);
 
-
-    
     // Before running the command run sudo chmod -R +r /sys/class/powercap/intel-rapl/
     //promp the user for their password to access
-    println!("Running: sudo chmod -R +r /sys/class/powercap/intel-rapl/ , please enter your password if needed.");
+    println!(
+        "Running: sudo chmod -R +r /sys/class/powercap/intel-rapl/ , please enter your password if needed."
+    );
     let _access = Command::new("sudo")
         .arg("chmod")
         .arg("-R")
@@ -109,7 +110,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // --- Exporter setup ---
     let require_file = |format: &str| -> String {
         args.file.clone().unwrap_or_else(|| {
-            eprintln!("Error: --file (-f) is required for the '{}' exporter.", format);
+            eprintln!(
+                "Error: --file (-f) is required for the '{}' exporter.",
+                format
+            );
             std::process::exit(1);
         })
     };
@@ -163,12 +167,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .await?;
 
-
-    
-
     // Open sys/class/powercap dir and look for intel-rapl files and make a buffer for them
     let mut rapl_readers = scan_rapl_files()?; //sorted by domain
-    
 
     // --- Spawn the target process ---
     let command = Command::new(&args.command[0])
@@ -176,7 +176,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .spawn()
         .expect("failed to execute process");
 
-    // Get the PID of the spawned process    
+    // Get the PID of the spawned process
     let pid = Pid::from(command.id() as usize);
 
     // --- System setup ---
@@ -201,14 +201,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("║  CPU: {:44}║", cpu.brand().trim());
     }
     println!("║  Cores / Threads: {:32}║", format!("{}", num_cores));
-    println!("║  Total RAM: {:38}║", format!("{:.1} GB", sys_memo as f64 / 1_073_741_824.0));
+    println!(
+        "║  Total RAM: {:38}║",
+        format!("{:.1} GB", sys_memo as f64 / 1_073_741_824.0)
+    );
 
     // Socket / RAPL summary
     let mut sockets: std::collections::BTreeSet<i16> = std::collections::BTreeSet::new();
-    let mut domains_per_socket: std::collections::BTreeMap<i16, Vec<String>> = std::collections::BTreeMap::new();
+    let mut domains_per_socket: std::collections::BTreeMap<i16, Vec<String>> =
+        std::collections::BTreeMap::new();
     for r in &rapl_readers {
         sockets.insert(r.socket);
-        domains_per_socket.entry(r.socket).or_default().push(r.domain.clone());
+        domains_per_socket
+            .entry(r.socket)
+            .or_default()
+            .push(r.domain.clone());
     }
     println!("║  CPU Sockets (RAPL): {:29}║", sockets.len());
     for (socket, domains) in &domains_per_socket {
@@ -223,15 +230,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    println!("║  Exporter: {:39}║", format!("{:?}", exporter.exporter_type()));
+    println!(
+        "║  Exporter: {:39}║",
+        format!("{:?}", exporter.exporter_type())
+    );
     println!("║  Interval: {:39}║", format!("{}s", args.interval));
     println!("╚════════════════════════════════════════════════════╝");
     println!();
 
-
     // --- Measurement state ---
     let mut iteration = 0;
-    
+
     // Per-GPU timestamps for process utilization sampling
     let mut gpu_timestamps: Vec<u64> = vec![0; gpu_count];
 
@@ -240,6 +249,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut cpu_energy_1 = get_all_energies(&mut rapl_readers)?;
 
     let mut gpu_energies_1 = get_all_gpu_energies(&devices)?;
+    // Running maximum energy (mJ) observed per GPU — used for rollover correction
+    // when the NVML counter resets (driver reload / GPU reset).
+    let mut gpu_max_energies: Vec<f64> = gpu_energies_1.clone();
 
     let period = Duration::from_secs(interval);
     let mut last_sample = Instant::now();
@@ -269,33 +281,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // to get a normalized 0–100% value for the whole system
                 sys.process(pid).unwrap().cpu_usage() / num_cores as f32
             };
-            // TODO: Add memory and Igpu handeling
+            // Done: Add memory and Igpu handeling
             mem_usage = (sys.process(pid).unwrap().memory() as f64 / sys_memo as f64) * 100.0;
 
             // --- CPU energy calculation ---
             let cpu_energy_2 = get_all_energies(&mut rapl_readers)?;
 
-            // Calculate delta energy per domain (cpu, dram, igpu) and convert to watts using the elapsed time and CPU usage
+            // Calculate delta energy per domain (cpu, dram, igpu) and convert to watts.
+            // Each domain is weighted by its own process-level resource usage.
+            // Domains not present on this system produce no entries, so mem_w / igpu_w
+            // remain 0.0 automatically when those RAPL domains are unavailable.
             let delta_cpu_energy_w = delta_cpu_energy_per_pid_w(
                 &cpu_energy_1,
                 &cpu_energy_2,
                 elapsed_secs,
                 cpu_usage as f64,
+                mem_usage,
+                cpu_usage as f64, // igpu proxy: no per-process iGPU sensor available
             );
 
-            // Map the delta energies to their respective domains (cpu, dram, igpu)
-            let (cpu_w, mem_w, igpu_w) =
-                delta_cpu_energy_w
-                    .iter()
-                    .fold((0.0_f64, 0.0_f64, 0.0_f64), |mut acc, d| {
-                        match d.domain.as_str() {
-                            "cpu" => acc.0 += d.delta_energy,
-                            "dram" => acc.1 += d.delta_energy,
-                            "igpu" => acc.2 += d.delta_energy,
-                            _ => {}
-                        }
-                        acc
-                    });
+            // Map the delta energies to their respective domains (cpu, dram, igpu).
+            // mem_w and igpu_w are None when those RAPL domains are absent on this system,
+            // so the exported record clearly distinguishes "not available" from "zero usage".
+            let (cpu_w, mem_w, igpu_w): (f64, Option<f64>, Option<f64>) = delta_cpu_energy_w
+                .iter()
+                .fold((0.0_f64, None, None), |mut acc, d| {
+                    match d.domain.as_str() {
+                        "cpu" => acc.0 += d.delta_energy,
+                        "dram" => acc.1 = Some(acc.1.unwrap_or(0.0) + d.delta_energy),
+                        "igpu" => acc.2 = Some(acc.2.unwrap_or(0.0) + d.delta_energy),
+                        _ => {}
+                    }
+                    acc
+                });
 
             // Build per-socket metrics from the RAPL deltas
             let socket_metrics: Vec<SocketMetric> = delta_cpu_energy_w
@@ -313,10 +331,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let gpu_results = get_all_gpu_energies_by_pid(
                 &devices,
                 pid.as_u32(),
-                &gpu_energies_1,
-                &gpu_energies_2,
+                &gpu_energies_1, // in mJ
+                &gpu_energies_2, // in mJ
                 &gpu_timestamps,
                 elapsed_secs,
+                &gpu_max_energies,
             );
 
             // Build per-GPU metrics and compute aggregates
@@ -342,7 +361,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 0.0
             };
 
-            // Carry forward: the end-of-interval reading becomes the start of the next interval
+            // Carry forward: the end-of-interval reading becomes the start of the next interval.
+            // Update the per-GPU running maximum with the latest readings (only when no reset
+            // occurred — a reset leaves gpu_energies_2[i] < gpu_energies_1[i], so max() keeps
+            // the pre-reset peak intact for the next rollover correction).
+            gpu_max_energies
+                .iter_mut()
+                .zip(gpu_energies_2.iter())
+                .for_each(|(max, &e2)| *max = max.max(e2));
             cpu_energy_1 = cpu_energy_2;
             gpu_energies_1 = gpu_energies_2;
 
@@ -357,9 +383,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 avg_gpu_util,
                 total_gpu_power,
                 Some((mem_usage * 100.0).round() / 100.0),
-                Some(mem_w),
-                None,
-                Some(igpu_w),
+                mem_w,
+                None, // igpu_usage — no per-process iGPU sensor available
+                igpu_w,
                 gpu_metrics,
                 socket_metrics,
             );
@@ -393,4 +419,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-

@@ -3,8 +3,6 @@
 import { useEffect, useState, useMemo } from 'react'
 import {
   Zap,
-  Leaf,
-  Droplets,
   Clock,
   Activity,
 } from 'lucide-react'
@@ -12,8 +10,8 @@ import { DashboardLayout } from '@/components/DashboardLayout'
 import { MetricCard } from '@/components/MetricCard'
 import { EnergyChart } from '@/components/EnergyChart'
 import { UtilizationChart } from '@/components/UtilizationChart'
-import { RecentRunsTable } from '@/components/RecentRunsTable'
 import { ProjectsTable } from '@/components/ProjectsTable'
+import { useDataSource } from '@/components/DataSourceProvider'
 import { Run } from '@/lib/mock-data'
 import { fetchAllRuns, fetchRunDetail, fetchAllProjects, ProjectSummary } from '@/lib/api-client'
 import { useSSE } from '@/hooks/use-sse'
@@ -23,7 +21,8 @@ export default function Dashboard() {
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [currentRun, setCurrentRun] = useState<Run | null>(null)
   const [loading, setLoading] = useState(true)
-  const { latestRecord } = useSSE()
+  const { source } = useDataSource()
+  const { latestRecord } = useSSE(source)
 
   // Update current run with real-time SSE data
   useEffect(() => {
@@ -66,30 +65,47 @@ export default function Dashboard() {
   }, [latestRecord])
 
   useEffect(() => {
+    let cancelled = false
+
     const fetchData = async () => {
+      setLoading(true)
       try {
-        const projData = await fetchAllProjects()
+        const projData = await fetchAllProjects(source)
+        if (cancelled) return
         setProjects(projData)
 
-        // Fetch all runs using the API client
-        const runsData = await fetchAllRuns()
+        const runsData = await fetchAllRuns(source)
+        if (cancelled) return
         setRuns(runsData)
 
-        // Fetch the latest run with details
         if (runsData.length > 0) {
           const latestRunId = runsData[runsData.length - 1].id
-          const runData = await fetchRunDetail(latestRunId)
+          const runData = await fetchRunDetail(latestRunId, source)
+          if (cancelled) return
           setCurrentRun(runData)
+        } else {
+          setCurrentRun(null)
         }
       } catch (error) {
-        console.error('Failed to fetch data:', error)
+        if (!cancelled) {
+          console.error('Failed to fetch data:', error)
+          setRuns([])
+          setProjects([])
+          setCurrentRun(null)
+        }
       } finally {
-        setLoading(false)
+        if (!cancelled) {
+          setLoading(false)
+        }
       }
     }
 
     fetchData()
-  }, [])
+
+    return () => {
+      cancelled = true
+    }
+  }, [source])
 
   // Calculate aggregate stats (memoized to avoid re-calculating on every real-time update)
   const stats = useMemo(() => {

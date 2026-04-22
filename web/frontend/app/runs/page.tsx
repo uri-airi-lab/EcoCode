@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { Search } from 'lucide-react'
+import { useDataSource } from '@/components/DataSourceProvider'
 import { DashboardLayout } from '@/components/DashboardLayout'
 import { RunsTable } from '@/components/RunsTable'
 import { Run } from '@/lib/mock-data'
@@ -12,22 +13,38 @@ export default function RunsPage() {
   const [filteredRuns, setFilteredRuns] = useState<Omit<Run, 'records'>[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
+  const { source } = useDataSource()
 
   useEffect(() => {
+    let cancelled = false
+
     const fetchRuns = async () => {
+      setLoading(true)
       try {
-        const data = await fetchAllRuns()
-        setRuns(data)
-        setFilteredRuns(data)
+        const data = await fetchAllRuns(source)
+        if (!cancelled) {
+          setRuns(data)
+          setFilteredRuns(data)
+        }
       } catch (error) {
-        console.error('Failed to fetch runs:', error)
+        if (!cancelled) {
+          console.error('Failed to fetch runs:', error)
+          setRuns([])
+          setFilteredRuns([])
+        }
       } finally {
-        setLoading(false)
+        if (!cancelled) {
+          setLoading(false)
+        }
       }
     }
 
     fetchRuns()
-  }, [])
+
+    return () => {
+      cancelled = true
+    }
+  }, [source])
 
   const handleSearch = (query: string) => {
     setSearchQuery(query)

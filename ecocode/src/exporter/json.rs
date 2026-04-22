@@ -22,8 +22,6 @@ impl JsonExporter {
             first_record: true,
         })
     }
-
-
 }
 
 #[async_trait(?Send)]
@@ -31,7 +29,7 @@ impl Exporter for JsonExporter {
     fn exporter_type(&self) -> ExporterType {
         ExporterType::Json
     }
-        async fn add_record(&mut self, record: Record) -> Result<(), Box<dyn Error>> {
+    async fn add_record(&mut self, record: Record) -> Result<(), Box<dyn Error>> {
         // Write a comma if it's not the first record
         if !self.first_record {
             self.writer.write_all(b",")?; // Add a comma between records

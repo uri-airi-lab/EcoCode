@@ -8,7 +8,9 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
+  Legend,
   ResponsiveContainer,
+  Brush,
 } from 'recharts'
 import { MetricRecord } from '@/lib/mock-data'
 import { format } from 'date-fns'
@@ -41,21 +43,26 @@ export function EnergyChart({ data }: EnergyChartProps) {
   }, [data])
 
   const chartData = useMemo(() => {
-    const records = data.slice(-100)
+    const records = data
 
     return records.map((record) => {
       const point: Record<string, string | number> = {
         time: format(new Date(record.timestamp), 'HH:mm:ss'),
-        cpu: Number(record.cpu_energy.toFixed(2)),
-        gpu: Number(record.gpu_energy.toFixed(2)),
-        mem: Number(record.mem_energy.toFixed(2)),
-        igpu: Number(record.igpu_energy.toFixed(2)),
-        total: Number((record.cpu_energy + record.gpu_energy + record.mem_energy + record.igpu_energy).toFixed(2)),
+        cpu: Number((record.cpu_energy ?? 0).toFixed(2)),
+        gpu: Number((record.gpu_energy ?? 0).toFixed(2)),
+        mem: Number((record.mem_energy ?? 0).toFixed(2)),
+        igpu: Number((record.igpu_energy ?? 0).toFixed(2)),
+        total: Number(((record.cpu_energy ?? 0) + (record.gpu_energy ?? 0) + (record.mem_energy ?? 0) + (record.igpu_energy ?? 0)).toFixed(2)),
+      }
+
+      // Initialize all GPU keys to 0 to prevent gaps in Recharts
+      for (let i = 0; i < gpuCount; i++) {
+        point[`gpu${i}`] = 0
       }
 
       // Add per-GPU fields
       for (const g of record.gpu_details ?? []) {
-        point[`gpu${g.device_index}`] = Number(g.gpu_energy.toFixed(2))
+        point[`gpu${g.device_index}`] = Number((g.gpu_energy ?? 0).toFixed(2))
       }
 
       return point
@@ -96,6 +103,7 @@ export function EnergyChart({ data }: EnergyChartProps) {
             dot={false}
             name="CPU Energy"
             isAnimationActive={false}
+            connectNulls={true}
           />
           <Line
             type="monotone"
@@ -105,6 +113,7 @@ export function EnergyChart({ data }: EnergyChartProps) {
             dot={false}
             name="GPU Energy (Total)"
             isAnimationActive={false}
+            connectNulls={true}
           />
           {gpuCount > 1 && Array.from({ length: gpuCount }, (_, i) => (
             <Line
@@ -117,6 +126,7 @@ export function EnergyChart({ data }: EnergyChartProps) {
               dot={false}
               name={`GPU ${i}`}
               isAnimationActive={false}
+              connectNulls={true}
             />
           ))}
           <Line
@@ -127,6 +137,7 @@ export function EnergyChart({ data }: EnergyChartProps) {
             dot={false}
             name="Memory Energy"
             isAnimationActive={false}
+            connectNulls={true}
           />
           <Line
             type="monotone"
@@ -136,6 +147,14 @@ export function EnergyChart({ data }: EnergyChartProps) {
             dot={false}
             name="iGPU Energy"
             isAnimationActive={false}
+            connectNulls={true}
+          />
+          <Brush
+            dataKey="time"
+            height={30}
+            stroke="rgba(255,255,255,0.2)"
+            fill="rgba(0,0,0,0.5)"
+            travellerWidth={10}
           />
         </LineChart>
       </ResponsiveContainer>

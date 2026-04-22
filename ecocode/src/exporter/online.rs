@@ -1,10 +1,10 @@
-// This will be the exporter for online platform EcoCode.com to save run informations online.
-// It will push the data to TimeScaleDB to be stored on the cloud.
+// Exporter for the online EcoCode platform — pushes run data to a
+// PostgreSQL / TimeScaleDB instance specified by DATABASE_URL.
 
-use sqlx::{Error, postgres::PgPool};
+use sqlx::{Row, postgres::PgPool};
 
 use dotenv::dotenv;
-use std::env;
+use std::{env, io};
 
 use crate::exporter::{Exporter, ExporterType, ProjectInfo, Record};
 use async_trait::async_trait;
@@ -14,33 +14,283 @@ pub struct OnlineExporter {
 }
 
 impl OnlineExporter {
-    pub async fn new() -> Result<OnlineExporter, Error> {
+    pub async fn new() -> Result<OnlineExporter, Box<dyn std::error::Error>> {
         dotenv().ok();
-        let db_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set in .env file");
+        let db_url = Self::resolve_db_url();
+        let db = PgPool::connect(&db_url).await?;
+        Self::initialize_schema(&db).await?;
+        Ok(OnlineExporter { db })
+    }
 
-        let db = PgPool::connect(&db_url).await?; // that's why it needs async
+    fn resolve_db_url() -> String {
+        if let Ok(db_url) = env::var("ECOCODE_ONLINE_DB_URL") {
+            return db_url;
+        }
+        env::var("DATABASE_URL").expect("DATABASE_URL or ECOCODE_ONLINE_DB_URL must be set")
+    }
+
+    async fn initialize_schema(db: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS projects (
+                id BIGSERIAL PRIMARY KEY,
+                name TEXT UNIQUE,
+                collaborator_name TEXT
+            )",
+        )
+        .execute(db)
+        .await?;
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS project_collaborators (
+                project_id BIGINT NOT NULL,
+                collaborator_name TEXT NOT NULL,
+                PRIMARY KEY (project_id, collaborator_name),
+                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+            )",
+        )
+        .execute(db)
+        .await?;
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS runs (
+                id BIGSERIAL PRIMARY KEY,
+                name TEXT,
+                project_id BIGINT REFERENCES projects(id),
+                collaborator_name TEXT,
+                status TEXT NOT NULL DEFAULT 'finished',
+                started_at TEXT,
+                ended_at TEXT
+            )",
+        )
+        .execute(db)
+        .await?;
 
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS records (
                 id BIGSERIAL PRIMARY KEY,
+                run_id BIGINT REFERENCES runs(id),
                 pid BIGINT,
                 timestamp TIMESTAMPTZ,
                 cpu_usage DOUBLE PRECISION,
                 cpu_energy DOUBLE PRECISION,
                 gpu_usage DOUBLE PRECISION,
-                gpu_energy DOUBLE PRECISION
+                gpu_energy DOUBLE PRECISION,
                 mem_usage DOUBLE PRECISION,
-                mem_energy DOUBLE PRECISION
+                mem_energy DOUBLE PRECISION,
+                igpu_usage DOUBLE PRECISION,
+                igpu_energy DOUBLE PRECISION
             )",
         )
-        .execute(&db)
+        .execute(db)
         .await?;
 
-        Ok(OnlineExporter { db })
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS gpu_records (
+                id BIGSERIAL PRIMARY KEY,
+                record_id BIGINT NOT NULL REFERENCES records(id) ON DELETE CASCADE,
+                device_index INTEGER NOT NULL,
+                gpu_usage DOUBLE PRECISION,
+                gpu_energy DOUBLE PRECISION
+            )",
+        )
+        .execute(db)
+        .await?;
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS socket_records (
+                id BIGSERIAL PRIMARY KEY,
+                record_id BIGINT NOT NULL REFERENCES records(id) ON DELETE CASCADE,
+                socket INTEGER NOT NULL,
+                domain TEXT NOT NULL,
+                energy DOUBLE PRECISION
+            )",
+        )
+        .execute(db)
+        .await?;
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS runsummary (
+                id BIGSERIAL PRIMARY KEY,
+                run_id BIGINT REFERENCES runs(id),
+                total_cpu_energy DOUBLE PRECISION,
+                total_gpu_energy DOUBLE PRECISION,
+                total_mem_energy DOUBLE PRECISION,
+                total_igpu_energy DOUBLE PRECISION
+            )",
+        )
+        .execute(db)
+        .await?;
+
+        // Forward-compatibility: add columns that may be missing on older deployments.
+        Self::ensure_column(
+            db,
+            "projects",
+            "collaborator_name",
+            "ALTER TABLE projects ADD COLUMN collaborator_name TEXT",
+        )
+        .await?;
+
+        Self::ensure_column(
+            db,
+            "runs",
+            "collaborator_name",
+            "ALTER TABLE runs ADD COLUMN collaborator_name TEXT",
+        )
+        .await?;
+
+        Self::ensure_column(
+            db,
+            "runs",
+            "status",
+            "ALTER TABLE runs ADD COLUMN status TEXT NOT NULL DEFAULT 'finished'",
+        )
+        .await?;
+
+        Self::ensure_column(
+            db,
+            "runs",
+            "started_at",
+            "ALTER TABLE runs ADD COLUMN started_at TEXT",
+        )
+        .await?;
+
+        Self::ensure_column(
+            db,
+            "runs",
+            "ended_at",
+            "ALTER TABLE runs ADD COLUMN ended_at TEXT",
+        )
+        .await?;
+
+        Self::backfill_project_collaborators(db).await?;
+        Self::sync_all_project_shortcuts(db).await?;
+
+        Ok(())
     }
 
+    async fn ensure_column(
+        db: &PgPool,
+        table: &str,
+        column: &str,
+        alter_sql: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if Self::has_column(db, table, column).await? {
+            return Ok(());
+        }
 
+        sqlx::query(alter_sql).execute(db).await?;
+        Ok(())
+    }
 
+    async fn has_column(
+        db: &PgPool,
+        table: &str,
+        column: &str,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        let row = sqlx::query(
+            "SELECT EXISTS (
+                SELECT 1 
+                FROM information_schema.columns 
+                WHERE table_name = $1 AND column_name = $2
+            )",
+        )
+        .bind(table)
+        .bind(column)
+        .fetch_one(db)
+        .await?;
+
+        Ok(row.get(0))
+    }
+
+    async fn backfill_project_collaborators(db: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
+        sqlx::query(
+            "INSERT INTO project_collaborators (project_id, collaborator_name)
+             SELECT id, collaborator_name FROM projects
+             WHERE collaborator_name IS NOT NULL AND TRIM(collaborator_name) <> ''
+             ON CONFLICT DO NOTHING",
+        )
+        .execute(db)
+        .await?;
+
+        sqlx::query(
+            "INSERT INTO project_collaborators (project_id, collaborator_name)
+             SELECT DISTINCT project_id, collaborator_name FROM runs
+             WHERE collaborator_name IS NOT NULL AND TRIM(collaborator_name) <> ''
+             ON CONFLICT DO NOTHING",
+        )
+        .execute(db)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn load_project_collaborators(
+        &self,
+        project_id: i64,
+    ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        let collaborators = sqlx::query_scalar::<_, String>(
+            "SELECT collaborator_name FROM project_collaborators
+             WHERE project_id = $1
+             ORDER BY collaborator_name ASC",
+        )
+        .bind(project_id)
+        .fetch_all(&self.db)
+        .await?;
+
+        Ok(collaborators)
+    }
+
+    async fn add_project_collaborator(
+        &self,
+        project_id: i64,
+        collaborator_name: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        sqlx::query(
+            "INSERT INTO project_collaborators (project_id, collaborator_name)
+             VALUES ($1, $2)
+             ON CONFLICT DO NOTHING",
+        )
+        .bind(project_id)
+        .bind(collaborator_name)
+        .execute(&self.db)
+        .await?;
+        Ok(())
+    }
+
+    async fn sync_project_shortcut(
+        &self,
+        project_id: i64,
+        collaborators: &[String],
+    ) -> Result<Option<String>, Box<dyn std::error::Error>> {
+        let shortcut = if collaborators.len() == 1 {
+            Some(collaborators[0].clone())
+        } else {
+            None
+        };
+        sqlx::query("UPDATE projects SET collaborator_name = $1 WHERE id = $2")
+            .bind(shortcut.as_deref())
+            .bind(project_id)
+            .execute(&self.db)
+            .await?;
+        Ok(shortcut)
+    }
+
+    async fn sync_all_project_shortcuts(db: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
+        sqlx::query(
+            "UPDATE projects
+             SET collaborator_name = (
+                 SELECT CASE
+                     WHEN COUNT(*) = 1 THEN MAX(collaborator_name)
+                     ELSE NULL
+                 END
+                 FROM project_collaborators
+                 WHERE project_id = projects.id
+             )",
+        )
+        .execute(db)
+        .await?;
+        Ok(())
+    }
 }
 
 #[async_trait(?Send)]
@@ -49,14 +299,20 @@ impl Exporter for OnlineExporter {
         ExporterType::Online
     }
 
-        async fn add_record(&mut self, record: Record) -> Result<(), Box<dyn std::error::Error>> {
-        sqlx::query(
-            "INSERT INTO records (run_id, pid, timestamp, cpu_usage, cpu_energy, gpu_usage, gpu_energy, mem_usage, mem_energy, igpu_usage, igpu_energy)
-            VALUES ($1, $2, $3::timestamptz, $4, $5, $6 , $7, $8, $9, $10)",
+    async fn add_record(&mut self, record: Record) -> Result<(), Box<dyn std::error::Error>> {
+        let record_id: i64 = sqlx::query_scalar(
+            "INSERT INTO records
+                (run_id, pid, timestamp,
+                 cpu_usage, cpu_energy,
+                 gpu_usage, gpu_energy,
+                 mem_usage, mem_energy,
+                 igpu_usage, igpu_energy)
+             VALUES ($1, $2, $3::timestamptz, $4, $5, $6, $7, $8, $9, $10, $11)
+             RETURNING id",
         )
         .bind(record.run_id)
         .bind(record.pid as i64)
-        .bind(record.timestamp)
+        .bind(&record.timestamp)
         .bind(record.cpu_usage)
         .bind(record.cpu_energy)
         .bind(record.gpu_usage)
@@ -65,8 +321,34 @@ impl Exporter for OnlineExporter {
         .bind(record.mem_energy)
         .bind(record.igpu_usage)
         .bind(record.igpu_energy)
-        .execute(&self.db)
+        .fetch_one(&self.db)
         .await?;
+
+        for gm in &record.gpu_metrics {
+            sqlx::query(
+                "INSERT INTO gpu_records (record_id, device_index, gpu_usage, gpu_energy)
+                 VALUES ($1, $2, $3, $4)",
+            )
+            .bind(record_id)
+            .bind(gm.device_index as i64)
+            .bind(gm.gpu_usage)
+            .bind(gm.gpu_energy)
+            .execute(&self.db)
+            .await?;
+        }
+
+        for sm in &record.socket_metrics {
+            sqlx::query(
+                "INSERT INTO socket_records (record_id, socket, domain, energy)
+                 VALUES ($1, $2, $3, $4)",
+            )
+            .bind(record_id)
+            .bind(sm.socket as i64)
+            .bind(&sm.domain)
+            .bind(sm.energy)
+            .execute(&self.db)
+            .await?;
+        }
 
         Ok(())
     }
@@ -78,35 +360,177 @@ impl Exporter for OnlineExporter {
     async fn export_line(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         Ok(())
     }
+
     async fn get_or_create_project(
         &mut self,
-        _project_name: &str,
+        project_name: &str,
         collaborator_name: Option<&str>,
     ) -> Result<ProjectInfo, Box<dyn std::error::Error>> {
+        let collaborator_name = collaborator_name
+            .map(str::trim)
+            .filter(|name| !name.is_empty());
+
+        let existing = sqlx::query("SELECT id FROM projects WHERE name = $1")
+            .bind(project_name)
+            .fetch_optional(&self.db)
+            .await?;
+
+        if let Some(row) = existing {
+            let id = row.get::<i64, _>("id");
+
+            if let Some(new_collab) = collaborator_name {
+                self.add_project_collaborator(id, new_collab).await?;
+            }
+
+            let collaborators = self.load_project_collaborators(id).await?;
+
+            let selected = if let Some(new_collab) = collaborator_name {
+                Some(new_collab.to_owned())
+            } else if collaborators.is_empty() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!(
+                        "Project '{project_name}' has no saved collaborators. \
+                         Re-run with --collaborator <name>."
+                    ),
+                )
+                .into());
+            } else if collaborators.len() == 1 {
+                Some(collaborators[0].clone())
+            } else {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!(
+                        "Project '{project_name}' has multiple collaborators ({:?}). \
+                         Re-run with --collaborator <name>.",
+                        collaborators
+                    ),
+                )
+                .into());
+            };
+
+            self.sync_project_shortcut(id, &collaborators).await?;
+            return Ok(ProjectInfo {
+                id,
+                selected_collaborator_name: selected,
+                collaborators,
+            });
+        }
+
+        let collaborator_name = collaborator_name.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "Project '{project_name}' has no saved collaborator yet. \
+                     Re-run with --collaborator <name>."
+                ),
+            )
+        })?;
+
+        let project_id: i64 = sqlx::query_scalar(
+            "INSERT INTO projects (name, collaborator_name) VALUES ($1, $2) RETURNING id",
+        )
+        .bind(project_name)
+        .bind(collaborator_name)
+        .fetch_one(&self.db)
+        .await?;
+
+        self.add_project_collaborator(project_id, collaborator_name)
+            .await?;
+        let collaborators = self.load_project_collaborators(project_id).await?;
+        self.sync_project_shortcut(project_id, &collaborators)
+            .await?;
+
         Ok(ProjectInfo {
-            id: 0,
-            selected_collaborator_name: collaborator_name.map(str::to_owned),
-            collaborators: collaborator_name.into_iter().map(str::to_owned).collect(),
+            id: project_id,
+            selected_collaborator_name: Some(collaborator_name.to_owned()),
+            collaborators,
         })
     }
+
     async fn create_run(
         &mut self,
-        _run_name: &str,
-        _project_id: i64,
-        _collaborator_name: Option<&str>,
-        _started_at: Option<&str>,
+        run_name: &str,
+        project_id: i64,
+        collaborator_name: Option<&str>,
+        started_at: Option<&str>,
     ) -> Result<i64, Box<dyn std::error::Error>> {
-        Ok(0)
+        let collaborator_name = collaborator_name.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "A collaborator is required to create an online run.",
+            )
+        })?;
+        let started_at = started_at.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "A start timestamp is required to create an online run.",
+            )
+        })?;
+
+        let run_id: i64 = sqlx::query_scalar(
+            "INSERT INTO runs (name, project_id, collaborator_name, status, started_at)
+             VALUES ($1, $2, $3, 'running', $4)
+             RETURNING id",
+        )
+        .bind(run_name)
+        .bind(project_id)
+        .bind(collaborator_name)
+        .bind(started_at)
+        .fetch_one(&self.db)
+        .await?;
+
+        Ok(run_id)
     }
+
     async fn complete_run(
         &mut self,
-        _run_id: i64,
-        _status: &str,
-        _ended_at: Option<&str>,
+        run_id: i64,
+        status: &str,
+        ended_at: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        sqlx::query("UPDATE runs SET status = $1, ended_at = $2 WHERE id = $3")
+            .bind(status)
+            .bind(ended_at)
+            .bind(run_id)
+            .execute(&self.db)
+            .await?;
         Ok(())
     }
-    async fn run_summary(&mut self, _run_id: i64) -> Result<(), Box<dyn std::error::Error>> {
+
+    async fn run_summary(&mut self, run_id: i64) -> Result<(), Box<dyn std::error::Error>> {
+        let record_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM records WHERE run_id = $1")
+                .bind(run_id)
+                .fetch_one(&self.db)
+                .await?;
+
+        sqlx::query("DELETE FROM runsummary WHERE run_id = $1")
+            .bind(run_id)
+            .execute(&self.db)
+            .await?;
+
+        if record_count == 0 {
+            return Ok(());
+        }
+
+        // $1 is used twice: once as the inserted run_id value, once in the WHERE clause.
+        sqlx::query(
+            "INSERT INTO runsummary
+                (run_id, total_cpu_energy, total_gpu_energy, total_mem_energy, total_igpu_energy)
+             SELECT
+                $1,
+                COALESCE(SUM(cpu_energy),  0.0),
+                COALESCE(SUM(gpu_energy),  0.0),
+                COALESCE(SUM(mem_energy),  0.0),
+                COALESCE(SUM(igpu_energy), 0.0)
+             FROM records
+             WHERE run_id = $1",
+        )
+        .bind(run_id)
+        .execute(&self.db)
+        .await?;
+
         Ok(())
     }
 }
