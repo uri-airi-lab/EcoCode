@@ -16,9 +16,9 @@ import { MetricRecord } from '@/lib/mock-data'
 import { format } from 'date-fns'
 
 const SOCKET_COLORS: Record<string, string> = {
-  cpu: 'hsl(160 84% 39%)',    // green
-  dram: 'hsl(210 100% 50%)',  // blue
-  igpu: 'hsl(280 100% 50%)',  // purple
+  cpu: 'hsl(158 94% 45%)',    // Neon Green
+  dram: 'hsl(20 89% 55%)',    // Orange
+  igpu: 'hsl(49 89% 52%)',    // Gold
 }
 
 const SOCKET_LINE_STYLES = [
@@ -89,11 +89,12 @@ export function SocketEnergyChart({ data }: SocketEnergyChartProps) {
           />
           <Tooltip
             contentStyle={{
-              backgroundColor: 'rgba(0,0,0,0.8)',
-              border: '1px solid rgba(255,255,255,0.2)',
-              borderRadius: '8px',
+              backgroundColor: 'hsl(0 0% 6%)',
+              border: '1px solid hsl(0 0% 12%)',
+              borderRadius: '4px',
+              fontSize: '12px',
             }}
-            cursor={{ stroke: 'rgba(255,255,255,0.2)' }}
+            cursor={{ stroke: 'hsl(0 0% 20%)' }}
           />
           <Legend wrapperStyle={{ fontSize: '12px' }} />
           {socketKeys.map((key) => {

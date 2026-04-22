@@ -12,6 +12,9 @@ import { EnergyChart } from '@/components/EnergyChart'
 import { UtilizationChart } from '@/components/UtilizationChart'
 import { ProjectsTable } from '@/components/ProjectsTable'
 import { useDataSource } from '@/components/DataSourceProvider'
+import { PowerDistributionChart } from '@/components/PowerDistributionChart'
+import { CumulativePowerChart } from '@/components/CumulativePowerChart'
+import { EnvironmentalImpact } from '@/components/EnvironmentalImpact'
 import { Run } from '@/lib/mock-data'
 import { fetchAllRuns, fetchRunDetail, fetchAllProjects, ProjectSummary } from '@/lib/api-client'
 import { useSSE } from '@/hooks/use-sse'
@@ -234,11 +237,28 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* Environmental Impact Translation */}
+        <div className="mb-8">
+          <h2 className="text-lg md:text-xl font-semibold text-foreground mb-4">
+            Environmental Impact Equivalents
+          </h2>
+          <EnvironmentalImpact totalEnergyWh={stats.totalEnergy} />
+        </div>
+
         {/* Charts */}
         {currentRun && (
-          <div className="mb-8 space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <EnergyChart data={currentRun.records} />
+          <div className="mb-8 space-y-4 md:space-y-6">
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 md:gap-6">
+              <div className="xl:col-span-2">
+                <EnergyChart data={currentRun.records} />
+              </div>
+              <div className="xl:col-span-1">
+                <PowerDistributionChart record={currentRun.records[currentRun.records.length - 1]} />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+              <CumulativePowerChart data={currentRun.records} />
               <UtilizationChart data={currentRun.records} />
             </div>
           </div>

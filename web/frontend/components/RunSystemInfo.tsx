@@ -59,7 +59,7 @@ export function RunSystemInfo({ run }: RunSystemInfoProps) {
         {specs.map((spec) => (
           <div
             key={spec.label}
-            className="p-4 rounded-lg bg-white/5 border border-white/10"
+            className="p-4 rounded border border-border bg-muted/30"
           >
             <p className="text-xs text-muted-foreground mb-1">{spec.label}</p>
             <p className="text-lg font-semibold text-foreground">

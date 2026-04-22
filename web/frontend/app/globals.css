@@ -52,23 +52,23 @@ body {
 
 @layer components {
   .glass {
-    @apply bg-card border border-border rounded-lg;
+    @apply bg-black/40 backdrop-blur-xl border border-white/10 rounded-xl;
   }
 
   .glass-strong {
-    @apply bg-card border border-border rounded-lg;
+    @apply bg-black/60 backdrop-blur-2xl border border-white/20 rounded-xl;
   }
 
   .metric-card {
-    @apply bg-card p-6 rounded-xl border border-border transition-all duration-300 hover:border-primary/50;
+    @apply bg-black/20 backdrop-blur-lg p-6 rounded-xl border border-white/10 transition-all duration-300 hover:border-primary/50 hover:bg-black/40;
   }
 
   .sidebar-glass {
-    @apply bg-black/40 border-r border-border;
+    @apply bg-black/60 backdrop-blur-2xl border-r border-white/10;
   }
 
   .chart-container {
-    @apply bg-card p-6 rounded-xl border border-border transition-all duration-300;
+    @apply bg-black/20 backdrop-blur-lg p-6 rounded-xl border border-white/10 transition-all duration-300 hover:border-white/20;
   }
 }
 

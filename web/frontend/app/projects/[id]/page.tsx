@@ -61,7 +61,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
         return (
             <DashboardLayout>
                 <div className="p-4 md:p-6 lg:p-8 w-full">
-                    <div className="h-96 glass rounded-lg animate-pulse" />
+                    <div className="h-96 bg-card border border-border rounded-lg animate-pulse" />
                 </div>
             </DashboardLayout>
         )

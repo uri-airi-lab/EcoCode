@@ -10,6 +10,9 @@ import { UtilizationChart } from '@/components/UtilizationChart'
 import { EnergyBreakdownChart } from '@/components/EnergyBreakdownChart'
 import { SocketEnergyChart } from '@/components/SocketEnergyChart'
 import { RunSystemInfo } from '@/components/RunSystemInfo'
+import { PowerDistributionChart } from '@/components/PowerDistributionChart'
+import { CumulativePowerChart } from '@/components/CumulativePowerChart'
+import { EnvironmentalImpact } from '@/components/EnvironmentalImpact'
 import { Run } from '@/lib/mock-data'
 import { fetchRunDetail } from '@/lib/api-client'
 import { useSSE } from '@/hooks/use-sse'
@@ -110,7 +113,7 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
     return (
       <DashboardLayout>
         <div className="p-4 md:p-6 lg:p-8 w-full">
-          <div className="h-96 glass rounded-lg animate-pulse" />
+          <div className="h-96 bg-card border border-border rounded-lg animate-pulse" />
         </div>
       </DashboardLayout>
     )
@@ -178,61 +181,57 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
           <RunSystemInfo run={run} />
         </div>
 
+        {/* Environmental Impact Translation */}
+        <div className="mb-8">
+          <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+            Environmental Equivalents
+          </h2>
+          <EnvironmentalImpact totalEnergyWh={run.totalEnergy} />
+        </div>
+
         {/* Charts Grid */}
         <div className="mb-8 space-y-4 md:space-y-6">
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 md:gap-6">
+            <div className="xl:col-span-2">
+              <EnergyChart data={run.records} />
+            </div>
+            <div className="xl:col-span-1">
+              <PowerDistributionChart record={run.records[run.records.length - 1]} />
+            </div>
+          </div>
+          
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
-            <EnergyChart data={run.records} />
+            <CumulativePowerChart data={run.records} />
             <UtilizationChart data={run.records} />
           </div>
         </div>
 
-        {/* Energy Breakdown */}
-        <div className="mb-8">
+        {/* Details Grid */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-8">
           <EnergyBreakdownChart run={run} />
-        </div>
-
-        {/* Per-Socket RAPL Energy */}
-        <div className="mb-8">
           <SocketEnergyChart data={run.records} />
         </div>
 
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+        {/* Summary Card */}
+        <div className="grid grid-cols-1 gap-4 md:gap-6">
           <div className="chart-container">
             <div className="flex items-start gap-4">
-              <div className="p-3 rounded-lg bg-primary/10">
-                <Zap className="w-6 h-6 text-primary" />
+              <div className="p-2 rounded bg-muted/50">
+                <Zap className="w-5 h-5 text-primary" />
               </div>
               <div className="flex-1">
                 <p className="text-sm text-muted-foreground mb-1">
                   Total Energy Consumption
                 </p>
-                <p className="text-3xl font-bold text-foreground">
-                  {Number(run.totalEnergy.toFixed(2)).toLocaleString()}
-                </p>
-                <p className="text-xs text-muted-foreground mt-2">Wh</p>
+                <div className="flex items-baseline gap-2">
+                  <p className="text-3xl font-bold text-foreground">
+                    {Number(run.totalEnergy.toFixed(2)).toLocaleString()}
+                  </p>
+                  <span className="text-sm text-muted-foreground font-medium">Wh</span>
+                </div>
               </div>
             </div>
           </div>
-
-          {/* <div className="chart-container">
-            <div className="flex items-start gap-4">
-              <div className="p-3 rounded-lg bg-primary/10">
-                <Leaf className="w-6 h-6 text-primary" />
-              </div>
-              <div className="flex-1">
-                <p className="text-sm text-muted-foreground mb-1">
-                  Carbon Footprint
-                </p>
-                <p className="text-3xl font-bold text-foreground">
-                  {Number(run.carbonFootprint.toFixed(2)).toLocaleString()}
-                </p>
-                <p className="text-xs text-muted-foreground mt-2">
-                  g CO₂e (World avg: 0.475 kg/kWh)
-                </p>
-              </div>
-            </div>
-          </div> */}
         </div>
       </div>
     </DashboardLayout>

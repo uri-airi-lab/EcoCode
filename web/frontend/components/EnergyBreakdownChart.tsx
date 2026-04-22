@@ -14,14 +14,14 @@ import {
 import { Run } from '@/lib/mock-data'
 
 const GPU_COLORS = [
-  'hsl(49 89% 52%)',   // GPU 0 - gold
-  'hsl(20 89% 55%)',   // GPU 1 - orange
-  'hsl(340 82% 52%)',  // GPU 2 - pink
-  'hsl(300 70% 50%)',  // GPU 3 - magenta
-  'hsl(180 80% 45%)',  // GPU 4 - teal
-  'hsl(60 80% 50%)',   // GPU 5 - lime
-  'hsl(0 85% 55%)',    // GPU 6 - red
-  'hsl(240 70% 60%)',  // GPU 7 - indigo
+  'hsl(199 89% 48%)',   // Blue
+  'hsl(280 65% 60%)',   // Purple
+  'hsl(49 89% 52%)',    // Gold
+  'hsl(340 82% 52%)',   // Pink
+  'hsl(20 89% 55%)',    // Orange
+  'hsl(180 80% 45%)',   // Teal
+  'hsl(60 80% 50%)',    // Lime
+  'hsl(158 94% 45%)',   // Neon Green (moved to end)
 ]
 
 interface EnergyBreakdownChartProps {
@@ -95,9 +95,10 @@ export function EnergyBreakdownChart({ run }: EnergyBreakdownChartProps) {
           />
           <Tooltip
             contentStyle={{
-              backgroundColor: 'rgba(0,0,0,0.8)',
-              border: '1px solid rgba(255,255,255,0.2)',
-              borderRadius: '8px',
+              backgroundColor: 'hsl(0 0% 6%)',
+              border: '1px solid hsl(0 0% 12%)',
+              borderRadius: '4px',
+              fontSize: '12px',
             }}
             formatter={(value: number) => [`${value} Wh`, '']}
           />
@@ -105,7 +106,7 @@ export function EnergyBreakdownChart({ run }: EnergyBreakdownChartProps) {
           <Bar
             dataKey="cpu"
             stackId="a"
-            fill="hsl(160 84% 39%)"
+            fill="hsl(158 94% 45%)"
             name="CPU"
             isAnimationActive={false}
           />
@@ -124,7 +125,7 @@ export function EnergyBreakdownChart({ run }: EnergyBreakdownChartProps) {
             <Bar
               dataKey="gpu"
               stackId="a"
-              fill="hsl(49 89% 52%)"
+              fill="hsl(199 89% 48%)"
               name="GPU"
               isAnimationActive={false}
             />
@@ -132,14 +133,14 @@ export function EnergyBreakdownChart({ run }: EnergyBreakdownChartProps) {
           <Bar
             dataKey="mem"
             stackId="a"
-            fill="hsl(210 100% 50%)"
+            fill="hsl(20 89% 55%)"
             name="Memory"
             isAnimationActive={false}
           />
           <Bar
             dataKey="igpu"
             stackId="a"
-            fill="hsl(280 100% 50%)"
+            fill="hsl(49 89% 52%)"
             name="iGPU"
             isAnimationActive={false}
           />

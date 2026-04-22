@@ -115,7 +115,7 @@ export default function AdminPage() {
         <div className="mb-6 flex flex-wrap gap-3">
           <Link
             href="/projects"
-            className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-white/10"
+            className="inline-flex items-center gap-2 rounded border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-muted-foreground/30"
           >
             <Folder className="w-4 h-4 text-primary" />
             Browse Projects
@@ -123,7 +123,7 @@ export default function AdminPage() {
           </Link>
           <Link
             href="/runs"
-            className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-white/10"
+            className="inline-flex items-center gap-2 rounded border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-muted-foreground/30"
           >
             <History className="w-4 h-4 text-primary" />
             Browse Runs
@@ -173,7 +173,7 @@ export default function AdminPage() {
 
         <div className="space-y-4">
           {loading ? (
-            <div className="chart-container h-48 animate-pulse" />
+            <div className="chart-container h-48 bg-card border border-border animate-pulse" />
           ) : sortedProjects.length === 0 ? (
             <div className="chart-container text-muted-foreground">No projects found.</div>
           ) : (
@@ -207,7 +207,7 @@ export default function AdminPage() {
                           className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium ${
                             project.activeRuns.length > 0
                               ? 'bg-blue-500/20 text-blue-300 border-blue-500/30'
-                              : 'bg-white/5 text-muted-foreground border-white/10'
+                              : 'bg-white/5 text-muted-foreground border-white/10 backdrop-blur-sm'
                           }`}
                         >
                           {projectState}
@@ -225,7 +225,7 @@ export default function AdminPage() {
                   </div>
 
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                    <div className="rounded border border-white/10 bg-white/5 backdrop-blur-sm p-4">
                       <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground mb-3">
                         Active Collaborators
                       </p>
@@ -247,7 +247,7 @@ export default function AdminPage() {
                       )}
                     </div>
 
-                    <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                    <div className="rounded border border-white/10 bg-white/5 backdrop-blur-sm p-4">
                       <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground mb-3">
                         Project Collaborators
                       </p>
@@ -258,7 +258,7 @@ export default function AdminPage() {
                           {collaborators.map((collaborator) => (
                             <span
                               key={collaborator}
-                              className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-foreground"
+                              className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-foreground backdrop-blur-sm"
                             >
                               {collaborator}
                             </span>
@@ -267,7 +267,7 @@ export default function AdminPage() {
                       )}
                     </div>
 
-                    <div className="rounded-xl border border-white/10 bg-white/5 p-4 lg:col-span-2">
+                    <div className="rounded border border-white/10 bg-white/5 backdrop-blur-sm p-4 lg:col-span-2">
                       <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground mb-3">
                         Latest Run
                       </p>
