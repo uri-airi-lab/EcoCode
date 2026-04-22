@@ -29,7 +29,7 @@ export const ProjectsTable = memo(function ProjectsTable({ projects }: ProjectsT
             <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                     <thead>
-                        <tr className="border-b border-white/10">
+                        <tr className="border-b border-border">
                             <th className="text-left py-3 px-4 text-muted-foreground font-medium">
                                 Project Name
                             </th>
@@ -55,7 +55,7 @@ export const ProjectsTable = memo(function ProjectsTable({ projects }: ProjectsT
                         ) : projects.map((project) => (
                             <tr
                                 key={project.id}
-                                className="border-b border-white/5 hover:bg-white/5 transition-colors"
+                                className="border-b border-border hover:bg-muted/30 transition-colors"
                             >
                                 <td className="py-3 px-4">
                                     <p className="font-medium text-foreground">{project.name}</p>

@@ -8,8 +8,8 @@ export function DashboardLayout({
   return (
     <div className="flex flex-col lg:flex-row h-screen bg-background overflow-hidden">
       <Sidebar />
-      <main className="flex-1 overflow-auto">
-        <div className="min-h-screen bg-gradient-to-br from-background via-background to-secondary/5">
+      <main className="flex-1 overflow-auto bg-background">
+        <div className="min-h-screen">
           {children}
         </div>
       </main>

@@ -16,14 +16,14 @@ import { MetricRecord } from '@/lib/mock-data'
 import { format } from 'date-fns'
 
 const GPU_COLORS = [
-  'hsl(49 89% 52%)',   // GPU 0 - gold
-  'hsl(20 89% 55%)',   // GPU 1 - orange
-  'hsl(340 82% 52%)',  // GPU 2 - pink
-  'hsl(300 70% 50%)',  // GPU 3 - magenta
-  'hsl(180 80% 45%)',  // GPU 4 - teal
-  'hsl(60 80% 50%)',   // GPU 5 - lime
-  'hsl(0 85% 55%)',    // GPU 6 - red
-  'hsl(240 70% 60%)',  // GPU 7 - indigo
+  'hsl(158 94% 45%)',   // Neon Green
+  'hsl(199 89% 48%)',   // Blue
+  'hsl(280 65% 60%)',   // Purple
+  'hsl(49 89% 52%)',    // Gold
+  'hsl(340 82% 52%)',   // Pink
+  'hsl(20 89% 55%)',    // Orange
+  'hsl(180 80% 45%)',   // Teal
+  'hsl(60 80% 50%)',    // Lime
 ]
 
 interface EnergyChartProps {
@@ -89,16 +89,18 @@ export function EnergyChart({ data }: EnergyChartProps) {
           />
           <Tooltip
             contentStyle={{
-              backgroundColor: 'rgba(0,0,0,0.8)',
-              border: '1px solid rgba(255,255,255,0.2)',
-              borderRadius: '8px',
+              backgroundColor: 'hsl(0 0% 6%)',
+              border: '1px solid hsl(0 0% 12%)',
+              borderRadius: '4px',
+              fontSize: '12px',
             }}
-            cursor={{ stroke: 'rgba(255,255,255,0.2)' }}
+            itemStyle={{ padding: '2px 0' }}
+            cursor={{ stroke: 'hsl(0 0% 20%)' }}
           />
           <Line
             type="monotone"
             dataKey="cpu"
-            stroke="hsl(160 84% 39%)"
+            stroke="hsl(158 94% 45%)"
             strokeWidth={2}
             dot={false}
             name="CPU Energy"
@@ -108,7 +110,7 @@ export function EnergyChart({ data }: EnergyChartProps) {
           <Line
             type="monotone"
             dataKey="gpu"
-            stroke="hsl(49 89% 52%)"
+            stroke="hsl(199 89% 48%)"
             strokeWidth={2}
             dot={false}
             name="GPU Energy (Total)"
@@ -132,7 +134,7 @@ export function EnergyChart({ data }: EnergyChartProps) {
           <Line
             type="monotone"
             dataKey="mem"
-            stroke="hsl(210 100% 50%)"
+            stroke="hsl(280 65% 60%)"
             strokeWidth={2}
             dot={false}
             name="Memory Energy"
@@ -142,7 +144,7 @@ export function EnergyChart({ data }: EnergyChartProps) {
           <Line
             type="monotone"
             dataKey="igpu"
-            stroke="hsl(280 100% 50%)"
+            stroke="hsl(49 89% 52%)"
             strokeWidth={2}
             dot={false}
             name="iGPU Energy"

@@ -28,7 +28,7 @@ export const RecentRunsTable = memo(function RecentRunsTable({ runs }: RecentRun
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-white/10">
+            <tr className="border-b border-border">
               <th className="text-left py-3 px-4 text-muted-foreground font-medium">
                 Run Name
               </th>
@@ -54,7 +54,7 @@ export const RecentRunsTable = memo(function RecentRunsTable({ runs }: RecentRun
             {recentRuns.map((run) => (
               <tr
                 key={run.id}
-                className="border-b border-white/5 hover:bg-white/5 transition-colors"
+                className="border-b border-border hover:bg-muted/30 transition-colors"
               >
                 <td className="py-3 px-4">
                   <div>

@@ -69,7 +69,7 @@ export function RunsTable({ runs }: RunsTableProps) {
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-white/10">
+            <tr className="border-b border-border">
               <th className="text-left py-4 px-4 w-10">
                 <input
                   type="checkbox"
@@ -107,7 +107,7 @@ export function RunsTable({ runs }: RunsTableProps) {
               return (
                 <tr
                   key={run.id}
-                  className={`border-b border-white/5 transition-colors ${isSelected ? 'bg-primary/10' : 'hover:bg-white/5'
+                  className={`border-b border-border transition-colors ${isSelected ? 'bg-primary/5' : 'hover:bg-muted/30'
                     }`}
                 >
                   <td className="py-4 px-4">

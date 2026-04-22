@@ -55,8 +55,8 @@ export function MetricCard({
             </p>
           )} */}
         </div>
-        <div className="ml-4 p-3 rounded-lg bg-primary/10">
-          <Icon className="w-6 h-6 text-primary" />
+        <div className="ml-4 p-2 rounded bg-muted/50">
+          <Icon className="w-5 h-5 text-primary" />
         </div>
       </div>
     </div>

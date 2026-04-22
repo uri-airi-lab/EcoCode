@@ -108,7 +108,7 @@ export default function RunsPage() {
               placeholder="Search runs... (e.g., 'Training Run', 'status:finished', 'energy < 100')"
               value={searchQuery}
               onChange={(e) => handleSearch(e.target.value)}
-              className="w-full pl-12 pr-4 py-3 glass rounded-lg text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-0 transition-all duration-200"
+              className="w-full pl-12 pr-4 py-2 bg-card border border-border rounded text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary transition-all duration-200"
             />
           </div>
         </div>
