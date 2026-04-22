@@ -94,6 +94,12 @@ struct Run {
     status: Option<String>,
     started_at: Option<String>,
     ended_at: Option<String>,
+    command: Option<String>,
+    cpu_name: Option<String>,
+    cpu_cores: Option<i32>,
+    ram_gb: Option<f64>,
+    gpu_count: Option<i32>,
+    gpu_names: Option<String>,
 }
 
 #[derive(Serialize, Clone, sqlx::FromRow)]
@@ -173,6 +179,7 @@ struct AdminRunRow {
     status: Option<String>,
     started_at: Option<String>,
     ended_at: Option<String>,
+    command: Option<String>,
 }
 
 #[derive(Clone, sqlx::FromRow)]
@@ -196,6 +203,7 @@ struct AdminRunInfo {
     started_at: Option<String>,
     ended_at: Option<String>,
     last_record_at: Option<String>,
+    command: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -460,10 +468,11 @@ async fn fetch_runs(
 ) -> Result<Vec<Run>, ApiError> {
     match source {
         DataSource::Local => sqlx::query_as::<_, Run>(
-            "SELECT id, name, project_id, collaborator_name, status, started_at, ended_at
+            "SELECT runs.id, runs.name, runs.project_id, runs.collaborator_name, runs.status, runs.started_at, runs.ended_at, runs.command, run_system_info.cpu_name, run_system_info.cpu_cores, run_system_info.ram_gb, run_system_info.gpu_count, run_system_info.gpu_names
              FROM runs
-             WHERE project_id = ?
-             ORDER BY started_at DESC, id DESC",
+             LEFT JOIN run_system_info ON runs.id = run_system_info.run_id
+             WHERE runs.project_id = ?
+             ORDER BY runs.started_at DESC, runs.id DESC",
         )
         .bind(project_id)
         .fetch_all(&state.local_pool)
@@ -471,10 +480,11 @@ async fn fetch_runs(
         .map_err(ApiError::internal),
         DataSource::Online => {
             sqlx::query_as::<_, Run>(
-                "SELECT id, name, project_id, collaborator_name, status, started_at, ended_at
+            "SELECT runs.id, runs.name, runs.project_id, runs.collaborator_name, runs.status, runs.started_at, runs.ended_at, runs.command, run_system_info.cpu_name, run_system_info.cpu_cores, run_system_info.ram_gb, run_system_info.gpu_count, run_system_info.gpu_names
              FROM runs
-             WHERE project_id = $1
-             ORDER BY started_at DESC, id DESC",
+             LEFT JOIN run_system_info ON runs.id = run_system_info.run_id
+             WHERE runs.project_id = $1
+             ORDER BY runs.started_at DESC, runs.id DESC",
             )
             .bind(project_id)
             .fetch_all(state.online_pool.as_ref().ok_or_else(|| {
@@ -493,9 +503,10 @@ async fn fetch_run(
 ) -> Result<Option<Run>, ApiError> {
     match source {
         DataSource::Local => sqlx::query_as::<_, Run>(
-            "SELECT id, name, project_id, collaborator_name, status, started_at, ended_at
+            "SELECT runs.id, runs.name, runs.project_id, runs.collaborator_name, runs.status, runs.started_at, runs.ended_at, runs.command, run_system_info.cpu_name, run_system_info.cpu_cores, run_system_info.ram_gb, run_system_info.gpu_count, run_system_info.gpu_names
              FROM runs
-             WHERE id = ?",
+             LEFT JOIN run_system_info ON runs.id = run_system_info.run_id
+             WHERE runs.id = ?",
         )
         .bind(run_id)
         .fetch_optional(&state.local_pool)
@@ -503,9 +514,10 @@ async fn fetch_run(
         .map_err(ApiError::internal),
         DataSource::Online => {
             sqlx::query_as::<_, Run>(
-                "SELECT id, name, project_id, collaborator_name, status, started_at, ended_at
+                "SELECT runs.id, runs.name, runs.project_id, runs.collaborator_name, runs.status, runs.started_at, runs.ended_at, runs.command, run_system_info.cpu_name, run_system_info.cpu_cores, run_system_info.ram_gb, run_system_info.gpu_count, run_system_info.gpu_names
              FROM runs
-             WHERE id = $1",
+             LEFT JOIN run_system_info ON runs.id = run_system_info.run_id
+             WHERE runs.id = $1",
             )
             .bind(run_id)
             .fetch_optional(state.online_pool.as_ref().ok_or_else(|| {
@@ -667,7 +679,7 @@ async fn fetch_admin_projects(
             .map_err(ApiError::internal)?;
 
             let runs = sqlx::query_as::<_, AdminRunRow>(
-                "SELECT id, name, project_id, collaborator_name, status, started_at, ended_at
+                "SELECT id, name, project_id, collaborator_name, status, started_at, ended_at, command
                  FROM runs
                  ORDER BY project_id ASC, started_at DESC, id DESC",
             )
@@ -708,7 +720,7 @@ async fn fetch_admin_projects(
             .map_err(ApiError::internal)?;
 
             let runs = sqlx::query_as::<_, AdminRunRow>(
-                "SELECT id, name, project_id, collaborator_name, status, started_at, ended_at
+                "SELECT id, name, project_id, collaborator_name, status, started_at, ended_at, command
                  FROM runs
                  ORDER BY project_id ASC, started_at DESC, id DESC",
             )
@@ -764,6 +776,7 @@ async fn fetch_admin_projects(
                 started_at: run.started_at,
                 ended_at: run.ended_at,
                 last_record_at: activity_by_run.get(&run.id).cloned().flatten(),
+                command: run.command,
             });
     }
 

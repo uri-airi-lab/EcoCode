@@ -125,6 +125,15 @@ pub enum ExporterType {
     LogFile,
 }
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct SystemInfo {
+    pub cpu_name: String,
+    pub cpu_cores: u32,
+    pub ram_gb: f64,
+    pub gpu_count: u32,
+    pub gpu_names: Vec<String>,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct ProjectInfo {
     pub id: i64,
@@ -150,7 +159,13 @@ pub trait Exporter {
         project_id: i64,
         collaborator_name: Option<&str>,
         started_at: Option<&str>,
+        command: Option<&str>,
     ) -> Result<i64, Box<dyn std::error::Error>>;
+    async fn save_system_info(
+        &mut self,
+        run_id: i64,
+        info: SystemInfo,
+    ) -> Result<(), Box<dyn std::error::Error>>;
     async fn complete_run(
         &mut self,
         run_id: i64,

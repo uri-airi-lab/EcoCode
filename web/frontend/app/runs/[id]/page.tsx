@@ -169,6 +169,12 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
               <p className="text-sm text-muted-foreground mt-1">
                 By {run.collaboratorName ?? 'Unassigned'}
               </p>
+              {run.command && (
+                <div className="mt-4 p-3 bg-white/5 border border-white/10 rounded-lg font-mono text-xs md:text-sm break-all glass">
+                  <span className="text-primary mr-2 font-bold">$</span>
+                  <span className="text-foreground/90">{run.command}</span>
+                </div>
+              )}
             </div>
             <span className={`inline-block px-3 md:px-4 py-2 rounded-lg font-medium whitespace-nowrap ${statusColor}`}>
               {run.status}

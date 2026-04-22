@@ -59,7 +59,8 @@ impl OnlineExporter {
                 collaborator_name TEXT,
                 status TEXT NOT NULL DEFAULT 'finished',
                 started_at TEXT,
-                ended_at TEXT
+                ended_at TEXT,
+                command TEXT
             )",
         )
         .execute(db)
@@ -160,6 +161,27 @@ impl OnlineExporter {
             "ended_at",
             "ALTER TABLE runs ADD COLUMN ended_at TEXT",
         )
+        .await?;
+        
+        Self::ensure_column(
+            db,
+            "runs",
+            "command",
+            "ALTER TABLE runs ADD COLUMN command TEXT",
+        )
+        .await?;
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS run_system_info (
+                run_id BIGINT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
+                cpu_name TEXT,
+                cpu_cores INTEGER,
+                ram_gb DOUBLE PRECISION,
+                gpu_count INTEGER,
+                gpu_names TEXT
+            )",
+        )
+        .execute(db)
         .await?;
 
         Self::backfill_project_collaborators(db).await?;
@@ -454,6 +476,7 @@ impl Exporter for OnlineExporter {
         project_id: i64,
         collaborator_name: Option<&str>,
         started_at: Option<&str>,
+        command: Option<&str>,
     ) -> Result<i64, Box<dyn std::error::Error>> {
         let collaborator_name = collaborator_name.ok_or_else(|| {
             io::Error::new(
@@ -469,18 +492,45 @@ impl Exporter for OnlineExporter {
         })?;
 
         let run_id: i64 = sqlx::query_scalar(
-            "INSERT INTO runs (name, project_id, collaborator_name, status, started_at)
-             VALUES ($1, $2, $3, 'running', $4)
+            "INSERT INTO runs (name, project_id, collaborator_name, status, started_at, command)
+             VALUES ($1, $2, $3, 'running', $4, $5)
              RETURNING id",
         )
         .bind(run_name)
         .bind(project_id)
         .bind(collaborator_name)
         .bind(started_at)
+        .bind(command)
         .fetch_one(&self.db)
         .await?;
 
         Ok(run_id)
+    }
+
+    async fn save_system_info(
+        &mut self,
+        run_id: i64,
+        info: crate::exporter::SystemInfo,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        sqlx::query(
+            "INSERT INTO run_system_info (run_id, cpu_name, cpu_cores, ram_gb, gpu_count, gpu_names)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (run_id) DO UPDATE SET
+                cpu_name = EXCLUDED.cpu_name,
+                cpu_cores = EXCLUDED.cpu_cores,
+                ram_gb = EXCLUDED.ram_gb,
+                gpu_count = EXCLUDED.gpu_count,
+                gpu_names = EXCLUDED.gpu_names",
+        )
+        .bind(run_id)
+        .bind(info.cpu_name)
+        .bind(info.cpu_cores as i32)
+        .bind(info.ram_gb)
+        .bind(info.gpu_count as i32)
+        .bind(info.gpu_names.join(", "))
+        .execute(&self.db)
+        .await?;
+        Ok(())
     }
 
     async fn complete_run(

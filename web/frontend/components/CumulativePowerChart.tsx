@@ -13,6 +13,7 @@ import {
 } from 'recharts'
 import { MetricRecord } from '@/lib/mock-data'
 import { format } from 'date-fns'
+import { ChartInfoTooltip } from './ChartInfoTooltip'
 
 interface CumulativePowerChartProps {
   data: MetricRecord[]
@@ -31,9 +32,12 @@ export function CumulativePowerChart({ data }: CumulativePowerChartProps) {
 
   return (
     <div className="chart-container">
-      <h3 className="text-lg font-semibold mb-4 text-foreground">
-        Total System Power Stack
-      </h3>
+      <div className="flex flex-row items-center gap-2 mb-4">
+        <h3 className="text-lg font-semibold text-foreground">
+          Total System Power Stack
+        </h3>
+        <ChartInfoTooltip content="A stacked area view of power consumption. The top line represents the total power draw of all tracked components combined." />
+      </div>
       <ResponsiveContainer width="100%" height={300}>
         <AreaChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />

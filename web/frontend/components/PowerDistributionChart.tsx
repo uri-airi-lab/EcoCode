@@ -10,6 +10,7 @@ import {
   Legend
 } from 'recharts'
 import { MetricRecord } from '@/lib/mock-data'
+import { ChartInfoTooltip } from './ChartInfoTooltip'
 
 interface PowerDistributionChartProps {
   record: MetricRecord
@@ -27,9 +28,12 @@ export function PowerDistributionChart({ record }: PowerDistributionChartProps) 
 
   return (
     <div className="chart-container flex flex-col h-full">
-      <h3 className="text-lg font-semibold mb-4 text-foreground">
-        Live Power Distribution
-      </h3>
+      <div className="flex flex-row items-center gap-2 mb-4">
+        <h3 className="text-lg font-semibold text-foreground">
+          Live Power Distribution
+        </h3>
+        <ChartInfoTooltip content="Shows the current power draw split between your components (CPU, GPU, RAM) at the latest recorded point in time." />
+      </div>
       <div className="flex-1 relative min-h-[250px]">
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>

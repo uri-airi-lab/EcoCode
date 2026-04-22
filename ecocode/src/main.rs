@@ -29,10 +29,12 @@ use crate::sensor::rapl::{delta_cpu_energy_per_pid_w, get_all_energies};
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    // TODO: Add run name
-    //project name
     #[arg(short, long, default_value = "ecocode")]
     project: String,
+
+    /// Optional custom name for this run
+    #[arg(short, long)]
+    name: Option<String>,
 
     /// Collaborator name to save/reuse for local project runs
     #[arg(long)]
@@ -157,13 +159,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let run_started_at = Utc::now().to_rfc3339();
-    let run_name = format!("run_{}", Utc::now().timestamp());
+    let run_name = args.name.unwrap_or_else(|| {
+        format!("run_{}", Utc::now().format("%Y-%m-%d_%H-%M-%S"))
+    });
+    let full_command = args.command.join(" ");
     let run_id = exporter
         .create_run(
             &run_name,
             project.id,
             Some(run_collaborator.as_str()),
             Some(run_started_at.as_str()),
+            Some(&full_command),
         )
         .await?;
 
@@ -190,6 +196,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let nvml = Nvml::init()?;
     let devices = get_all_gpu_devices(&nvml)?;
     let gpu_count = devices.len();
+
+    let mut gpu_names = Vec::new();
+    for dev in &devices {
+        if let Ok(name) = dev.name() {
+            gpu_names.push(name);
+        }
+    }
+
+    let cpu_name = sys
+        .cpus()
+        .first()
+        .map(|c| c.brand().trim().to_string())
+        .unwrap_or_else(|| "Unknown".to_string());
+
+    let sys_info = crate::exporter::SystemInfo {
+        cpu_name,
+        cpu_cores: num_cores as u32,
+        ram_gb: sys_memo as f64 / 1_073_741_824.0,
+        gpu_count: gpu_count as u32,
+        gpu_names,
+    };
+    exporter.save_system_info(run_id, sys_info).await?;
 
     // --- Print system info summary ---
     println!();

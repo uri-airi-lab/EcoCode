@@ -47,6 +47,14 @@ export interface Run {
   carbonFootprint: number // gCO2
   waterConsumption: number // mL
   duration: number // seconds
+  command?: string | null
+  systemInfo?: {
+    cpuName: string
+    cpuCores: number
+    ramGb: number
+    gpuCount: number
+    gpuNames: string
+  } | null
   records: MetricRecord[]
 }
 

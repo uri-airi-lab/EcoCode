@@ -31,6 +31,12 @@ interface BackendRun {
   status?: 'running' | 'finished' | 'failed' | null
   started_at?: string | null
   ended_at?: string | null
+  command?: string | null
+  cpu_name?: string | null
+  cpu_cores?: number | null
+  ram_gb?: number | null
+  gpu_count?: number | null
+  gpu_names?: string | null
 }
 
 interface BackendRecordPoint {
@@ -82,6 +88,7 @@ interface BackendAdminRun {
   started_at: string | null
   ended_at: string | null
   last_record_at: string | null
+  command: string | null
 }
 
 interface BackendAdminProject {
@@ -275,6 +282,7 @@ async function mapRunSummary(backendRun: BackendRun, source?: DataSource): Promi
     carbonFootprint: energyKwh * CARBON_FACTOR * 1000,
     waterConsumption: energyKwh * WATER_FACTOR * 1000,
     duration: snapshot.duration,
+    command: backendRun.command ?? null,
   }
 }
 
@@ -300,6 +308,14 @@ async function mapRun(backendRun: BackendRun, source?: DataSource): Promise<Run>
     carbonFootprint: energyKwh * CARBON_FACTOR * 1000,
     waterConsumption: energyKwh * WATER_FACTOR * 1000,
     duration: snapshot.duration,
+    command: backendRun.command ?? null,
+    systemInfo: backendRun.cpu_name ? {
+      cpuName: backendRun.cpu_name,
+      cpuCores: backendRun.cpu_cores ?? 0,
+      ramGb: backendRun.ram_gb ?? 0,
+      gpuCount: backendRun.gpu_count ?? 0,
+      gpuNames: backendRun.gpu_names ?? '',
+    } : null,
     records: snapshot.records,
   }
 }
@@ -347,6 +363,7 @@ export interface AdminRunInfo {
   startedAt: number | null
   endedAt: number | null
   lastRecordAt: number | null
+  command: string | null
 }
 
 export interface AdminProjectMonitor {
@@ -561,6 +578,14 @@ export async function fetchRunDetail(id: string, source?: DataSource): Promise<R
       carbonFootprint: energyKwh * CARBON_FACTOR * 1000,
       waterConsumption: energyKwh * WATER_FACTOR * 1000,
       duration: calculateDurationSeconds(records, backendRun.started_at, backendRun.ended_at),
+      command: backendRun.command ?? null,
+      systemInfo: backendRun.cpu_name ? {
+        cpuName: backendRun.cpu_name,
+        cpuCores: backendRun.cpu_cores ?? 0,
+        ramGb: backendRun.ram_gb ?? 0,
+        gpuCount: backendRun.gpu_count ?? 0,
+        gpuNames: backendRun.gpu_names ?? '',
+      } : null,
       records,
     }
   } catch (error) {
@@ -630,6 +655,7 @@ function mapAdminRun(run: BackendAdminRun): AdminRunInfo {
     startedAt: parseTimestamp(run.started_at),
     endedAt: parseTimestamp(run.ended_at),
     lastRecordAt: parseTimestamp(run.last_record_at),
+    command: run.command,
   }
 }
 

@@ -12,6 +12,7 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import { Run } from '@/lib/mock-data'
+import { ChartInfoTooltip } from './ChartInfoTooltip'
 
 const GPU_COLORS = [
   'hsl(199 89% 48%)',   // Blue
@@ -76,9 +77,12 @@ export function EnergyBreakdownChart({ run }: EnergyBreakdownChartProps) {
 
   return (
     <div className="chart-container">
-      <h3 className="text-lg font-semibold mb-4 text-foreground">
-        Total Accumulated Energy Breakdown
-      </h3>
+      <div className="flex flex-row items-center gap-2 mb-4">
+        <h3 className="text-lg font-semibold text-foreground">
+          Total Accumulated Energy Breakdown
+        </h3>
+        <ChartInfoTooltip content="Displays the total energy (in Watt-hours) consumed by each hardware component over the entire duration of the run." />
+      </div>
       <ResponsiveContainer width="100%" height={200}>
         <BarChart
           data={chartData}

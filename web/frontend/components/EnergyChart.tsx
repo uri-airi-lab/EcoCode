@@ -14,6 +14,7 @@ import {
 } from 'recharts'
 import { MetricRecord } from '@/lib/mock-data'
 import { format } from 'date-fns'
+import { ChartInfoTooltip } from './ChartInfoTooltip'
 
 const GPU_COLORS = [
   'hsl(199 89% 48%)',   // Blue
@@ -71,9 +72,12 @@ export function EnergyChart({ data }: EnergyChartProps) {
 
   return (
     <div className="chart-container">
-      <h3 className="text-lg font-semibold mb-4 text-foreground">
-        Energy Consumption Over Time
-      </h3>
+      <div className="flex flex-row items-center gap-2 mb-4">
+        <h3 className="text-lg font-semibold text-foreground">
+          Energy Consumption Over Time
+        </h3>
+        <ChartInfoTooltip content="Shows a timeline of the raw power (Watts) being drawn by your hardware components second by second." />
+      </div>
       <ResponsiveContainer width="100%" height={300}>
         <LineChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />

@@ -14,6 +14,7 @@ import {
 } from 'recharts'
 import { MetricRecord } from '@/lib/mock-data'
 import { format } from 'date-fns'
+import { ChartInfoTooltip } from './ChartInfoTooltip'
 
 const SOCKET_COLORS: Record<string, string> = {
   cpu: 'hsl(158 94% 45%)',    // Neon Green
@@ -71,9 +72,12 @@ export function SocketEnergyChart({ data }: SocketEnergyChartProps) {
 
   return (
     <div className="chart-container">
-      <h3 className="text-lg font-semibold mb-4 text-foreground">
-        Per-Socket Energy (RAPL)
-      </h3>
+      <div className="flex flex-row items-center gap-2 mb-4">
+        <h3 className="text-lg font-semibold text-foreground">
+          Per-Socket Energy (RAPL)
+        </h3>
+        <ChartInfoTooltip content="Displays precise Intel RAPL measurements for individual physical CPU sockets and their internal domains (core, uncore, dram)." />
+      </div>
       <ResponsiveContainer width="100%" height={300}>
         <LineChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />

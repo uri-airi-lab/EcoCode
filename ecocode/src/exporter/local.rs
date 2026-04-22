@@ -74,6 +74,7 @@ impl SqliteExporter {
                 status TEXT NOT NULL DEFAULT 'finished',
                 started_at TEXT,
                 ended_at TEXT,
+                command TEXT,
                 FOREIGN KEY (project_id) REFERENCES projects(id)
             )",
         )
@@ -175,6 +176,26 @@ impl SqliteExporter {
             "ALTER TABLE runs ADD COLUMN ended_at TEXT",
         )
         .await?;
+        Self::ensure_column(
+            db,
+            "runs",
+            "command",
+            "ALTER TABLE runs ADD COLUMN command TEXT",
+        )
+        .await?;
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS run_system_info (
+                run_id INTEGER PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
+                cpu_name TEXT,
+                cpu_cores INTEGER,
+                ram_gb REAL,
+                gpu_count INTEGER,
+                gpu_names TEXT
+            )",
+        )
+        .execute(db)
+        .await?;
+
         Self::backfill_project_collaborators(db).await?;
         Self::sync_all_project_shortcuts(db).await?;
 
@@ -462,6 +483,7 @@ impl Exporter for SqliteExporter {
         project_id: i64,
         collaborator_name: Option<&str>,
         started_at: Option<&str>,
+        command: Option<&str>,
     ) -> Result<i64, Box<dyn std::error::Error>> {
         let collaborator_name = collaborator_name.ok_or_else(|| {
             io::Error::new(
@@ -477,16 +499,43 @@ impl Exporter for SqliteExporter {
         })?;
 
         let result = sqlx::query(
-            "INSERT INTO runs (name, project_id, collaborator_name, status, started_at) VALUES (?, ?, ?, 'running', ?)",
+            "INSERT INTO runs (name, project_id, collaborator_name, status, started_at, command) VALUES (?, ?, ?, 'running', ?, ?)",
         )
         .bind(run_name)
         .bind(project_id)
         .bind(collaborator_name)
         .bind(started_at)
+        .bind(command)
         .execute(&self.db)
         .await?;
 
         Ok(result.last_insert_rowid())
+    }
+
+    async fn save_system_info(
+        &mut self,
+        run_id: i64,
+        info: crate::exporter::SystemInfo,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        sqlx::query(
+            "INSERT INTO run_system_info (run_id, cpu_name, cpu_cores, ram_gb, gpu_count, gpu_names)
+             VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT (run_id) DO UPDATE SET
+                cpu_name = excluded.cpu_name,
+                cpu_cores = excluded.cpu_cores,
+                ram_gb = excluded.ram_gb,
+                gpu_count = excluded.gpu_count,
+                gpu_names = excluded.gpu_names",
+        )
+        .bind(run_id)
+        .bind(info.cpu_name)
+        .bind(info.cpu_cores)
+        .bind(info.ram_gb)
+        .bind(info.gpu_count)
+        .bind(info.gpu_names.join(", "))
+        .execute(&self.db)
+        .await?;
+        Ok(())
     }
 
     async fn complete_run(

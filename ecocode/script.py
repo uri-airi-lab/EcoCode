@@ -4,108 +4,133 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
+import time
+import math
+import random
 
-class Net(nn.Module):
+# ----------------------------
+# Heavier CNN Model
+# ----------------------------
+class HeavyNet(nn.Module):
     def __init__(self):
-        super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 32, 3, 1)
-        self.conv2 = nn.Conv2d(32, 64, 3, 1)
-        self.dropout1 = nn.Dropout(0.25)
-        self.dropout2 = nn.Dropout(0.5)
-        self.fc1 = nn.Linear(9216, 128)
-        self.fc2 = nn.Linear(128, 10)
+        super().__init__()
+        self.conv1 = nn.Conv2d(1, 128, 3, 1)
+        self.conv2 = nn.Conv2d(128, 256, 3, 1)
+        self.conv3 = nn.Conv2d(256, 512, 3, 1)
+
+        self.dropout = nn.Dropout(0.5)
+
+        # much larger fully connected layers
+        self.fc1 = nn.Linear(512 * 11 * 11, 1024)
+        self.fc2 = nn.Linear(1024, 512)
+        self.fc3 = nn.Linear(512, 10)
 
     def forward(self, x):
-        x = self.conv1(x)
-        x = F.relu(x)
-        x = self.conv2(x)
-        x = F.relu(x)
+        x = F.relu(self.conv1(x))
+        x = F.relu(self.conv2(x))
+        x = F.relu(self.conv3(x))
+
         x = F.max_pool2d(x, 2)
-        x = self.dropout1(x)
+        x = self.dropout(x)
+
         x = torch.flatten(x, 1)
-        x = self.fc1(x)
-        x = F.relu(x)
-        x = self.dropout2(x)
-        x = self.fc2(x)
-        output = F.log_softmax(x, dim=1)
-        return output
+
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
+
+        return F.log_softmax(x, dim=1)
 
 
-def train(model, device, train_loader, optimizer, epoch):
+# ----------------------------
+# CPU-heavy transform
+# ----------------------------
+class HeavyTransform:
+    def __call__(self, img):
+        # convert to tensor first
+        x = transforms.ToTensor()(img)
+
+        # simulate CPU work
+        for _ in range(50):
+            x = x + torch.sin(x)
+            x = x * torch.cos(x)
+
+        return x
+
+
+# ----------------------------
+# Training loop (heavier)
+# ----------------------------
+def train(model, device, loader, optimizer):
     model.train()
-    for batch_idx, (data, target) in enumerate(train_loader):
+    for batch_idx, (data, target) in enumerate(loader):
         data, target = data.to(device), target.to(device)
+
         optimizer.zero_grad()
+
+        # do multiple forward passes to increase GPU load
         output = model(data)
+        for _ in range(2):
+            output = model(data)
+
         loss = F.nll_loss(output, target)
         loss.backward()
+
+        # extra GPU work (large matrix multiply)
+        dummy = torch.randn(4096, 4096, device=device)
+        dummy2 = torch.matmul(dummy, dummy)
+
         optimizer.step()
-        if batch_idx % 100 == 0:
-            print(f'Train Epoch: {epoch} [{batch_idx * len(data)}/{len(train_loader.dataset)} '
-                  f'({100. * batch_idx / len(train_loader):.0f}%)]\tLoss: {loss.item():.6f}')
+
+        if batch_idx % 50 == 0:
+            print(f"Batch {batch_idx}, Loss: {loss.item():.4f}")
 
 
-def test(model, device, test_loader):
-    model.eval()
-    test_loss = 0
-    correct = 0
-    with torch.no_grad():
-        for data, target in test_loader:
-            data, target = data.to(device), target.to(device)
-            output = model(data)
-            test_loss += F.nll_loss(output, target, reduction='sum').item()
-            pred = output.argmax(dim=1, keepdim=True)
-            correct += pred.eq(target.view_as(pred)).sum().item()
-
-    test_loss /= len(test_loader.dataset)
-    print(f'\nTest set: Average loss: {test_loss:.4f}, Accuracy: {correct}/{len(test_loader.dataset)} '
-          f'({100. * correct / len(test_loader.dataset):.0f}%)\n')
-
-
+# ----------------------------
+# Main
+# ----------------------------
 def main():
-    batch_size = 64
-    test_batch_size = 64
-    epochs = 10
-    lr = 1.0
-    gamma = 0.7
+    batch_size = 256  # larger batch = more GPU load
+    epochs = 5
 
     use_cuda = torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
-    num_gpus = torch.cuda.device_count() if use_cuda else 0
-    print(f"Using device: {device}")
-    print(f"Number of GPUs available: {num_gpus}")
 
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.1307,), (0.3081,))
-    ])
+    print("Device:", device)
+    print("GPUs:", torch.cuda.device_count())
 
-    dataset1 = datasets.MNIST('../data', train=True, download=True, transform=transform)
-    dataset2 = datasets.MNIST('../data', train=False, download=True, transform=transform)
+    transform = HeavyTransform()
 
-    train_loader = DataLoader(dataset1, batch_size=batch_size, shuffle=True)
-    test_loader = DataLoader(dataset2, batch_size=test_batch_size, shuffle=False)
+    dataset = datasets.MNIST(
+        "../data",
+        train=True,
+        download=True,
+        transform=transform
+    )
 
-    model = Net().to(device)
+    loader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=8,      # more CPU workers
+        pin_memory=True     # faster GPU transfer
+    )
 
-    # Wrap with DataParallel if multiple GPUs are available
-    if use_cuda and num_gpus > 1:
-        print(f"Using DataParallel across {num_gpus} GPUs")
+    model = HeavyNet().to(device)
+
+    if torch.cuda.device_count() > 1:
         model = nn.DataParallel(model)
 
-    optimizer = optim.Adadelta(model.parameters(), lr=lr)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=gamma)
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-    for epoch in range(1, epochs + 1):
-        train(model, device, train_loader, optimizer, epoch)
-        test(model, device, test_loader)
-        scheduler.step()
+    start = time.time()
 
-    # Save correctly whether DataParallel was used or not
-    state_dict = model.module.state_dict() if isinstance(model, nn.DataParallel) else model.state_dict()
-    torch.save(state_dict, "mnist_cnn.pt")
-    print("Model saved to mnist_cnn.pt")
+    for epoch in range(epochs):
+        print(f"\nEpoch {epoch+1}")
+        train(model, device, loader, optimizer)
+
+    print("Total time:", time.time() - start)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

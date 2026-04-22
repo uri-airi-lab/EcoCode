@@ -6,11 +6,13 @@ import {
   History,
   Leaf,
   Folder,
-  Shield
+  Shield,
+  LayoutDashboard
 } from 'lucide-react'
 import { useDataSource } from './DataSourceProvider'
 
 const navItems = [
+  { href: '/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/admin', label: 'Admin', icon: Shield },
   { href: '/projects', label: 'Projects', icon: Folder },
   { href: '/runs', label: 'Run History', icon: History },

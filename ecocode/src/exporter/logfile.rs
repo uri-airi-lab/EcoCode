@@ -187,16 +187,26 @@ impl Exporter for LogFileExporter {
         _project_id: i64,
         _collaborator_name: Option<&str>,
         started_at: Option<&str>,
+        command: Option<&str>,
     ) -> Result<i64, Box<dyn std::error::Error>> {
         writeln!(
             self.writer,
-            "Run: {} | Started: {}",
+            "Run: {} | Started: {} | Command: {}",
             run_name,
-            started_at.unwrap_or("N/A")
+            started_at.unwrap_or("N/A"),
+            command.unwrap_or("N/A")
         )?;
         writeln!(self.writer, "{}", "-".repeat(140))?;
         self.writer.flush()?;
         Ok(0)
+    }
+
+    async fn save_system_info(
+        &mut self,
+        _run_id: i64,
+        _info: crate::exporter::SystemInfo,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(())
     }
 
     async fn complete_run(

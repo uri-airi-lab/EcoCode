@@ -167,9 +167,19 @@ impl Exporter for TerminalExporter {
         _project_id: i64,
         _collaborator_name: Option<&str>,
         _started_at: Option<&str>,
+        _command: Option<&str>,
     ) -> Result<i64, Box<dyn std::error::Error>> {
         Ok(0)
     }
+
+    async fn save_system_info(
+        &mut self,
+        _run_id: i64,
+        _info: crate::exporter::SystemInfo,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(())
+    }
+
     async fn complete_run(
         &mut self,
         _run_id: i64,
