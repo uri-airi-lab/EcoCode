@@ -32,6 +32,7 @@ pub struct PrometheusExporter {
     igpu_energy: Gauge,
     gpu_usage_per_device: GaugeVec,
     gpu_energy_per_device: GaugeVec,
+    socket_energy_per_domain: GaugeVec,
 }
 
 impl PrometheusExporter {
@@ -79,6 +80,14 @@ impl PrometheusExporter {
             &["device_index"],
         )
         .unwrap();
+        let socket_energy_per_domain = GaugeVec::new(
+            Opts::new(
+                "ecocode_socket_energy_watts_per_domain",
+                "Socket energy consumption in Watts per domain",
+            ),
+            &["socket", "domain"],
+        )
+        .unwrap();
 
         registry.register(Box::new(cpu_usage.clone())).unwrap();
         registry.register(Box::new(cpu_energy.clone())).unwrap();
@@ -94,6 +103,9 @@ impl PrometheusExporter {
         registry
             .register(Box::new(gpu_energy_per_device.clone()))
             .unwrap();
+        registry
+            .register(Box::new(socket_energy_per_domain.clone()))
+            .unwrap();
 
         let exporter = PrometheusExporter {
             registry,
@@ -107,6 +119,7 @@ impl PrometheusExporter {
             igpu_energy,
             gpu_usage_per_device,
             gpu_energy_per_device,
+            socket_energy_per_domain,
         };
 
         // Spawn a warp HTTP server in the background to serve metrics
@@ -156,6 +169,12 @@ impl Exporter for PrometheusExporter {
             self.gpu_energy_per_device
                 .with_label_values(&[&idx])
                 .set(gm.gpu_energy);
+        }
+        for sm in &record.socket_metrics {
+            let socket_str = sm.socket.to_string();
+            self.socket_energy_per_domain
+                .with_label_values(&[&socket_str, &sm.domain])
+                .set(sm.energy);
         }
         Ok(())
     }
