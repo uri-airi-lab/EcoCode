@@ -7,7 +7,8 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Slider } from '@/components/ui/slider'
-import { Globe, MapPin, Zap, RefreshCw, Key, Save } from 'lucide-react'
+import { Globe, MapPin, Zap, RefreshCw, Key, Save, Coins, Landmark, TrendingUp } from 'lucide-react'
+import { Switch } from '@/components/ui/switch'
 import { fetchCarbonConfig, updateCarbonConfig, refreshCarbonIntensity, fetchCarbonRegions, CarbonConfig, CarbonRegion } from '@/lib/api-client'
 import { useDataSource } from '@/components/DataSourceProvider'
 import { toast } from 'sonner'
@@ -28,6 +29,9 @@ export function CarbonSettings({ projectId }: CarbonSettingsProps) {
   const [apiKey, setApiKey] = useState('')
   const [pue, setPue] = useState(1.0)
   const [countryCode, setCountryCode] = useState('WORLD')
+  const [manualCost, setManualCost] = useState<string>('0.00')
+  const [currency, setCurrency] = useState('USD')
+  const [useApiForCost, setUseApiForCost] = useState(false)
 
   useEffect(() => {
     async function load() {
@@ -42,6 +46,9 @@ export function CarbonSettings({ projectId }: CarbonSettingsProps) {
         setAddress(cfg.address || '')
         setPue(cfg.pue_factor)
         setCountryCode(cfg.country_code)
+        setManualCost(cfg.manual_cost_per_kwh?.toString() || '0.00')
+        setCurrency(cfg.manual_currency || 'USD')
+        setUseApiForCost(cfg.use_api_for_cost)
       } catch (err) {
         toast.error('Failed to load carbon settings')
       } finally {
@@ -58,6 +65,9 @@ export function CarbonSettings({ projectId }: CarbonSettingsProps) {
         address: address,
         country_code: countryCode,
         pue_factor: pue,
+        manual_cost_per_kwh: parseFloat(manualCost) || 0,
+        manual_currency: currency,
+        use_api_for_cost: useApiForCost,
         ...(apiKey && { electricity_maps_api_key: apiKey }),
       }, source)
       setConfig(updated)
@@ -195,6 +205,80 @@ export function CarbonSettings({ projectId }: CarbonSettingsProps) {
                 <span className="flex flex-col gap-1"><span>1.0</span><span className="text-[8px] opacity-60">Workstation</span></span>
                 <span className="flex flex-col items-center gap-1"><span>1.58</span><span className="text-[8px] opacity-60 text-center">Avg Cloud</span></span>
                 <span className="flex flex-col items-end gap-1"><span>3.0</span><span className="text-[8px] opacity-60">Legacy DC</span></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Cost Settings Section */}
+        <div className="pt-6 border-t border-white/5 space-y-6">
+          <div className="flex items-center gap-2">
+            <div className="p-2 rounded-lg bg-amber-500/20">
+              <Coins className="w-5 h-5 text-amber-400" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-foreground">Energy Cost Tracking</h3>
+              <p className="text-xs text-muted-foreground">Define your billing rates for accurate financial reporting.</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="space-y-3">
+              <Label className="text-sm font-semibold flex items-center gap-2">
+                <Landmark className="w-4 h-4 text-amber-400" />
+                Billing Currency
+              </Label>
+              <Select value={currency} onValueChange={setCurrency}>
+                <SelectTrigger className="bg-background/30 border-white/5 focus:border-amber-400/50 transition-all">
+                  <SelectValue placeholder="Select currency" />
+                </SelectTrigger>
+                <SelectContent className="bg-popover/90 backdrop-blur-xl border-white/10">
+                  <SelectItem value="USD">USD ($)</SelectItem>
+                  <SelectItem value="EUR">EUR (€)</SelectItem>
+                  <SelectItem value="GBP">GBP (£)</SelectItem>
+                  <SelectItem value="JPY">JPY (¥)</SelectItem>
+                  <SelectItem value="CHF">CHF (₣)</SelectItem>
+                  <SelectItem value="CAD">CAD ($)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-3">
+              <Label className="text-sm font-semibold flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-amber-400" />
+                Cost per kWh
+              </Label>
+              <div className="relative">
+                <Input
+                  type="number"
+                  step="0.0001"
+                  className="bg-background/30 border-white/5 focus:border-amber-400/50 transition-all pl-9"
+                  value={manualCost}
+                  disabled={useApiForCost}
+                  onChange={(e) => setManualCost(e.target.value)}
+                />
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-mono text-xs">
+                  {currency === 'EUR' ? '€' : currency === 'GBP' ? '£' : '$'}
+                </span>
+              </div>
+              <p className="text-[10px] text-muted-foreground italic">
+                {useApiForCost ? 'Managed by API' : 'Residential or commercial rate.'}
+              </p>
+            </div>
+
+            <div className="flex flex-col justify-end">
+              <div className="flex items-center justify-between p-4 rounded-xl bg-white/5 border border-white/10 h-[52px]">
+                <div className="space-y-0.5">
+                  <Label className="text-xs font-bold uppercase tracking-widest cursor-pointer" htmlFor="api-cost-toggle">
+                    Auto-fetch Price
+                  </Label>
+                  <p className="text-[9px] text-muted-foreground">Use Electricity Maps Market Price</p>
+                </div>
+                <Switch 
+                  id="api-cost-toggle"
+                  checked={useApiForCost}
+                  onCheckedChange={setUseApiForCost}
+                />
               </div>
             </div>
           </div>

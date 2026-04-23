@@ -152,6 +152,16 @@ struct DataSourceResponse {
     available_sources: Vec<DataSource>,
 }
 
+#[derive(Deserialize)]
+struct CreateProjectPayload {
+    name: String,
+    intensity: Option<f64>,
+    cost: Option<f64>,
+    currency: Option<String>,
+    address: Option<String>,
+    use_api_for_cost: Option<bool>,
+}
+
 #[derive(Serialize, Clone, sqlx::FromRow)]
 struct Project {
     id: i64,
@@ -237,6 +247,14 @@ struct RunSummary {
     total_co2_g: Option<f64>,
     carbon_intensity_used: Option<f64>,
     pue_used: Option<f64>,
+    total_cost: Option<f64>,
+    currency_used: Option<String>,
+}
+
+#[derive(Deserialize, Debug)]
+struct ElectricityMapsPriceResponse {
+    pub price: f64,
+    pub currency: String,
 }
 
 #[derive(Serialize, Clone, sqlx::FromRow, Debug)]
@@ -250,6 +268,9 @@ struct CarbonConfigRow {
     intensity_source: String,
     intensity_fetched_at: Option<String>,
     pue_factor: f64,
+    manual_cost_per_kwh: Option<f64>,
+    manual_currency: Option<String>,
+    use_api_for_cost: bool,
     updated_at: String,
 }
 
@@ -264,6 +285,9 @@ struct CarbonConfigResponse {
     intensity_source: String,
     intensity_fetched_at: Option<String>,
     pue_factor: f64,
+    manual_cost_per_kwh: Option<f64>,
+    manual_currency: Option<String>,
+    use_api_for_cost: bool,
     updated_at: String,
 }
 
@@ -277,6 +301,9 @@ struct CarbonConfigUpdate {
     #[serde(default)]
     clear_api_key: bool,
     pue_factor: Option<f64>,
+    manual_cost_per_kwh: Option<f64>,
+    manual_currency: Option<String>,
+    use_api_for_cost: Option<bool>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -418,6 +445,94 @@ async fn get_projects(
     }
 
     Ok((StatusCode::OK, Json(projects)))
+}
+
+async fn post_projects(
+    Query(source_query): Query<SourceQuery>,
+    State(state): State<AppState>,
+    Json(payload): Json<CreateProjectPayload>,
+) -> Result<impl IntoResponse, ApiError> {
+    let source = resolve_source(&state, &source_query)?;
+    
+    let now = chrono::Utc::now().to_rfc3339();
+    
+    // Step 1: Resolve intensity and location
+    let mut lat = None;
+    let mut lon = None;
+    let mut resolved_address = payload.address.clone();
+    let intensity = payload.intensity.unwrap_or(494.0);
+    let intensity_src = if payload.intensity.is_some() { "manual".to_string() } else { "static_WORLD".to_string() };
+
+    if let Some(addr) = &payload.address {
+        if let Ok((l_lat, l_lon, display)) = geocode_address(addr).await {
+            lat = Some(l_lat);
+            lon = Some(l_lon);
+            resolved_address = Some(display);
+            
+            // If no manual intensity, try to fetch from static regions at least
+            if payload.intensity.is_none() {
+                // We don't have country code here easily, so we stay with WORLD or 
+                // we could try to resolve it from geocoding.
+                // For now, keep it simple.
+            }
+        }
+    }
+
+    let cost = payload.cost;
+    let currency = payload.currency.unwrap_or_else(|| "USD".to_string());
+    let use_api_for_cost = payload.use_api_for_cost.unwrap_or(false);
+
+    let (id, name) = match source {
+        DataSource::Local => {
+            let result = sqlx::query(
+                "INSERT INTO projects (name, resolved_intensity_g_per_kwh, intensity_source, manual_cost_per_kwh, manual_currency, address, latitude, longitude, use_api_for_cost, updated_at) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
+                 RETURNING id, name"
+            )
+            .bind(&payload.name)
+            .bind(intensity)
+            .bind(intensity_src)
+            .bind(cost)
+            .bind(&currency)
+            .bind(resolved_address)
+            .bind(lat)
+            .bind(lon)
+            .bind(use_api_for_cost)
+            .bind(&now)
+            .fetch_one(&state.local_pool)
+            .await
+            .map_err(ApiError::internal)?;
+            
+            (result.get::<i64, _>("id"), result.get::<String, _>("name"))
+        }
+        DataSource::Online => {
+            let pool = state.online_pool.as_ref().ok_or_else(|| {
+                ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "Online pool missing")
+            })?;
+            let result = sqlx::query(
+                "INSERT INTO projects (name, resolved_intensity_g_per_kwh, intensity_source, manual_cost_per_kwh, manual_currency, address, latitude, longitude, use_api_for_cost, updated_at) 
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) 
+                 RETURNING id, name"
+            )
+            .bind(&payload.name)
+            .bind(intensity)
+            .bind(intensity_src)
+            .bind(cost)
+            .bind(&currency)
+            .bind(resolved_address)
+            .bind(lat)
+            .bind(lon)
+            .bind(use_api_for_cost)
+            .bind(&now)
+            .fetch_one(pool)
+            .await
+            .map_err(ApiError::internal)?;
+            
+            (result.get::<i64, _>("id"), result.get::<String, _>("name"))
+        }
+    };
+
+    Ok((StatusCode::CREATED, Json(Project { id, name })))
 }
 
 async fn get_runs(
@@ -778,7 +893,7 @@ async fn fetch_run_summary(
     match source {
         DataSource::Local => sqlx::query_as::<_, RunSummary>(
             "SELECT run_id, total_cpu_energy, total_gpu_energy, total_mem_energy, total_igpu_energy,
-                    total_co2_g, carbon_intensity_used, pue_used
+                    total_co2_g, carbon_intensity_used, pue_used, total_cost, currency_used
              FROM runsummary
              WHERE run_id = ?",
         )
@@ -788,7 +903,7 @@ async fn fetch_run_summary(
         .map_err(ApiError::internal),
         DataSource::Online => sqlx::query_as::<_, RunSummary>(
             "SELECT run_id, total_cpu_energy, total_gpu_energy, total_mem_energy, total_igpu_energy,
-                    total_co2_g, carbon_intensity_used, pue_used
+                    total_co2_g, carbon_intensity_used, pue_used, total_cost, currency_used
              FROM runsummary
              WHERE run_id = $1",
         )
@@ -836,12 +951,33 @@ async fn fetch_electricity_maps_intensity(lat: f64, lon: f64, api_key: &str) -> 
         .await?;
     if !res.status().is_success() {
         let msg = res.text().await?;
-        println!("Electricity Maps API error: {}", msg);
-        return Err(format!("API error: {}", msg).into());
+        println!("Electricity Maps Intensity API error: {}", msg);
+        return Err(format!("Intensity API error: {}", msg).into());
     }
     let data: ElectricityMapsResponse = res.json().await?;
     println!("Fetched real-time intensity: {} gCO2/kWh", data.carbon_intensity);
     Ok(data.carbon_intensity)
+}
+
+async fn fetch_electricity_maps_price(lat: f64, lon: f64, api_key: &str) -> Result<(f64, String), Box<dyn std::error::Error>> {
+    let client = reqwest::Client::new();
+    let url = format!(
+        "https://api.electricitymap.org/v3/power-price/latest?lat={}&lon={}",
+        lat, lon
+    );
+    let res = client
+        .get(&url)
+        .header("auth-token", api_key)
+        .send()
+        .await?;
+    if !res.status().is_success() {
+        let msg = res.text().await?;
+        println!("Electricity Maps Price API error: {}", msg);
+        return Err(format!("Price API error: {}", msg).into());
+    }
+    let data: ElectricityMapsPriceResponse = res.json().await?;
+    println!("Fetched real-time price: {} {}", data.price, data.currency);
+    Ok((data.price, data.currency))
 }
 
 fn make_carbon_config_response(row: CarbonConfigRow) -> CarbonConfigResponse {
@@ -855,6 +991,9 @@ fn make_carbon_config_response(row: CarbonConfigRow) -> CarbonConfigResponse {
         intensity_source: row.intensity_source,
         intensity_fetched_at: row.intensity_fetched_at,
         pue_factor: row.pue_factor,
+        manual_cost_per_kwh: row.manual_cost_per_kwh,
+        manual_currency: row.manual_currency,
+        use_api_for_cost: row.use_api_for_cost,
         updated_at: row.updated_at,
     }
 }
@@ -869,7 +1008,7 @@ async fn get_project_carbon_config(
             sqlx::query_as::<_, CarbonConfigRow>(
                 "SELECT country_code, address, latitude, longitude, electricity_maps_api_key,
                         resolved_intensity_g_per_kwh, intensity_source, intensity_fetched_at,
-                        pue_factor, updated_at
+                        pue_factor, manual_cost_per_kwh, manual_currency, use_api_for_cost, updated_at
                  FROM projects WHERE id = ?",
             )
             .bind(project_id)
@@ -885,7 +1024,7 @@ async fn get_project_carbon_config(
             sqlx::query_as::<_, CarbonConfigRow>(
                 "SELECT country_code, address, latitude, longitude, electricity_maps_api_key,
                         resolved_intensity_g_per_kwh, intensity_source, intensity_fetched_at,
-                        pue_factor, updated_at
+                        pue_factor, manual_cost_per_kwh, manual_currency, use_api_for_cost, updated_at
                  FROM projects WHERE id = $1",
             )
             .bind(project_id)
@@ -961,6 +1100,27 @@ async fn put_carbon_config_handler(
     };
 
     let pue = body.pue_factor.unwrap_or(current.pue_factor);
+    let manual_cost = body.manual_cost_per_kwh.or(current.manual_cost_per_kwh);
+    let manual_currency = body.manual_currency.clone().or(current.manual_currency.clone());
+    let use_api_for_cost = body.use_api_for_cost.unwrap_or(current.use_api_for_cost);
+
+    let (api_price, api_currency) = if use_api_for_cost {
+        if let (Some(lat_val), Some(lon_val), Some(key)) = (lat, lon, api_key.as_deref()) {
+            match fetch_electricity_maps_price(lat_val, lon_val, key).await {
+                Ok(v) => (Some(v.0), Some(v.1)),
+                Err(_) => (None, None), // Silently skip price if API fails during setup? 
+                                       // Or maybe report error if use_api_for_cost was explicitly true
+            }
+        } else {
+            (None, None)
+        }
+    } else {
+        (None, None)
+    };
+
+    let final_cost = if use_api_for_cost { api_price } else { manual_cost };
+    let final_currency = if use_api_for_cost { api_currency } else { manual_currency };
+
     let now = chrono::Utc::now().to_rfc3339();
 
     match source {
@@ -976,6 +1136,9 @@ async fn put_carbon_config_handler(
                     intensity_source = ?,
                     intensity_fetched_at = ?,
                     pue_factor = ?,
+                    manual_cost_per_kwh = ?,
+                    manual_currency = ?,
+                    use_api_for_cost = ?,
                     updated_at = ?
                  WHERE id = ?",
             )
@@ -988,6 +1151,9 @@ async fn put_carbon_config_handler(
             .bind(&intensity_src)
             .bind(if intensity_src == "api" { Some(now.as_str()) } else { None })
             .bind(pue)
+            .bind(final_cost)
+            .bind(final_currency)
+            .bind(use_api_for_cost)
             .bind(&now)
             .bind(project_id)
             .execute(&state.local_pool)
@@ -1009,8 +1175,11 @@ async fn put_carbon_config_handler(
                     intensity_source = $7,
                     intensity_fetched_at = $8,
                     pue_factor = $9,
-                    updated_at = $10
-                 WHERE id = $11",
+                    manual_cost_per_kwh = $10,
+                    manual_currency = $11,
+                    use_api_for_cost = $12,
+                    updated_at = $13
+                 WHERE id = $14",
             )
             .bind(&country_code)
             .bind(&resolved_address)
@@ -1021,6 +1190,9 @@ async fn put_carbon_config_handler(
             .bind(&intensity_src)
             .bind(if intensity_src == "api" { Some(now.as_str()) } else { None })
             .bind(pue)
+            .bind(final_cost)
+            .bind(final_currency)
+            .bind(use_api_for_cost)
             .bind(&now)
             .bind(project_id)
             .execute(pool)
@@ -1044,7 +1216,7 @@ async fn post_refresh_carbon_intensity(
         (Some(lat), Some(lon), Some(key)) if !key.is_empty() => {
             match fetch_electricity_maps_intensity(lat, lon, key).await {
                 Ok(v) => (v, "api".to_string()),
-                Err(e) => return Err(ApiError::new(StatusCode::BAD_GATEWAY, format!("Electricity Maps API error: {e}"))),
+                Err(e) => return Err(ApiError::new(StatusCode::BAD_GATEWAY, format!("Electricity Maps Intensity API error: {e}"))),
             }
         }
         _ => return Err(ApiError::new(
@@ -1053,15 +1225,37 @@ async fn post_refresh_carbon_intensity(
         )),
     };
 
+    let (final_cost, final_currency) = if current.use_api_for_cost {
+        if let (Some(lat), Some(lon), Some(key)) = (current.latitude, current.longitude, current.electricity_maps_api_key.as_deref()) {
+            match fetch_electricity_maps_price(lat, lon, key).await {
+                Ok((p, c)) => (Some(p), Some(c)),
+                Err(e) => return Err(ApiError::new(StatusCode::BAD_GATEWAY, format!("Electricity Maps Price API error: {e}"))),
+            }
+        } else {
+            (current.manual_cost_per_kwh, current.manual_currency.clone())
+        }
+    } else {
+        (current.manual_cost_per_kwh, current.manual_currency.clone())
+    };
+
     let now = chrono::Utc::now().to_rfc3339();
     match source {
         DataSource::Local => {
             sqlx::query(
-                "UPDATE projects SET resolved_intensity_g_per_kwh = ?, intensity_source = ?, intensity_fetched_at = ?, updated_at = ? WHERE id = ?",
+                "UPDATE projects SET 
+                    resolved_intensity_g_per_kwh = ?, 
+                    intensity_source = ?, 
+                    intensity_fetched_at = ?, 
+                    manual_cost_per_kwh = ?,
+                    manual_currency = ?,
+                    updated_at = ? 
+                 WHERE id = ?",
             )
             .bind(intensity)
             .bind(&intensity_src)
             .bind(&now)
+            .bind(final_cost)
+            .bind(&final_currency)
             .bind(&now)
             .bind(project_id)
             .execute(&state.local_pool)
@@ -1073,11 +1267,20 @@ async fn post_refresh_carbon_intensity(
                 ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "Online pool missing")
             })?;
             sqlx::query(
-                "UPDATE projects SET resolved_intensity_g_per_kwh = $1, intensity_source = $2, intensity_fetched_at = $3, updated_at = $4 WHERE id = $5",
+                "UPDATE projects SET 
+                    resolved_intensity_g_per_kwh = $1, 
+                    intensity_source = $2, 
+                    intensity_fetched_at = $3, 
+                    manual_cost_per_kwh = $4,
+                    manual_currency = $5,
+                    updated_at = $6 
+                 WHERE id = $7",
             )
             .bind(intensity)
             .bind(&intensity_src)
             .bind(&now)
+            .bind(final_cost)
+            .bind(&final_currency)
             .bind(&now)
             .bind(project_id)
             .execute(pool)
@@ -1562,6 +1765,20 @@ async fn ensure_sqlite_schema(db: &SqlitePool) -> Result<(), Box<dyn std::error:
     .await?;
     ensure_sqlite_column(
         db,
+        "runsummary",
+        "total_cost",
+        "ALTER TABLE runsummary ADD COLUMN total_cost REAL",
+    )
+    .await?;
+    ensure_sqlite_column(
+        db,
+        "runsummary",
+        "currency_used",
+        "ALTER TABLE runsummary ADD COLUMN currency_used TEXT",
+    )
+    .await?;
+    ensure_sqlite_column(
+        db,
         "runs",
         "command",
         "ALTER TABLE runs ADD COLUMN command TEXT",
@@ -1578,6 +1795,9 @@ async fn ensure_sqlite_schema(db: &SqlitePool) -> Result<(), Box<dyn std::error:
     ensure_sqlite_column(db, "projects", "intensity_source", "ALTER TABLE projects ADD COLUMN intensity_source TEXT NOT NULL DEFAULT 'static_WORLD'").await?;
     ensure_sqlite_column(db, "projects", "intensity_fetched_at", "ALTER TABLE projects ADD COLUMN intensity_fetched_at TEXT").await?;
     ensure_sqlite_column(db, "projects", "pue_factor", "ALTER TABLE projects ADD COLUMN pue_factor REAL NOT NULL DEFAULT 1.0").await?;
+    ensure_sqlite_column(db, "projects", "manual_cost_per_kwh", "ALTER TABLE projects ADD COLUMN manual_cost_per_kwh REAL").await?;
+    ensure_sqlite_column(db, "projects", "manual_currency", "ALTER TABLE projects ADD COLUMN manual_currency TEXT").await?;
+    ensure_sqlite_column(db, "projects", "use_api_for_cost", "ALTER TABLE projects ADD COLUMN use_api_for_cost BOOLEAN NOT NULL DEFAULT FALSE").await?;
     ensure_sqlite_column(db, "projects", "updated_at", "ALTER TABLE projects ADD COLUMN updated_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00Z'").await?;
 
     sqlx::query(
@@ -1830,6 +2050,20 @@ async fn ensure_postgres_schema(db: &PgPool) -> Result<(), Box<dyn std::error::E
         "ALTER TABLE runsummary ADD COLUMN pue_used DOUBLE PRECISION",
     )
     .await?;
+    ensure_postgres_column(
+        db,
+        "runsummary",
+        "total_cost",
+        "ALTER TABLE runsummary ADD COLUMN total_cost DOUBLE PRECISION",
+    )
+    .await?;
+    ensure_postgres_column(
+        db,
+        "runsummary",
+        "currency_used",
+        "ALTER TABLE runsummary ADD COLUMN currency_used TEXT",
+    )
+    .await?;
 
     // Carbon fields for projects
     ensure_postgres_column(db, "projects", "country_code", "ALTER TABLE projects ADD COLUMN country_code TEXT NOT NULL DEFAULT 'WORLD'").await?;
@@ -1841,6 +2075,9 @@ async fn ensure_postgres_schema(db: &PgPool) -> Result<(), Box<dyn std::error::E
     ensure_postgres_column(db, "projects", "intensity_source", "ALTER TABLE projects ADD COLUMN intensity_source TEXT NOT NULL DEFAULT 'static_WORLD'").await?;
     ensure_postgres_column(db, "projects", "intensity_fetched_at", "ALTER TABLE projects ADD COLUMN intensity_fetched_at TEXT").await?;
     ensure_postgres_column(db, "projects", "pue_factor", "ALTER TABLE projects ADD COLUMN pue_factor DOUBLE PRECISION NOT NULL DEFAULT 1.0").await?;
+    ensure_postgres_column(db, "projects", "manual_cost_per_kwh", "ALTER TABLE projects ADD COLUMN manual_cost_per_kwh DOUBLE PRECISION").await?;
+    ensure_postgres_column(db, "projects", "manual_currency", "ALTER TABLE projects ADD COLUMN manual_currency TEXT").await?;
+    ensure_postgres_column(db, "projects", "use_api_for_cost", "ALTER TABLE projects ADD COLUMN use_api_for_cost BOOLEAN NOT NULL DEFAULT FALSE").await?;
     ensure_postgres_column(db, "projects", "updated_at", "ALTER TABLE projects ADD COLUMN updated_at TEXT NOT NULL DEFAULT (now()::text)").await?;
 
     sqlx::query(
@@ -2019,7 +2256,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = Router::new()
         .route("/api/hello", get(hello_world))
         .route("/api/data-sources", get(get_data_sources))
-        .route("/api/projects", get(get_projects))
+        .route("/api/projects", get(get_projects).post(post_projects))
         .route("/api/project/{project_id}/runs", get(get_runs))
         .route("/api/run/{run_id}", get(get_run))
         .route("/api/run/{run_id}/record_points", get(get_record_points))

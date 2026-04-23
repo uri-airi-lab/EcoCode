@@ -197,6 +197,8 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
             totalEnergyWh={run.totalEnergy} 
             totalCo2G={run.carbonFootprint}
             carbonIntensity={run.carbonIntensityUsed}
+            totalCost={run.totalCost}
+            currency={run.currency}
           />
         </div>
 

@@ -139,6 +139,7 @@ pub struct ProjectInfo {
     pub id: i64,
     pub selected_collaborator_name: Option<String>,
     pub collaborators: Vec<String>,
+    pub is_new: bool,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -146,6 +147,9 @@ pub struct CarbonConfig {
     pub resolved_intensity_g_per_kwh: f64,
     pub pue_factor: f64,
     pub intensity_source: String,
+    pub manual_cost_per_kwh: Option<f64>,
+    pub manual_currency: Option<String>,
+    pub use_api_for_cost: bool,
 }
 
 /// Trait for different export formats
@@ -179,6 +183,16 @@ pub trait Exporter {
         status: &str,
         ended_at: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error>>;
+    async fn update_project_config(
+        &mut self,
+        _project_id: i64,
+        _intensity: Option<f64>,
+        _price: Option<f64>,
+        _address: Option<String>,
+        _use_api_for_cost: Option<bool>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(())
+    }
     async fn run_summary(&mut self, run_id: i64) -> Result<(), Box<dyn std::error::Error>>;
     async fn get_carbon_config(
         &mut self,
@@ -189,6 +203,9 @@ pub trait Exporter {
             resolved_intensity_g_per_kwh: 494.0,
             pue_factor: 1.0,
             intensity_source: "static_WORLD_fallback".to_string(),
+            manual_cost_per_kwh: None,
+            manual_currency: Some("USD".to_string()),
+            use_api_for_cost: false,
         })
     }
 }

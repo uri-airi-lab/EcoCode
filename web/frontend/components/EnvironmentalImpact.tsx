@@ -1,20 +1,31 @@
 'use client'
 
 import React from 'react'
-import { Smartphone, Zap, Car, TreePine, Globe } from 'lucide-react'
+import { Smartphone, Zap, Car, TreePine, Globe, Coins } from 'lucide-react'
 
 interface EnvironmentalImpactProps {
   totalEnergyWh: number
   totalCo2G?: number | null
   carbonIntensity?: number | null
+  totalCost?: number | null
+  currency?: string | null
 }
 
-export function EnvironmentalImpact({ totalEnergyWh, totalCo2G, carbonIntensity }: EnvironmentalImpactProps) {
+export function EnvironmentalImpact({ totalEnergyWh, totalCo2G, carbonIntensity, totalCost, currency }: EnvironmentalImpactProps) {
   // Use DB-stored CO2 if available, otherwise fallback to world average calculation
   // World average: 494 gCO2/kWh
   const co2G = totalCo2G != null ? totalCo2G : (totalEnergyWh / 1000) * 494
 
   const metrics = [
+    {
+      label: 'Financial Impact',
+      description: 'Estimated energy cost',
+      value: totalCost != null ? totalCost.toFixed(4) : '--',
+      unit: currency || 'USD',
+      icon: Coins,
+      color: 'text-amber-400',
+      bg: 'bg-amber-400/10'
+    },
     {
       label: 'Trees Absorption',
       description: 'Equivalent to 1 day of absorption',

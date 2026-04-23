@@ -52,6 +52,22 @@ struct Args {
     /// Measurement interval in seconds (supports decimals, e.g. 0.5)
     #[arg(short, long, default_value = "1.0")]
     interval: f64,
+    /// Carbon intensity in gCO2/kWh (parameter for footprint calculation)
+    #[arg(long)]
+    intensity: Option<f64>,
+
+    /// Financial cost per kWh (e.g. 0.15)
+    #[arg(long, alias = "cost")]
+    price: Option<f64>,
+
+    /// Location address for carbon intensity fetching
+    #[arg(long)]
+    address: Option<String>,
+
+    /// Use API to fetch energy prices automatically
+    #[arg(long)]
+    use_api_cost: bool,
+
     /// Command to monitor (with its arguments)
     #[arg(trailing_var_arg = true, required = true)]
     command: Vec<String>,
@@ -61,7 +77,6 @@ struct Args {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Args = Args::parse();
 
-    let interval = args.interval;
     let output = args.output.to_lowercase();
     let project_name = args.project;
     let collaborator = match args.collaborator {
@@ -174,7 +189,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .await?;
 
+    // Update project configuration if provided via CLI
+    if args.intensity.is_some() || args.price.is_some() || args.address.is_some() || args.use_api_cost {
+        exporter.update_project_config(
+            project.id, 
+            args.intensity, 
+            args.price, 
+            args.address.clone(), 
+            if args.use_api_cost { Some(true) } else { None }
+        ).await?;
+    }
+
     let carbon_config = exporter.get_carbon_config(project.id).await?;
+
+    // Validation: ensure intensity and price are set if it's a new project or missing settings
+    if project.is_new || (carbon_config.manual_cost_per_kwh.is_none() && !carbon_config.use_api_for_cost) {
+        if carbon_config.manual_cost_per_kwh.is_none() && !carbon_config.use_api_for_cost && args.price.is_none() && !args.use_api_cost {
+            eprintln!("Error: Financial cost per kWh (--price or --cost) or --use-api-cost is required for new projects or if not already set.");
+            std::process::exit(1);
+        }
+        // Intensity has a default (494.0), but we check if it was specifically provided if project is new
+        if project.is_new && args.intensity.is_none() {
+             println!("Notice: No --intensity provided. Using default global average ({:.1} gCO2/kWh).", carbon_config.resolved_intensity_g_per_kwh);
+        }
+    }
 
     // Open sys/class/powercap dir and look for intel-rapl files and make a buffer for them
     let mut rapl_readers = scan_rapl_files()?; //sorted by domain

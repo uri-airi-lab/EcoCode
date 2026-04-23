@@ -57,6 +57,8 @@ export interface Run {
   } | null
   carbonIntensityUsed?: number | null
   pueUsed?: number | null
+  totalCost: number | null
+  currency: string | null
   records: MetricRecord[]
 }
 
@@ -174,6 +176,8 @@ export function generateMockRuns(): Run[] {
       duration: recordCount * 60, // 1 minute per record
       carbonIntensityUsed: metrics.carbonIntensityUsed,
       pueUsed: metrics.pueUsed,
+      totalCost: 0,
+      currency: 'USD',
       records,
     })
   }

@@ -178,6 +178,7 @@ impl Exporter for LogFileExporter {
             id: 0,
             selected_collaborator_name: collaborator_name.map(str::to_owned),
             collaborators: collaborator_name.into_iter().map(str::to_owned).collect(),
+            is_new: false,
         })
     }
 

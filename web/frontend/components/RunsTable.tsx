@@ -5,13 +5,29 @@ import { useState } from 'react'
 import { Run } from '@/lib/mock-data'
 import { format } from 'date-fns'
 import { ChevronRight, Check, Clock, X } from 'lucide-react'
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from '@/components/ui/pagination'
 
 interface RunsTableProps {
   runs: Omit<Run, 'records'>[]
 }
 
+const ITEMS_PER_PAGE = 10
+
 export function RunsTable({ runs }: RunsTableProps) {
+  const [currentPage, setCurrentPage] = useState(1)
   const [selectedRuns, setSelectedRuns] = useState<Set<string>>(new Set())
+
+  const totalPages = Math.ceil(runs.length / ITEMS_PER_PAGE)
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
+  const endIndex = startIndex + ITEMS_PER_PAGE
+  const currentRuns = runs.slice(startIndex, endIndex)
 
   const toggleRunSelection = (runId: string) => {
     const newSelected = new Set(selectedRuns)
@@ -102,7 +118,7 @@ export function RunsTable({ runs }: RunsTableProps) {
             </tr>
           </thead>
           <tbody>
-            {runs.map((run) => {
+            {currentRuns.map((run) => {
               const isSelected = selectedRuns.has(run.id)
               return (
                 <tr
@@ -157,6 +173,55 @@ export function RunsTable({ runs }: RunsTableProps) {
           </tbody>
         </table>
       </div>
+
+      {totalPages > 1 && (
+          <div className="mt-4 flex items-center justify-between border-t border-border pt-4">
+              <p className="text-xs text-muted-foreground">
+                  Showing {startIndex + 1} to {Math.min(endIndex, runs.length)} of {runs.length} runs
+              </p>
+              <Pagination>
+                  <PaginationContent>
+                      <PaginationItem>
+                          <PaginationPrevious 
+                              href="#" 
+                              onClick={(e) => {
+                                  e.preventDefault()
+                                  if (currentPage > 1) setCurrentPage(currentPage - 1)
+                              }}
+                              className={currentPage === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                          />
+                      </PaginationItem>
+                      
+                      {Array.from({ length: totalPages }, (_, i) => (
+                          <PaginationItem key={i}>
+                              <PaginationLink 
+                                  href="#"
+                                  isActive={currentPage === i + 1}
+                                  onClick={(e) => {
+                                      e.preventDefault()
+                                      setCurrentPage(i + 1)
+                                  }}
+                                  className="cursor-pointer"
+                              >
+                                  {i + 1}
+                              </PaginationLink>
+                          </PaginationItem>
+                      ))}
+
+                      <PaginationItem>
+                          <PaginationNext 
+                              href="#" 
+                              onClick={(e) => {
+                                  e.preventDefault()
+                                  if (currentPage < totalPages) setCurrentPage(currentPage + 1)
+                              }}
+                              className={currentPage === totalPages ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                          />
+                      </PaginationItem>
+                  </PaginationContent>
+              </Pagination>
+          </div>
+      )}
     </div>
   )
 }

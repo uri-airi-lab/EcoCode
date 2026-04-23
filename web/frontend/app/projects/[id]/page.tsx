@@ -6,9 +6,10 @@ import { Activity, ArrowLeft, Folder, Zap, Clock } from 'lucide-react'
 import { useDataSource } from '@/components/DataSourceProvider'
 import { DashboardLayout } from '@/components/DashboardLayout'
 import { RecentRunsTable } from '@/components/RecentRunsTable'
-import { ProjectDetail, fetchProjectRuns } from '@/lib/api-client'
+import { ProjectDetail, fetchProjectRuns, fetchAllProjects, ProjectSummary } from '@/lib/api-client'
 import { MetricCard } from '@/components/MetricCard'
 import { CarbonSettings } from '@/components/CarbonSettings'
+import { StartRunModal } from '@/components/StartRunModal'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Leaf } from 'lucide-react'
 
@@ -18,6 +19,7 @@ interface ProjectPageProps {
 
 export default function ProjectPage({ params }: ProjectPageProps) {
     const [project, setProject] = useState<ProjectDetail | null>(null)
+    const [allProjects, setAllProjects] = useState<ProjectSummary[]>([])
     const [loading, setLoading] = useState(true)
     const [paramId, setParamId] = useState<string | null>(null)
     const { source } = useDataSource()
@@ -26,9 +28,12 @@ export default function ProjectPage({ params }: ProjectPageProps) {
         const initParams = async () => {
             const { id } = await params
             setParamId(id)
+            
+            // Load all projects for the modal
+            fetchAllProjects(source).then(setAllProjects)
         }
         initParams()
-    }, [params])
+    }, [params, source])
 
     useEffect(() => {
         if (!paramId) return
@@ -113,6 +118,13 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                                 Project Dashboard
                             </p>
                         </div>
+                        <StartRunModal 
+                            projects={allProjects} 
+                            defaultProjectId={paramId || undefined}
+                            onProjectCreated={() => {
+                                fetchAllProjects(source).then(setAllProjects)
+                            }}
+                        />
                     </div>
                 </div>
 

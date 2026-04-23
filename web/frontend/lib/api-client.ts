@@ -36,6 +36,8 @@ interface BackendRun {
   ram_gb?: number | null
   gpu_count?: number | null
   gpu_names?: string | null
+  total_cost?: number | null
+  currency?: string | null
 }
 
 interface BackendRecordPoint {
@@ -80,6 +82,8 @@ interface BackendRunSummary {
   total_co2_g?: number | null
   carbon_intensity_used?: number | null
   pue_used?: number | null
+  total_cost?: number | null
+  currency_used?: string | null
 }
 
 export interface CarbonConfig {
@@ -92,6 +96,9 @@ export interface CarbonConfig {
   intensity_source: string
   intensity_fetched_at: string | null
   pue_factor: number
+  manual_cost_per_kwh: number | null
+  manual_currency: string | null
+  use_api_for_cost: boolean
   updated_at: string
 }
 
@@ -109,6 +116,9 @@ export interface CarbonConfigUpdate {
   electricity_maps_api_key?: string
   clear_api_key?: boolean
   pue_factor?: number
+  manual_cost_per_kwh?: number
+  manual_currency?: string
+  use_api_for_cost?: boolean
 }
 
 interface BackendAdminRun {
@@ -183,6 +193,8 @@ interface RunMetricSnapshot {
   timestamp: number
   carbonIntensityUsed: number | null
   pueUsed: number | null
+  totalCost: number | null
+  currency: string | null
 }
 
 interface RunTotalsSnapshot {
@@ -195,6 +207,8 @@ interface RunTotalsSnapshot {
   timestamp: number
   carbonIntensityUsed: number | null
   pueUsed: number | null
+  totalCost: number | null
+  currency: string | null
 }
 
 function calculateAverages(records: MetricRecord[]) {
@@ -257,6 +271,8 @@ function calculateEnergyTotals(summary: BackendRunSummary | null) {
     totalCo2G,
     carbonIntensityUsed: summary?.carbon_intensity_used ?? null,
     pueUsed: summary?.pue_used ?? null,
+    totalCost: summary?.total_cost ?? null,
+    currency: summary?.currency_used ?? null,
   }
 }
 
@@ -364,6 +380,8 @@ async function mapRunSummary(backendRun: BackendRun, source?: DataSource): Promi
     command: backendRun.command ?? null,
     carbonIntensityUsed: snapshot.carbonIntensityUsed,
     pueUsed: snapshot.pueUsed,
+    totalCost: snapshot.totalCost,
+    currency: snapshot.currency,
   }
 }
 
@@ -392,6 +410,8 @@ async function mapRun(backendRun: BackendRun, source?: DataSource): Promise<Run>
     command: backendRun.command ?? null,
     carbonIntensityUsed: snapshot.carbonIntensityUsed,
     pueUsed: snapshot.pueUsed,
+    totalCost: snapshot.totalCost,
+    currency: snapshot.currency,
     systemInfo: backendRun.cpu_name ? {
       cpuName: backendRun.cpu_name,
       cpuCores: backendRun.cpu_cores ?? 0,
@@ -456,6 +476,23 @@ export interface AdminProjectMonitor {
   collaborators: string[]
   activeRuns: AdminRunInfo[]
   latestRun: AdminRunInfo | null
+}
+
+/**
+ * Create a new project with initial configuration
+ */
+export async function createProject(
+    name: string,
+    config: { intensity?: number; cost?: number; currency?: string; address?: string; use_api_for_cost?: boolean },
+    source?: DataSource
+): Promise<BackendProject> {
+    const res = await fetch(buildApiUrl('/api/projects', source), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, ...config })
+    })
+    if (!res.ok) throw new Error('Failed to create project')
+    return res.json()
 }
 
 /**
@@ -639,6 +676,8 @@ export async function fetchRunDetail(id: string, source?: DataSource): Promise<R
     const carbonFootprint = summary?.total_co2_g != null
       ? summary.total_co2_g
       : energyKwh * WORLD_AVERAGE_INTENSITY_G_PER_KWH
+    const totalCost = summary?.total_cost ?? null
+    const currency = summary?.currency_used ?? null
     const avgCpuUsage = records.length > 0 ? records.reduce((sum, r) => sum + r.cpu_usage, 0) / records.length : 0
     const avgGpuUsage = records.length > 0 ? records.reduce((sum, r) => sum + r.gpu_usage, 0) / records.length : 0
     const avgMemUsage = records.length > 0 ? records.reduce((sum, r) => sum + r.mem_usage, 0) / records.length : 0
@@ -669,6 +708,8 @@ export async function fetchRunDetail(id: string, source?: DataSource): Promise<R
       command: backendRun.command ?? null,
       carbonIntensityUsed: summary?.carbon_intensity_used ?? null,
       pueUsed: summary?.pue_used ?? null,
+      totalCost: totalCost,
+      currency: currency,
       systemInfo: backendRun.cpu_name ? {
         cpuName: backendRun.cpu_name,
         cpuCores: backendRun.cpu_cores ?? 0,

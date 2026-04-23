@@ -83,7 +83,7 @@ export function CumulativePowerChart({ data }: CumulativePowerChartProps) {
             stroke="hsl(158 94% 45%)"
             fill="hsl(158 94% 45%)"
             fillOpacity={0.6}
-            name="CPU"
+            name="CPU Power (W)"
             isAnimationActive={false}
           />
           <Area
@@ -93,7 +93,7 @@ export function CumulativePowerChart({ data }: CumulativePowerChartProps) {
             stroke="hsl(199 89% 48%)"
             fill="hsl(199 89% 48%)"
             fillOpacity={0.6}
-            name="GPU"
+            name="GPU Power (W)"
             isAnimationActive={false}
           />
           <Area
@@ -103,7 +103,7 @@ export function CumulativePowerChart({ data }: CumulativePowerChartProps) {
             stroke="hsl(20 89% 55%)"
             fill="hsl(20 89% 55%)"
             fillOpacity={0.6}
-            name="Memory"
+            name="Memory Power (W)"
             isAnimationActive={false}
           />
           <Area
@@ -113,7 +113,7 @@ export function CumulativePowerChart({ data }: CumulativePowerChartProps) {
             stroke="hsl(49 89% 52%)"
             fill="hsl(49 89% 52%)"
             fillOpacity={0.6}
-            name="iGPU"
+            name="iGPU Power (W)"
             isAnimationActive={false}
           />
         </AreaChart>

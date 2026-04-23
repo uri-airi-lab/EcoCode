@@ -182,6 +182,9 @@ impl OnlineExporter {
         Self::ensure_column(db, "projects", "intensity_source", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS intensity_source TEXT NOT NULL DEFAULT 'static_WORLD'").await?;
         Self::ensure_column(db, "projects", "intensity_fetched_at", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS intensity_fetched_at TEXT").await?;
         Self::ensure_column(db, "projects", "pue_factor", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS pue_factor DOUBLE PRECISION NOT NULL DEFAULT 1.0").await?;
+        Self::ensure_column(db, "projects", "manual_cost_per_kwh", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS manual_cost_per_kwh DOUBLE PRECISION").await?;
+        Self::ensure_column(db, "projects", "manual_currency", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS manual_currency TEXT").await?;
+        Self::ensure_column(db, "projects", "use_api_for_cost", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS use_api_for_cost BOOLEAN NOT NULL DEFAULT FALSE").await?;
 
         Self::ensure_column(
             db,
@@ -200,8 +203,15 @@ impl OnlineExporter {
         Self::ensure_column(
             db,
             "runsummary",
-            "pue_used",
-            "ALTER TABLE runsummary ADD COLUMN pue_used DOUBLE PRECISION",
+            "total_cost",
+            "ALTER TABLE runsummary ADD COLUMN total_cost DOUBLE PRECISION",
+        )
+        .await?;
+        Self::ensure_column(
+            db,
+            "runsummary",
+            "currency_used",
+            "ALTER TABLE runsummary ADD COLUMN currency_used TEXT",
         )
         .await?;
 
@@ -471,6 +481,7 @@ impl Exporter for OnlineExporter {
                 id,
                 selected_collaborator_name: selected,
                 collaborators,
+                is_new: false,
             });
         }
 
@@ -502,6 +513,7 @@ impl Exporter for OnlineExporter {
             id: project_id,
             selected_collaborator_name: Some(collaborator_name.to_owned()),
             collaborators,
+            is_new: true,
         })
     }
 
@@ -583,6 +595,45 @@ impl Exporter for OnlineExporter {
         Ok(())
     }
 
+    async fn update_project_config(
+        &mut self,
+        project_id: i64,
+        intensity: Option<f64>,
+        price: Option<f64>,
+        address: Option<String>,
+        use_api_for_cost: Option<bool>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(i) = intensity {
+            sqlx::query("UPDATE projects SET resolved_intensity_g_per_kwh = $1, intensity_source = 'manual' WHERE id = $2")
+                .bind(i)
+                .bind(project_id)
+                .execute(&self.db)
+                .await?;
+        }
+        if let Some(p) = price {
+            sqlx::query("UPDATE projects SET manual_cost_per_kwh = $1 WHERE id = $2")
+                .bind(p)
+                .bind(project_id)
+                .execute(&self.db)
+                .await?;
+        }
+        if let Some(addr) = address {
+            sqlx::query("UPDATE projects SET address = $1 WHERE id = $2")
+                .bind(addr)
+                .bind(project_id)
+                .execute(&self.db)
+                .await?;
+        }
+        if let Some(api_cost) = use_api_for_cost {
+            sqlx::query("UPDATE projects SET use_api_for_cost = $1 WHERE id = $2")
+                .bind(api_cost)
+                .bind(project_id)
+                .execute(&self.db)
+                .await?;
+        }
+        Ok(())
+    }
+
     async fn run_summary(&mut self, run_id: i64) -> Result<(), Box<dyn std::error::Error>> {
         let record_count: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM records WHERE run_id = $1")
@@ -600,8 +651,8 @@ impl Exporter for OnlineExporter {
         }
 
         // Read carbon config from the project associated with this run
-        let (intensity, pue, source): (f64, f64, String) = sqlx::query_as::<_, (f64, f64, String)>(
-            "SELECT p.resolved_intensity_g_per_kwh, p.pue_factor, p.intensity_source
+        let (intensity, pue, source, cost_per_kwh, currency): (f64, f64, String, f64, String) = sqlx::query_as::<_, (f64, f64, String, Option<f64>, Option<String>)>(
+            "SELECT p.resolved_intensity_g_per_kwh, p.pue_factor, p.intensity_source, p.manual_cost_per_kwh, p.manual_currency
              FROM projects p
              JOIN runs r ON r.project_id = p.id
              WHERE r.id = $1",
@@ -609,29 +660,31 @@ impl Exporter for OnlineExporter {
         .bind(run_id)
         .fetch_optional(&self.db)
         .await?
-        .unwrap_or_else(|| (static_intensity("WORLD"), 1.0, "static_WORLD".to_string()));
+        .map(|(i, p, s, mc, curr)| (i, p, s, mc.unwrap_or(0.0), curr.unwrap_or_else(|| "USD".to_string())))
+        .unwrap_or_else(|| (static_intensity("WORLD"), 1.0, "static_WORLD".to_string(), 0.0, "USD".to_string()));
 
-        println!("Carbon footprint calculation: Intensity={:.2} g/kWh (source: {}), PUE={:.2}", 
-                 intensity, source, pue);
+        println!("Carbon footprint calculation: Intensity={:.2} g/kWh (source: {}), PUE={:.2}, Cost={:.4} {}", 
+                 intensity, source, pue, cost_per_kwh, currency);
 
         // Insert energy totals with placeholder CO2 (updated below)
         sqlx::query(
             "INSERT INTO runsummary
                 (run_id, total_cpu_energy, total_gpu_energy, total_mem_energy, total_igpu_energy,
-                 total_co2_g, carbon_intensity_used, pue_used)
-             SELECT
+                 total_co2_g, carbon_intensity_used, pue_used, total_cost, currency_used)
+              SELECT
                 $1,
                 COALESCE(SUM(cpu_energy),  0.0),
                 COALESCE(SUM(gpu_energy),  0.0),
                 COALESCE(SUM(mem_energy),  0.0),
                 COALESCE(SUM(igpu_energy), 0.0),
-                0.0, $2, $3
-             FROM records
-             WHERE run_id = $1",
+                0.0, $2, $3, 0.0, $4
+              FROM records
+              WHERE run_id = $1",
         )
         .bind(run_id)
         .bind(intensity)
         .bind(pue)
+        .bind(&currency)
         .execute(&self.db)
         .await?;
 
@@ -647,9 +700,11 @@ impl Exporter for OnlineExporter {
 
         let energy_wh = (total_cpu + total_gpu + total_mem + total_igpu) / 3600.0;
         let co2_g = calculate_co2_g(energy_wh, intensity, pue);
+        let total_cost = (energy_wh / 1000.0) * cost_per_kwh * pue;
 
-        sqlx::query("UPDATE runsummary SET total_co2_g = $1 WHERE run_id = $2")
+        sqlx::query("UPDATE runsummary SET total_co2_g = $1, total_cost = $2 WHERE run_id = $3")
             .bind(co2_g)
+            .bind(total_cost)
             .bind(run_id)
             .execute(&self.db)
             .await?;
@@ -661,24 +716,30 @@ impl Exporter for OnlineExporter {
         &mut self,
         project_id: i64,
     ) -> Result<crate::exporter::CarbonConfig, Box<dyn std::error::Error>> {
-        let row: Option<(f64, f64, String)> = sqlx::query_as(
-            "SELECT resolved_intensity_g_per_kwh, pue_factor, intensity_source FROM projects WHERE id = $1"
+        let row: Option<(f64, f64, String, Option<f64>, Option<String>, bool)> = sqlx::query_as(
+            "SELECT resolved_intensity_g_per_kwh, pue_factor, intensity_source, manual_cost_per_kwh, manual_currency, use_api_for_cost FROM projects WHERE id = $1"
         )
         .bind(project_id)
         .fetch_optional(&self.db)
         .await?;
 
-        if let Some((intensity, pue, source)) = row {
+        if let Some((intensity, pue, source, m_cost, m_curr, use_api)) = row {
             Ok(crate::exporter::CarbonConfig {
                 resolved_intensity_g_per_kwh: intensity,
                 pue_factor: pue,
                 intensity_source: source,
+                manual_cost_per_kwh: m_cost,
+                manual_currency: m_curr,
+                use_api_for_cost: use_api,
             })
         } else {
             Ok(crate::exporter::CarbonConfig {
                 resolved_intensity_g_per_kwh: static_intensity("WORLD"),
                 pue_factor: 1.0,
                 intensity_source: "static_WORLD".to_string(),
+                manual_cost_per_kwh: None,
+                manual_currency: Some("USD".to_string()),
+                use_api_for_cost: false,
             })
         }
     }

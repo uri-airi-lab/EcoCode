@@ -10,6 +10,7 @@ interface MetricCardProps {
     direction: 'up' | 'down'
   }
   loading?: boolean
+  className?: string
 }
 
 export function MetricCard({
@@ -19,10 +20,11 @@ export function MetricCard({
   unit,
   trend,
   loading = false,
+  className = '',
 }: MetricCardProps) {
   if (loading) {
     return (
-      <div className="metric-card">
+      <div className={`metric-card ${className}`}>
         <div className="flex items-start justify-between">
           <div className="space-y-2 flex-1">
             <div className="h-4 bg-muted rounded w-20 animate-pulse" />
@@ -39,7 +41,7 @@ export function MetricCard({
   const trendSymbol = trend?.direction === 'down' ? '↓' : '↑'
 
   return (
-    <div className="metric-card">
+    <div className={`metric-card ${className}`}>
       <div className="flex items-start justify-between">
         <div className="flex-1">
           <p className="text-sm text-muted-foreground mb-2">{label}</p>

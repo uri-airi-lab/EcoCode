@@ -5,6 +5,7 @@ import {
   Zap,
   Clock,
   Activity,
+  Coins,
 } from 'lucide-react'
 import { DashboardLayout } from '@/components/DashboardLayout'
 import { MetricCard } from '@/components/MetricCard'
@@ -16,6 +17,7 @@ import { PowerDistributionChart } from '@/components/PowerDistributionChart'
 import { CumulativePowerChart } from '@/components/CumulativePowerChart'
 import { EnvironmentalImpact } from '@/components/EnvironmentalImpact'
 import { CarbonSettings } from '@/components/CarbonSettings'
+import { StartRunModal } from '@/components/StartRunModal'
 import { Run } from '@/lib/mock-data'
 import { fetchAllRuns, fetchRunDetail, fetchAllProjects, ProjectSummary } from '@/lib/api-client'
 import { useSSE } from '@/hooks/use-sse'
@@ -121,6 +123,8 @@ export default function Dashboard() {
         ? runs.reduce((sum, r) => sum + r.avgCpuUsage, 0) / runs.length
         : 0
     const totalCarbonFootprint = runs.reduce((sum, r) => sum + r.carbonFootprint, 0)
+    const totalCost = runs.reduce((sum, r) => sum + (r.totalCost || 0), 0)
+    const currency = runs.find(r => r.currency)?.currency || 'USD'
     const avgMemUsage =
       runs.length > 0
         ? runs.reduce((sum, r) => sum + r.avgMemUsage || 0, 0) / runs.length
@@ -135,6 +139,8 @@ export default function Dashboard() {
       totalCoreHours,
       avgCpuUsage,
       totalCarbonFootprint,
+      totalCost,
+      currency,
       avgMemUsage,
       avgGpuUsage
     }
@@ -164,12 +170,23 @@ export default function Dashboard() {
       <div className="p-4 md:p-6 lg:p-8 w-full">
         {/* Header */}
         <div className="mb-6 md:mb-8">
-          <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold text-foreground mb-2">
-            Dashboard
-          </h1>
-          <p className="text-sm md:text-base text-muted-foreground">
-            Monitor your EcoCode runs and environmental impact
-          </p>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-2">
+            <div>
+              <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold text-foreground mb-2">
+                Dashboard
+              </h1>
+              <p className="text-sm md:text-base text-muted-foreground">
+                Monitor your EcoCode runs and environmental impact
+              </p>
+            </div>
+            <StartRunModal 
+              projects={projects} 
+              onProjectCreated={() => {
+                // Refresh projects list
+                fetchAllProjects(source).then(setProjects)
+              }} 
+            />
+          </div>
         </div>
 
 
@@ -236,6 +253,14 @@ export default function Dashboard() {
               value={stats.avgMemUsage.toFixed(1)}
               unit="%"
               loading={loading}
+            />
+            <MetricCard
+              icon={Coins}
+              label="Total Cost"
+              value={stats.totalCost.toFixed(2)}
+              unit={stats.currency}
+              loading={loading}
+              className="bg-amber-500/10 border-amber-500/20"
             />
           </div>
         </div>

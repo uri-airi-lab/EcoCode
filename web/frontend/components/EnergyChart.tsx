@@ -124,7 +124,7 @@ export function EnergyChart({ data }: EnergyChartProps) {
             stroke="hsl(158 94% 45%)"
             strokeWidth={2}
             dot={false}
-            name="CPU Energy"
+            name="CPU Power (W)"
             isAnimationActive={false}
             connectNulls={true}
           />
@@ -134,7 +134,7 @@ export function EnergyChart({ data }: EnergyChartProps) {
             stroke="hsl(199 89% 48%)"
             strokeWidth={2}
             dot={false}
-            name="GPU Energy (Total)"
+            name="GPU Power (W) (Total)"
             isAnimationActive={false}
             connectNulls={true}
           />
@@ -158,7 +158,7 @@ export function EnergyChart({ data }: EnergyChartProps) {
             stroke="hsl(20 89% 55%)"
             strokeWidth={2}
             dot={false}
-            name="Memory Energy"
+            name="Memory Power (W)"
             isAnimationActive={false}
             connectNulls={true}
           />
@@ -168,7 +168,7 @@ export function EnergyChart({ data }: EnergyChartProps) {
             stroke="hsl(49 89% 52%)"
             strokeWidth={2}
             dot={false}
-            name="iGPU Energy"
+            name="iGPU Power (W)"
             isAnimationActive={false}
             connectNulls={true}
           />
