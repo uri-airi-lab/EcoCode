@@ -15,7 +15,6 @@ import { buildApiUrl, DataSource } from './data-source'
 
 // --- Internal Mappings ---
 
-const CARBON_FACTOR = 0.475 // kgCO2/kWh
 const WATER_FACTOR = 1.8 // L/kWh
 
 interface BackendProject {
@@ -78,6 +77,38 @@ interface BackendRunSummary {
   total_gpu_energy: number
   total_mem_energy: number
   total_igpu_energy: number
+  total_co2_g?: number | null
+  carbon_intensity_used?: number | null
+  pue_used?: number | null
+}
+
+export interface CarbonConfig {
+  country_code: string
+  address: string | null
+  latitude: number | null
+  longitude: number | null
+  has_api_key: boolean
+  resolved_intensity_g_per_kwh: number
+  intensity_source: string
+  intensity_fetched_at: string | null
+  pue_factor: number
+  updated_at: string
+}
+
+export interface CarbonRegion {
+  code: string
+  name: string
+  intensity_g_per_kwh: number
+}
+
+export interface CarbonConfigUpdate {
+  address?: string
+  latitude?: number
+  longitude?: number
+  country_code?: string
+  electricity_maps_api_key?: string
+  clear_api_key?: boolean
+  pue_factor?: number
 }
 
 interface BackendAdminRun {
@@ -144,11 +175,14 @@ interface RunMetricSnapshot {
   totalMemEnergy: number
   totalIgpuEnergy: number
   totalEnergy: number
+  totalCo2G: number
   avgCpuUsage: number
   avgGpuUsage: number
   avgMemUsage: number
   duration: number
   timestamp: number
+  carbonIntensityUsed: number | null
+  pueUsed: number | null
 }
 
 interface RunTotalsSnapshot {
@@ -157,7 +191,10 @@ interface RunTotalsSnapshot {
   totalMemEnergy: number
   totalIgpuEnergy: number
   totalEnergy: number
+  totalCo2G: number
   timestamp: number
+  carbonIntensityUsed: number | null
+  pueUsed: number | null
 }
 
 function calculateAverages(records: MetricRecord[]) {
@@ -195,6 +232,9 @@ function calculateDurationSeconds(
   return records.length === 1 ? 60 : 0
 }
 
+// World average fallback (IEA 2025) when no config is set
+const WORLD_AVERAGE_INTENSITY_G_PER_KWH = 494
+
 function calculateEnergyTotals(summary: BackendRunSummary | null) {
   const totalCpuEnergy = summary?.total_cpu_energy ?? 0
   const totalGpuEnergy = summary?.total_gpu_energy ?? 0
@@ -202,12 +242,20 @@ function calculateEnergyTotals(summary: BackendRunSummary | null) {
   const totalIgpuEnergy = summary?.total_igpu_energy ?? 0
   const totalEnergy = totalCpuEnergy + totalGpuEnergy + totalMemEnergy + totalIgpuEnergy
 
+  // Use DB-stored CO2 value if available, otherwise estimate from world average
+  const totalCo2G = summary?.total_co2_g != null
+    ? summary.total_co2_g
+    : (totalEnergy / 1000) * WORLD_AVERAGE_INTENSITY_G_PER_KWH
+
   return {
     totalCpuEnergy,
     totalGpuEnergy,
     totalMemEnergy,
     totalIgpuEnergy,
     totalEnergy,
+    totalCo2G,
+    carbonIntensityUsed: summary?.carbon_intensity_used ?? null,
+    pueUsed: summary?.pue_used ?? null,
   }
 }
 
@@ -260,6 +308,36 @@ async function fetchRunTotalsSnapshot(
   }
 }
 
+// --- Carbon API ---
+
+export async function fetchCarbonConfig(projectId: number, source?: DataSource): Promise<CarbonConfig> {
+  const res = await fetch(buildApiUrl(`/api/project/${projectId}/carbon-config`, source))
+  if (!res.ok) throw new Error('Failed to fetch carbon config')
+  return res.json()
+}
+
+export async function updateCarbonConfig(projectId: number, payload: any, source?: DataSource): Promise<CarbonConfig> {
+  const res = await fetch(buildApiUrl(`/api/project/${projectId}/carbon-config`, source), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+  if (!res.ok) throw new Error('Failed to update carbon config')
+  return res.json()
+}
+
+export async function refreshCarbonIntensity(projectId: number, source?: DataSource): Promise<CarbonConfig> {
+  const res = await fetch(buildApiUrl(`/api/project/${projectId}/carbon-config/refresh`, source), { method: 'POST' })
+  if (!res.ok) throw new Error('Failed to refresh carbon intensity')
+  return res.json()
+}
+
+export async function fetchCarbonRegions(source?: DataSource): Promise<CarbonRegion[]> {
+  const res = await fetch(buildApiUrl('/api/carbon-regions', source))
+  if (!res.ok) throw new Error('Failed to fetch carbon regions')
+  return res.json()
+}
+
 async function mapRunSummary(backendRun: BackendRun, source?: DataSource): Promise<RunSummary> {
   const snapshot = await fetchRunMetricSnapshot(backendRun, source)
   const energyKwh = snapshot.totalEnergy / 1000
@@ -279,10 +357,12 @@ async function mapRunSummary(backendRun: BackendRun, source?: DataSource): Promi
     avgCpuUsage: snapshot.avgCpuUsage,
     avgGpuUsage: snapshot.avgGpuUsage,
     avgMemUsage: snapshot.avgMemUsage,
-    carbonFootprint: energyKwh * CARBON_FACTOR * 1000,
+    carbonFootprint: snapshot.totalCo2G,
     waterConsumption: energyKwh * WATER_FACTOR * 1000,
     duration: snapshot.duration,
     command: backendRun.command ?? null,
+    carbonIntensityUsed: snapshot.carbonIntensityUsed,
+    pueUsed: snapshot.pueUsed,
   }
 }
 
@@ -305,10 +385,12 @@ async function mapRun(backendRun: BackendRun, source?: DataSource): Promise<Run>
     avgCpuUsage: snapshot.avgCpuUsage,
     avgGpuUsage: snapshot.avgGpuUsage,
     avgMemUsage: snapshot.avgMemUsage,
-    carbonFootprint: energyKwh * CARBON_FACTOR * 1000,
+    carbonFootprint: snapshot.totalCo2G,
     waterConsumption: energyKwh * WATER_FACTOR * 1000,
     duration: snapshot.duration,
     command: backendRun.command ?? null,
+    carbonIntensityUsed: snapshot.carbonIntensityUsed,
+    pueUsed: snapshot.pueUsed,
     systemInfo: backendRun.cpu_name ? {
       cpuName: backendRun.cpu_name,
       cpuCores: backendRun.cpu_cores ?? 0,
@@ -551,6 +633,9 @@ export async function fetchRunDetail(id: string, source?: DataSource): Promise<R
 
     const totalEnergy = totalCpuEnergy + totalGpuEnergy + totalMemEnergy + totalIgpuEnergy
     const energyKwh = totalEnergy / 1000
+    const carbonFootprint = summary?.total_co2_g != null
+      ? summary.total_co2_g
+      : energyKwh * WORLD_AVERAGE_INTENSITY_G_PER_KWH
     const avgCpuUsage = records.length > 0 ? records.reduce((sum, r) => sum + r.cpu_usage, 0) / records.length : 0
     const avgGpuUsage = records.length > 0 ? records.reduce((sum, r) => sum + r.gpu_usage, 0) / records.length : 0
     const avgMemUsage = records.length > 0 ? records.reduce((sum, r) => sum + r.mem_usage, 0) / records.length : 0
@@ -575,10 +660,12 @@ export async function fetchRunDetail(id: string, source?: DataSource): Promise<R
       avgCpuUsage,
       avgGpuUsage,
       avgMemUsage,
-      carbonFootprint: energyKwh * CARBON_FACTOR * 1000,
+      carbonFootprint,
       waterConsumption: energyKwh * WATER_FACTOR * 1000,
       duration: calculateDurationSeconds(records, backendRun.started_at, backendRun.ended_at),
       command: backendRun.command ?? null,
+      carbonIntensityUsed: summary?.carbon_intensity_used ?? null,
+      pueUsed: summary?.pue_used ?? null,
       systemInfo: backendRun.cpu_name ? {
         cpuName: backendRun.cpu_name,
         cpuCores: backendRun.cpu_cores ?? 0,

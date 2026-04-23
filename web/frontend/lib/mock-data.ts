@@ -3,13 +3,13 @@
 export interface GpuMetric {
   device_index: number
   gpu_usage: number // percentage 0-100
-  gpu_energy: number // watts
+  gpu_energy: number // Joules
 }
 
 export interface SocketMetric {
   socket: number
   domain: string // "cpu", "dram", "igpu"
-  energy: number // watts
+  energy: number // Joules
 }
 
 export interface MetricRecord {
@@ -18,13 +18,13 @@ export interface MetricRecord {
   pid: number
   timestamp: number
   cpu_usage: number // percentage 0-100
-  cpu_energy: number // watts
+  cpu_energy: number // Joules
   gpu_usage: number // percentage 0-100 (aggregate)
-  gpu_energy: number // watts (aggregate)
+  gpu_energy: number // Joules (aggregate)
   mem_usage: number // percentage 0-100
-  mem_energy: number // watts
+  mem_energy: number // Joules
   igpu_usage: number // percentage 0-100
-  igpu_energy: number // watts
+  igpu_energy: number // Joules
   gpu_details: GpuMetric[]
   socket_details: SocketMetric[]
 }
@@ -55,6 +55,8 @@ export interface Run {
     gpuCount: number
     gpuNames: string
   } | null
+  carbonIntensityUsed?: number | null
+  pueUsed?: number | null
   records: MetricRecord[]
 }
 
@@ -136,6 +138,8 @@ function calculateRunMetrics(records: MetricRecord[]) {
     avgMemUsage,
     carbonFootprint,
     waterConsumption,
+    carbonIntensityUsed: CARBON_FACTOR * 1000,
+    pueUsed: 1.0,
   }
 }
 
@@ -168,6 +172,8 @@ export function generateMockRuns(): Run[] {
       carbonFootprint: metrics.carbonFootprint,
       waterConsumption: metrics.waterConsumption,
       duration: recordCount * 60, // 1 minute per record
+      carbonIntensityUsed: metrics.carbonIntensityUsed,
+      pueUsed: metrics.pueUsed,
       records,
     })
   }

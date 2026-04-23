@@ -14,14 +14,21 @@ import { ChartInfoTooltip } from './ChartInfoTooltip'
 
 interface PowerDistributionChartProps {
   record: MetricRecord
+  prevRecord?: MetricRecord
 }
 
-export function PowerDistributionChart({ record }: PowerDistributionChartProps) {
+export function PowerDistributionChart({ record, prevRecord }: PowerDistributionChartProps) {
+  const deltaS = React.useMemo(() => {
+    if (!prevRecord) return 1
+    const deltaMs = new Date(record.timestamp).getTime() - new Date(prevRecord.timestamp).getTime()
+    return (deltaMs / 1000) || 1
+  }, [record, prevRecord])
+
   const data = [
-    { name: 'CPU', value: record.cpu_energy ?? 0, color: 'hsl(158 94% 45%)' },
-    { name: 'GPU', value: record.gpu_energy ?? 0, color: 'hsl(199 89% 48%)' },
-    { name: 'Memory', value: record.mem_energy ?? 0, color: 'hsl(20 89% 55%)' },
-    { name: 'iGPU', value: record.igpu_energy ?? 0, color: 'hsl(49 89% 52%)' },
+    { name: 'CPU', value: (record.cpu_energy ?? 0) / deltaS, color: 'hsl(158 94% 45%)' },
+    { name: 'GPU', value: (record.gpu_energy ?? 0) / deltaS, color: 'hsl(199 89% 48%)' },
+    { name: 'Memory', value: (record.mem_energy ?? 0) / deltaS, color: 'hsl(20 89% 55%)' },
+    { name: 'iGPU', value: (record.igpu_energy ?? 0) / deltaS, color: 'hsl(49 89% 52%)' },
   ].filter(item => item.value > 0)
 
   const totalWatts = data.reduce((sum, item) => sum + item.value, 0)

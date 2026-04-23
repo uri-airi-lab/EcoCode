@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 
 import { DataSourceProvider } from '@/components/DataSourceProvider'
+import { Toaster } from '@/components/ui/sonner'
 
 import './globals.css'
 
@@ -29,7 +30,10 @@ export default function RootLayout({
         suppressHydrationWarning
         className={`${inter.className} font-sans antialiased bg-background text-foreground`}
       >
-        <DataSourceProvider>{children}</DataSourceProvider>
+        <DataSourceProvider>
+          {children}
+          <Toaster />
+        </DataSourceProvider>
       </body>
     </html>
   )

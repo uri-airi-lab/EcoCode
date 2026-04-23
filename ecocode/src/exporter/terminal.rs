@@ -34,13 +34,13 @@ impl Exporter for TerminalExporter {
             "PID",
             "Timestamp",
             "CPU%",
-            "CPU(W)",
+            "CPU(J)",
             "GPU%",
-            "GPU(W)",
+            "GPU(J)",
             "MEM%",
-            "MEM(W)",
+            "MEM(J)",
             "IGPU%",
-            "IGPU(W)"
+            "IGPU(J)"
         );
         println!("{}", "-".repeat(128));
 
@@ -70,13 +70,13 @@ impl Exporter for TerminalExporter {
             );
             for gm in &record.gpu_metrics {
                 println!(
-                    "      └─ GPU {}: Usage {:.1}%, Energy {:.3} W",
+                    "      └─ GPU {}: Usage {:.1}%, Energy {:.3} J",
                     gm.device_index, gm.gpu_usage, gm.gpu_energy
                 );
             }
             for sm in &record.socket_metrics {
                 println!(
-                    "      └─ Socket {} ({}): {:.4} W",
+                    "      └─ Socket {} ({}): {:.4} J",
                     sm.socket, sm.domain, sm.energy
                 );
             }
@@ -97,13 +97,13 @@ impl Exporter for TerminalExporter {
                 "PID",
                 "Timestamp",
                 "CPU%",
-                "CPU(W)",
+                "CPU(J)",
                 "GPU%",
-                "GPU(W)",
+                "GPU(J)",
                 "MEM%",
-                "MEM(W)",
+                "MEM(J)",
                 "IGPU%",
-                "IGPU(W)"
+                "IGPU(J)"
             );
             println!("{}", "-".repeat(128));
             self.first_record = false;
@@ -136,13 +136,13 @@ impl Exporter for TerminalExporter {
 
         for gm in &r.gpu_metrics {
             println!(
-                "      └─ GPU {}: Usage {:.1}%, Energy {:.3} W",
+                "      └─ GPU {}: Usage {:.1}%, Energy {:.3} J",
                 gm.device_index, gm.gpu_usage, gm.gpu_energy
             );
         }
         for sm in &r.socket_metrics {
             println!(
-                "      └─ Socket {} ({}): {:.4} W",
+                "      └─ Socket {} ({}): {:.4} J",
                 sm.socket, sm.domain, sm.energy
             );
         }

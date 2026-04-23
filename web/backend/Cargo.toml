@@ -15,3 +15,5 @@ sqlx = { version = "0.8.6", features = ["sqlite", "postgres", "macros", "runtime
 tokio = {version = "1.49.0", features = ["full"] }
 tokio-stream = { version = "0.1.18", features = ["sync"] }
 tower-http = { version = "0.6.2", features = ["cors"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+chrono = "0.4"

@@ -21,13 +21,22 @@ interface CumulativePowerChartProps {
 
 export function CumulativePowerChart({ data }: CumulativePowerChartProps) {
   const chartData = useMemo(() => {
-    return data.map((record) => ({
-      time: format(new Date(record.timestamp), 'HH:mm:ss'),
-      cpu: Number((record.cpu_energy ?? 0).toFixed(2)),
-      gpu: Number((record.gpu_energy ?? 0).toFixed(2)),
-      mem: Number((record.mem_energy ?? 0).toFixed(2)),
-      igpu: Number((record.igpu_energy ?? 0).toFixed(2)),
-    }))
+    return data.map((record, index) => {
+      // Calculate time delta in seconds
+      const prev = index > 0 ? data[index - 1] : null
+      const deltaMs = prev 
+        ? new Date(record.timestamp).getTime() - new Date(prev.timestamp).getTime()
+        : 1000
+      const deltaS = (deltaMs / 1000) || 1
+
+      return {
+        time: format(new Date(record.timestamp), 'HH:mm:ss'),
+        cpu: Number(((record.cpu_energy ?? 0) / deltaS).toFixed(2)),
+        gpu: Number(((record.gpu_energy ?? 0) / deltaS).toFixed(2)),
+        mem: Number(((record.mem_energy ?? 0) / deltaS).toFixed(2)),
+        igpu: Number(((record.igpu_energy ?? 0) / deltaS).toFixed(2)),
+      }
+    })
   }, [data])
 
   return (

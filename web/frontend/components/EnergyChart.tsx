@@ -44,31 +44,36 @@ export function EnergyChart({ data }: EnergyChartProps) {
   }, [data])
 
   const chartData = useMemo(() => {
-    const records = data
+    return data.map((record, index) => {
+      // Calculate time delta in seconds from previous record (fallback to 1s for first record)
+      const prev = index > 0 ? data[index - 1] : null
+      const deltaMs = prev 
+        ? new Date(record.timestamp).getTime() - new Date(prev.timestamp).getTime()
+        : 1000
+      const deltaS = (deltaMs / 1000) || 1
 
-    return records.map((record) => {
       const point: Record<string, string | number> = {
         time: format(new Date(record.timestamp), 'HH:mm:ss'),
-        cpu: Number((record.cpu_energy ?? 0).toFixed(2)),
-        gpu: Number((record.gpu_energy ?? 0).toFixed(2)),
-        mem: Number((record.mem_energy ?? 0).toFixed(2)),
-        igpu: Number((record.igpu_energy ?? 0).toFixed(2)),
-        total: Number(((record.cpu_energy ?? 0) + (record.gpu_energy ?? 0) + (record.mem_energy ?? 0) + (record.igpu_energy ?? 0)).toFixed(2)),
+        cpu: Number(((record.cpu_energy ?? 0) / deltaS).toFixed(2)),
+        gpu: Number(((record.gpu_energy ?? 0) / deltaS).toFixed(2)),
+        mem: Number(((record.mem_energy ?? 0) / deltaS).toFixed(2)),
+        igpu: Number(((record.igpu_energy ?? 0) / deltaS).toFixed(2)),
+        total: Number((((record.cpu_energy ?? 0) + (record.gpu_energy ?? 0) + (record.mem_energy ?? 0) + (record.igpu_energy ?? 0)) / deltaS).toFixed(2)),
       }
 
-      // Initialize all GPU keys to 0 to prevent gaps in Recharts
+      // Initialize all GPU keys to 0
       for (let i = 0; i < gpuCount; i++) {
         point[`gpu${i}`] = 0
       }
 
       // Add per-GPU fields
       for (const g of record.gpu_details ?? []) {
-        point[`gpu${g.device_index}`] = Number((g.gpu_energy ?? 0).toFixed(2))
+        point[`gpu${g.device_index}`] = Number(((g.gpu_energy ?? 0) / deltaS).toFixed(2))
       }
 
       return point
     })
-  }, [data])
+  }, [data, gpuCount])
 
   return (
     <div className="chart-container">

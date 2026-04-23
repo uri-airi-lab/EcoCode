@@ -51,12 +51,13 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
       const count = updatedRecords.length
 
       // Calculate new total energy incrementally (O(1))
+      // Conversion: Joules / 3600 = Wh
       const newTotalEnergy =
         prevRun.totalEnergy +
         ((latestRecord.cpu_energy ?? 0) +
           (latestRecord.gpu_energy ?? 0) +
           (latestRecord.mem_energy ?? 0) +
-          (latestRecord.igpu_energy ?? 0))
+          (latestRecord.igpu_energy ?? 0)) / 3600.0;
 
       const energyKwh = newTotalEnergy / 1000
 
@@ -69,7 +70,7 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
         ...prevRun,
         records: updatedRecords,
         totalEnergy: newTotalEnergy,
-        carbonFootprint: energyKwh * 0.475 * 1000,
+        carbonFootprint: energyKwh * (prevRun.carbonIntensityUsed ?? 494) * (prevRun.pueUsed ?? 1.0),
         avgCpuUsage,
         avgGpuUsage,
         avgMemUsage,
@@ -192,7 +193,11 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
           <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
             Environmental Equivalents
           </h2>
-          <EnvironmentalImpact totalEnergyWh={run.totalEnergy} />
+          <EnvironmentalImpact 
+            totalEnergyWh={run.totalEnergy} 
+            totalCo2G={run.carbonFootprint}
+            carbonIntensity={run.carbonIntensityUsed}
+          />
         </div>
 
         {/* Charts Grid */}
@@ -202,7 +207,10 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
               <EnergyChart data={run.records} />
             </div>
             <div className="xl:col-span-1">
-              <PowerDistributionChart record={run.records[run.records.length - 1]} />
+              <PowerDistributionChart 
+                record={run.records[run.records.length - 1]} 
+                prevRecord={run.records.length > 1 ? run.records[run.records.length - 2] : undefined}
+              />
             </div>
           </div>
           

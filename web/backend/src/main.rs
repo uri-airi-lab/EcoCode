@@ -4,7 +4,7 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
     response::sse::{Event, KeepAlive, Sse},
-    routing::get,
+    routing::{get, post},
 };
 use dotenv::dotenv;
 use futures::stream::{Stream, StreamExt};
@@ -15,6 +15,79 @@ use tokio::sync::broadcast;
 use tokio::time::Duration;
 use tokio_stream::wrappers::BroadcastStream;
 use tower_http::cors::{Any, CorsLayer};
+
+/// Static carbon intensity lookup table (gCO₂eq/kWh).
+const CARBON_REGIONS: &[(&str, &str, f64)] = &[
+    ("WORLD", "Global Average", 494.0),
+    ("FR", "France", 52.0),
+    ("SE", "Sweden", 13.0),
+    ("NO", "Norway", 28.0),
+    ("IS", "Iceland", 28.0),
+    ("CH", "Switzerland", 43.0),
+    ("AT", "Austria", 158.0),
+    ("GB", "United Kingdom", 207.0),
+    ("IE", "Ireland", 295.0),
+    ("PT", "Portugal", 167.0),
+    ("ES", "Spain", 163.0),
+    ("IT", "Italy", 233.0),
+    ("NL", "Netherlands", 295.0),
+    ("BE", "Belgium", 167.0),
+    ("DK", "Denmark", 156.0),
+    ("FI", "Finland", 76.0),
+    ("DE", "Germany", 380.0),
+    ("PL", "Poland", 635.0),
+    ("CZ", "Czech Republic", 425.0),
+    ("RO", "Romania", 280.0),
+    ("UA", "Ukraine", 296.0),
+    ("TR", "Turkey", 400.0),
+    ("RU", "Russia", 340.0),
+    ("US", "United States", 367.0),
+    ("CA", "Canada", 130.0),
+    ("MX", "Mexico", 415.0),
+    ("BR", "Brazil", 91.0),
+    ("AR", "Argentina", 263.0),
+    ("CL", "Chile", 290.0),
+    ("CO", "Colombia", 175.0),
+    ("VE", "Venezuela", 160.0),
+    ("ZA", "South Africa", 700.0),
+    ("NG", "Nigeria", 430.0),
+    ("EG", "Egypt", 450.0),
+    ("MA", "Morocco", 540.0),
+    ("DZ", "Algeria", 490.0),
+    ("AE", "United Arab Emirates", 450.0),
+    ("SA", "Saudi Arabia", 530.0),
+    ("IL", "Israel", 480.0),
+    ("IN", "India", 680.0),
+    ("PK", "Pakistan", 430.0),
+    ("BD", "Bangladesh", 545.0),
+    ("CN", "China", 555.0),
+    ("JP", "Japan", 471.0),
+    ("KR", "South Korea", 415.0),
+    ("TW", "Taiwan", 480.0),
+    ("TH", "Thailand", 480.0),
+    ("VN", "Vietnam", 360.0),
+    ("ID", "Indonesia", 660.0),
+    ("MY", "Malaysia", 585.0),
+    ("SG", "Singapore", 430.0),
+    ("PH", "Philippines", 580.0),
+    ("AU", "Australia", 510.0),
+    ("NZ", "New Zealand", 147.0),
+];
+
+fn static_intensity(country_code: &str) -> f64 {
+    let code = country_code.trim().to_uppercase();
+    CARBON_REGIONS
+        .iter()
+        .find(|(c, _, _)| *c == code.as_str())
+        .map(|(_, _, v)| *v)
+        .unwrap_or(494.0)
+}
+
+
+
+
+// TODO: Break down the file into smaller files
+
 
 #[derive(Debug)]
 struct ApiError {
@@ -161,6 +234,69 @@ struct RunSummary {
     total_gpu_energy: Option<f64>,
     total_mem_energy: Option<f64>,
     total_igpu_energy: Option<f64>,
+    total_co2_g: Option<f64>,
+    carbon_intensity_used: Option<f64>,
+    pue_used: Option<f64>,
+}
+
+#[derive(Serialize, Clone, sqlx::FromRow, Debug)]
+struct CarbonConfigRow {
+    country_code: String,
+    address: Option<String>,
+    latitude: Option<f64>,
+    longitude: Option<f64>,
+    electricity_maps_api_key: Option<String>,
+    resolved_intensity_g_per_kwh: f64,
+    intensity_source: String,
+    intensity_fetched_at: Option<String>,
+    pue_factor: f64,
+    updated_at: String,
+}
+
+#[derive(Serialize, Clone, Debug)]
+struct CarbonConfigResponse {
+    country_code: String,
+    address: Option<String>,
+    latitude: Option<f64>,
+    longitude: Option<f64>,
+    has_api_key: bool,
+    resolved_intensity_g_per_kwh: f64,
+    intensity_source: String,
+    intensity_fetched_at: Option<String>,
+    pue_factor: f64,
+    updated_at: String,
+}
+
+#[derive(Deserialize, Debug)]
+struct CarbonConfigUpdate {
+    address: Option<String>,
+    latitude: Option<f64>,
+    longitude: Option<f64>,
+    country_code: Option<String>,
+    electricity_maps_api_key: Option<String>,
+    #[serde(default)]
+    clear_api_key: bool,
+    pue_factor: Option<f64>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+struct CarbonRegion {
+    code: String,
+    name: String,
+    intensity_g_per_kwh: f64,
+}
+
+#[derive(Deserialize, Debug)]
+struct NominatimResult {
+    lat: String,
+    lon: String,
+    display_name: String,
+}
+
+#[derive(Deserialize, Debug)]
+struct ElectricityMapsResponse {
+    #[serde(rename = "carbonIntensity")]
+    carbon_intensity: f64,
 }
 
 #[derive(Clone, sqlx::FromRow)]
@@ -641,7 +777,8 @@ async fn fetch_run_summary(
 ) -> Result<Option<RunSummary>, ApiError> {
     match source {
         DataSource::Local => sqlx::query_as::<_, RunSummary>(
-            "SELECT run_id, total_cpu_energy, total_gpu_energy, total_mem_energy, total_igpu_energy
+            "SELECT run_id, total_cpu_energy, total_gpu_energy, total_mem_energy, total_igpu_energy,
+                    total_co2_g, carbon_intensity_used, pue_used
              FROM runsummary
              WHERE run_id = ?",
         )
@@ -650,7 +787,8 @@ async fn fetch_run_summary(
         .await
         .map_err(ApiError::internal),
         DataSource::Online => sqlx::query_as::<_, RunSummary>(
-            "SELECT run_id, total_cpu_energy, total_gpu_energy, total_mem_energy, total_igpu_energy
+            "SELECT run_id, total_cpu_energy, total_gpu_energy, total_mem_energy, total_igpu_energy,
+                    total_co2_g, carbon_intensity_used, pue_used
              FROM runsummary
              WHERE run_id = $1",
         )
@@ -663,6 +801,305 @@ async fn fetch_run_summary(
         .await
         .map_err(ApiError::internal),
     }
+}
+
+// --- Carbon API helpers ---
+
+async fn geocode_address(address: &str) -> Result<(f64, f64, String), Box<dyn std::error::Error>> {
+    let client = reqwest::Client::builder()
+        .user_agent("EcoCode/1.0 (carbon emission tracker)")
+        .build()?;
+    let results: Vec<NominatimResult> = client
+        .get("https://nominatim.openstreetmap.org/search")
+        .query(&[("q", address), ("format", "json"), ("limit", "1")])
+        .send()
+        .await?
+        .json()
+        .await?;
+    let first = results.into_iter().next().ok_or("No geocoding results found")?;
+    let lat: f64 = first.lat.parse()?;
+    let lon: f64 = first.lon.parse()?;
+    println!("Geocoding successful: {} -> ({}, {})", address, lat, lon);
+    Ok((lat, lon, first.display_name))
+}
+
+async fn fetch_electricity_maps_intensity(lat: f64, lon: f64, api_key: &str) -> Result<f64, Box<dyn std::error::Error>> {
+    let client = reqwest::Client::new();
+    let url = format!(
+        "https://api.electricitymap.org/v3/carbon-intensity/latest?lat={}&lon={}",
+        lat, lon
+    );
+    let res = client
+        .get(&url)
+        .header("auth-token", api_key)
+        .send()
+        .await?;
+    if !res.status().is_success() {
+        let msg = res.text().await?;
+        println!("Electricity Maps API error: {}", msg);
+        return Err(format!("API error: {}", msg).into());
+    }
+    let data: ElectricityMapsResponse = res.json().await?;
+    println!("Fetched real-time intensity: {} gCO2/kWh", data.carbon_intensity);
+    Ok(data.carbon_intensity)
+}
+
+fn make_carbon_config_response(row: CarbonConfigRow) -> CarbonConfigResponse {
+    CarbonConfigResponse {
+        has_api_key: row.electricity_maps_api_key.as_deref().map_or(false, |k| !k.is_empty()),
+        country_code: row.country_code,
+        address: row.address,
+        latitude: row.latitude,
+        longitude: row.longitude,
+        resolved_intensity_g_per_kwh: row.resolved_intensity_g_per_kwh,
+        intensity_source: row.intensity_source,
+        intensity_fetched_at: row.intensity_fetched_at,
+        pue_factor: row.pue_factor,
+        updated_at: row.updated_at,
+    }
+}
+
+async fn get_project_carbon_config(
+    state: &AppState,
+    source: DataSource,
+    project_id: i64,
+) -> Result<CarbonConfigRow, ApiError> {
+    match source {
+        DataSource::Local => {
+            sqlx::query_as::<_, CarbonConfigRow>(
+                "SELECT country_code, address, latitude, longitude, electricity_maps_api_key,
+                        resolved_intensity_g_per_kwh, intensity_source, intensity_fetched_at,
+                        pue_factor, updated_at
+                 FROM projects WHERE id = ?",
+            )
+            .bind(project_id)
+            .fetch_optional(&state.local_pool)
+            .await
+            .map_err(ApiError::internal)?
+            .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, format!("Project {project_id} not found in local DB")))
+        }
+        DataSource::Online => {
+            let pool = state.online_pool.as_ref().ok_or_else(|| {
+                ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "Online pool missing")
+            })?;
+            sqlx::query_as::<_, CarbonConfigRow>(
+                "SELECT country_code, address, latitude, longitude, electricity_maps_api_key,
+                        resolved_intensity_g_per_kwh, intensity_source, intensity_fetched_at,
+                        pue_factor, updated_at
+                 FROM projects WHERE id = $1",
+            )
+            .bind(project_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(ApiError::internal)?
+            .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, format!("Project {project_id} not found in online DB")))
+        }
+    }
+}
+
+// --- Carbon API handlers ---
+
+async fn get_carbon_config_handler(
+    Path(project_id): Path<i64>,
+    Query(source_query): Query<SourceQuery>,
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, ApiError> {
+    let source = resolve_source(&state, &source_query)?;
+    let row = get_project_carbon_config(&state, source, project_id).await?;
+    Ok(Json(make_carbon_config_response(row)))
+}
+
+async fn put_carbon_config_handler(
+    Path(project_id): Path<i64>,
+    Query(source_query): Query<SourceQuery>,
+    State(state): State<AppState>,
+    Json(body): Json<CarbonConfigUpdate>,
+) -> Result<impl IntoResponse, ApiError> {
+    let source = resolve_source(&state, &source_query)?;
+    
+    // Step 1: Resolve lat/lon from address if provided
+    let (lat, lon, resolved_address) = if let Some(addr) = &body.address {
+        match geocode_address(addr).await {
+            Ok((lat, lon, display)) => (Some(lat), Some(lon), Some(display)),
+            Err(e) => {
+                println!("Geocoding failed for {}: {}", addr, e);
+                return Err(ApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    format!("Could not find location for '{}'. Please try a more specific address.", addr)
+                ));
+            }
+        }
+    } else {
+        (body.latitude, body.longitude, body.address.clone())
+    };
+
+    // Step 2: Determine carbon intensity
+    let current = get_project_carbon_config(&state, source, project_id).await?;
+    let api_key = if body.clear_api_key {
+        None
+    } else {
+        body.electricity_maps_api_key.clone()
+            .or(current.electricity_maps_api_key.clone())
+    };
+
+    let country_code = body.country_code.clone().unwrap_or(current.country_code.clone());
+
+    let (intensity, intensity_src) = if let (Some(lat_val), Some(lon_val), Some(key)) = (lat, lon, api_key.as_deref()) {
+        match fetch_electricity_maps_intensity(lat_val, lon_val, key).await {
+            Ok(v) => (v, "api".to_string()),
+            Err(e) => {
+                // If the user explicitly provided an API key or changed the address, we should report the error
+                // instead of silently falling back.
+                return Err(ApiError::new(
+                    StatusCode::BAD_GATEWAY,
+                    format!("Failed to fetch real-time intensity from Electricity Maps: {}. Please check your API key and location.", e)
+                ));
+            }
+        }
+    } else {
+        (static_intensity(&country_code), format!("static_{country_code}"))
+    };
+
+    let pue = body.pue_factor.unwrap_or(current.pue_factor);
+    let now = chrono::Utc::now().to_rfc3339();
+
+    match source {
+        DataSource::Local => {
+            sqlx::query(
+                "UPDATE projects SET
+                    country_code = ?,
+                    address = ?,
+                    latitude = ?,
+                    longitude = ?,
+                    electricity_maps_api_key = ?,
+                    resolved_intensity_g_per_kwh = ?,
+                    intensity_source = ?,
+                    intensity_fetched_at = ?,
+                    pue_factor = ?,
+                    updated_at = ?
+                 WHERE id = ?",
+            )
+            .bind(&country_code)
+            .bind(&resolved_address)
+            .bind(lat)
+            .bind(lon)
+            .bind(api_key.as_deref())
+            .bind(intensity)
+            .bind(&intensity_src)
+            .bind(if intensity_src == "api" { Some(now.as_str()) } else { None })
+            .bind(pue)
+            .bind(&now)
+            .bind(project_id)
+            .execute(&state.local_pool)
+            .await
+            .map_err(ApiError::internal)?;
+        }
+        DataSource::Online => {
+            let pool = state.online_pool.as_ref().ok_or_else(|| {
+                ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "Online pool missing")
+            })?;
+            sqlx::query(
+                "UPDATE projects SET
+                    country_code = $1,
+                    address = $2,
+                    latitude = $3,
+                    longitude = $4,
+                    electricity_maps_api_key = $5,
+                    resolved_intensity_g_per_kwh = $6,
+                    intensity_source = $7,
+                    intensity_fetched_at = $8,
+                    pue_factor = $9,
+                    updated_at = $10
+                 WHERE id = $11",
+            )
+            .bind(&country_code)
+            .bind(&resolved_address)
+            .bind(lat)
+            .bind(lon)
+            .bind(api_key.as_deref())
+            .bind(intensity)
+            .bind(&intensity_src)
+            .bind(if intensity_src == "api" { Some(now.as_str()) } else { None })
+            .bind(pue)
+            .bind(&now)
+            .bind(project_id)
+            .execute(pool)
+            .await
+            .map_err(ApiError::internal)?;
+        }
+    }
+
+    let row = get_project_carbon_config(&state, source, project_id).await?;
+    Ok(Json(make_carbon_config_response(row)))
+}
+
+async fn post_refresh_carbon_intensity(
+    Path(project_id): Path<i64>,
+    Query(source_query): Query<SourceQuery>,
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, ApiError> {
+    let source = resolve_source(&state, &source_query)?;
+    let current = get_project_carbon_config(&state, source, project_id).await?;
+    let (intensity, intensity_src) = match (current.latitude, current.longitude, current.electricity_maps_api_key.as_deref()) {
+        (Some(lat), Some(lon), Some(key)) if !key.is_empty() => {
+            match fetch_electricity_maps_intensity(lat, lon, key).await {
+                Ok(v) => (v, "api".to_string()),
+                Err(e) => return Err(ApiError::new(StatusCode::BAD_GATEWAY, format!("Electricity Maps API error: {e}"))),
+            }
+        }
+        _ => return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "No location and API key configured. Set address and electricity_maps_api_key first.",
+        )),
+    };
+
+    let now = chrono::Utc::now().to_rfc3339();
+    match source {
+        DataSource::Local => {
+            sqlx::query(
+                "UPDATE projects SET resolved_intensity_g_per_kwh = ?, intensity_source = ?, intensity_fetched_at = ?, updated_at = ? WHERE id = ?",
+            )
+            .bind(intensity)
+            .bind(&intensity_src)
+            .bind(&now)
+            .bind(&now)
+            .bind(project_id)
+            .execute(&state.local_pool)
+            .await
+            .map_err(ApiError::internal)?;
+        }
+        DataSource::Online => {
+            let pool = state.online_pool.as_ref().ok_or_else(|| {
+                ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "Online pool missing")
+            })?;
+            sqlx::query(
+                "UPDATE projects SET resolved_intensity_g_per_kwh = $1, intensity_source = $2, intensity_fetched_at = $3, updated_at = $4 WHERE id = $5",
+            )
+            .bind(intensity)
+            .bind(&intensity_src)
+            .bind(&now)
+            .bind(&now)
+            .bind(project_id)
+            .execute(pool)
+            .await
+            .map_err(ApiError::internal)?;
+        }
+    }
+
+    let row = get_project_carbon_config(&state, source, project_id).await?;
+    Ok(Json(make_carbon_config_response(row)))
+}
+
+async fn get_carbon_regions_handler() -> impl IntoResponse {
+    let regions: Vec<CarbonRegion> = CARBON_REGIONS
+        .iter()
+        .map(|(code, name, intensity)| CarbonRegion {
+            code: code.to_string(),
+            name: name.to_string(),
+            intensity_g_per_kwh: *intensity,
+        })
+        .collect();
+    Json(regions)
 }
 
 async fn fetch_admin_projects(
@@ -1101,6 +1538,61 @@ async fn ensure_sqlite_schema(db: &SqlitePool) -> Result<(), Box<dyn std::error:
         "ALTER TABLE runs ADD COLUMN ended_at TEXT",
     )
     .await?;
+
+    ensure_sqlite_column(
+        db,
+        "runsummary",
+        "total_co2_g",
+        "ALTER TABLE runsummary ADD COLUMN total_co2_g REAL",
+    )
+    .await?;
+    ensure_sqlite_column(
+        db,
+        "runsummary",
+        "carbon_intensity_used",
+        "ALTER TABLE runsummary ADD COLUMN carbon_intensity_used REAL",
+    )
+    .await?;
+    ensure_sqlite_column(
+        db,
+        "runsummary",
+        "pue_used",
+        "ALTER TABLE runsummary ADD COLUMN pue_used REAL",
+    )
+    .await?;
+    ensure_sqlite_column(
+        db,
+        "runs",
+        "command",
+        "ALTER TABLE runs ADD COLUMN command TEXT",
+    )
+    .await?;
+
+    // Carbon fields for projects
+    ensure_sqlite_column(db, "projects", "country_code", "ALTER TABLE projects ADD COLUMN country_code TEXT NOT NULL DEFAULT 'WORLD'").await?;
+    ensure_sqlite_column(db, "projects", "address", "ALTER TABLE projects ADD COLUMN address TEXT").await?;
+    ensure_sqlite_column(db, "projects", "latitude", "ALTER TABLE projects ADD COLUMN latitude REAL").await?;
+    ensure_sqlite_column(db, "projects", "longitude", "ALTER TABLE projects ADD COLUMN longitude REAL").await?;
+    ensure_sqlite_column(db, "projects", "electricity_maps_api_key", "ALTER TABLE projects ADD COLUMN electricity_maps_api_key TEXT").await?;
+    ensure_sqlite_column(db, "projects", "resolved_intensity_g_per_kwh", "ALTER TABLE projects ADD COLUMN resolved_intensity_g_per_kwh REAL NOT NULL DEFAULT 494.0").await?;
+    ensure_sqlite_column(db, "projects", "intensity_source", "ALTER TABLE projects ADD COLUMN intensity_source TEXT NOT NULL DEFAULT 'static_WORLD'").await?;
+    ensure_sqlite_column(db, "projects", "intensity_fetched_at", "ALTER TABLE projects ADD COLUMN intensity_fetched_at TEXT").await?;
+    ensure_sqlite_column(db, "projects", "pue_factor", "ALTER TABLE projects ADD COLUMN pue_factor REAL NOT NULL DEFAULT 1.0").await?;
+    ensure_sqlite_column(db, "projects", "updated_at", "ALTER TABLE projects ADD COLUMN updated_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00Z'").await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS run_system_info (
+            run_id INTEGER PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
+            cpu_name TEXT,
+            cpu_cores INTEGER,
+            ram_gb REAL,
+            gpu_count INTEGER,
+            gpu_names TEXT
+        )",
+    )
+    .execute(db)
+    .await?;
+
     backfill_sqlite_project_collaborators(db).await?;
     sync_sqlite_project_shortcuts(db).await?;
 
@@ -1309,6 +1801,87 @@ async fn ensure_postgres_schema(db: &PgPool) -> Result<(), Box<dyn std::error::E
     )
     .await?;
 
+    ensure_postgres_column(
+        db,
+        "runs",
+        "command",
+        "ALTER TABLE runs ADD COLUMN command TEXT",
+    )
+    .await?;
+
+    ensure_postgres_column(
+        db,
+        "runsummary",
+        "total_co2_g",
+        "ALTER TABLE runsummary ADD COLUMN total_co2_g DOUBLE PRECISION",
+    )
+    .await?;
+    ensure_postgres_column(
+        db,
+        "runsummary",
+        "carbon_intensity_used",
+        "ALTER TABLE runsummary ADD COLUMN carbon_intensity_used DOUBLE PRECISION",
+    )
+    .await?;
+    ensure_postgres_column(
+        db,
+        "runsummary",
+        "pue_used",
+        "ALTER TABLE runsummary ADD COLUMN pue_used DOUBLE PRECISION",
+    )
+    .await?;
+
+    // Carbon fields for projects
+    ensure_postgres_column(db, "projects", "country_code", "ALTER TABLE projects ADD COLUMN country_code TEXT NOT NULL DEFAULT 'WORLD'").await?;
+    ensure_postgres_column(db, "projects", "address", "ALTER TABLE projects ADD COLUMN address TEXT").await?;
+    ensure_postgres_column(db, "projects", "latitude", "ALTER TABLE projects ADD COLUMN latitude DOUBLE PRECISION").await?;
+    ensure_postgres_column(db, "projects", "longitude", "ALTER TABLE projects ADD COLUMN longitude DOUBLE PRECISION").await?;
+    ensure_postgres_column(db, "projects", "electricity_maps_api_key", "ALTER TABLE projects ADD COLUMN electricity_maps_api_key TEXT").await?;
+    ensure_postgres_column(db, "projects", "resolved_intensity_g_per_kwh", "ALTER TABLE projects ADD COLUMN resolved_intensity_g_per_kwh DOUBLE PRECISION NOT NULL DEFAULT 494.0").await?;
+    ensure_postgres_column(db, "projects", "intensity_source", "ALTER TABLE projects ADD COLUMN intensity_source TEXT NOT NULL DEFAULT 'static_WORLD'").await?;
+    ensure_postgres_column(db, "projects", "intensity_fetched_at", "ALTER TABLE projects ADD COLUMN intensity_fetched_at TEXT").await?;
+    ensure_postgres_column(db, "projects", "pue_factor", "ALTER TABLE projects ADD COLUMN pue_factor DOUBLE PRECISION NOT NULL DEFAULT 1.0").await?;
+    ensure_postgres_column(db, "projects", "updated_at", "ALTER TABLE projects ADD COLUMN updated_at TEXT NOT NULL DEFAULT (now()::text)").await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS carbon_config (
+            id BIGSERIAL PRIMARY KEY,
+            country_code TEXT NOT NULL DEFAULT 'WORLD',
+            address TEXT,
+            latitude DOUBLE PRECISION,
+            longitude DOUBLE PRECISION,
+            electricity_maps_api_key TEXT,
+            resolved_intensity_g_per_kwh DOUBLE PRECISION NOT NULL DEFAULT 494.0,
+            intensity_source TEXT NOT NULL DEFAULT 'static_WORLD',
+            intensity_fetched_at TEXT,
+            pue_factor DOUBLE PRECISION NOT NULL DEFAULT 1.0,
+            updated_at TEXT NOT NULL DEFAULT now()::text
+        )",
+    )
+    .execute(db)
+    .await?;
+
+    sqlx::query(
+        "INSERT INTO carbon_config (id, country_code, resolved_intensity_g_per_kwh, intensity_source, pue_factor, updated_at)
+         VALUES (1, 'WORLD', 494.0, 'static_WORLD', 1.0, now()::text)
+         ON CONFLICT (id) DO NOTHING",
+    )
+    .execute(db)
+    .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS run_system_info (
+            run_id BIGINT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
+            cpu_name TEXT,
+            cpu_cores INTEGER,
+            ram_gb DOUBLE PRECISION,
+            gpu_count INTEGER,
+            gpu_names TEXT
+        )",
+    )
+    .execute(db)
+    .await?;
+
     backfill_postgres_project_collaborators(db).await?;
     sync_postgres_project_shortcuts(db).await?;
 
@@ -1455,6 +2028,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/run/{run_id}/socket_records", get(get_socket_records))
         .route("/api/admin/projects", get(get_admin_projects))
         .route("/api/sse", get(sse_handler))
+        .route("/api/project/{project_id}/carbon-config", get(get_carbon_config_handler).put(put_carbon_config_handler))
+        .route("/api/project/{project_id}/carbon-config/refresh", post(post_refresh_carbon_intensity))
+        .route("/api/carbon-regions", get(get_carbon_regions_handler))
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)

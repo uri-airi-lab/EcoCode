@@ -41,12 +41,13 @@ export default function Dashboard() {
       const count = updatedRecords.length
 
       // Calculate new total and averages incrementally (O(1) instead of O(N))
+      // Conversion: Joules / 3600 = Wh
       const newTotalEnergy =
         prevRun.totalEnergy +
         (latestRecord.cpu_energy +
           latestRecord.gpu_energy +
           latestRecord.mem_energy +
-          latestRecord.igpu_energy)
+          latestRecord.igpu_energy) / 3600.0;
 
       const energyKwh = newTotalEnergy / 1000
 
@@ -59,7 +60,7 @@ export default function Dashboard() {
         ...prevRun,
         records: updatedRecords,
         totalEnergy: newTotalEnergy,
-        carbonFootprint: energyKwh * 0.475 * 1000,
+        carbonFootprint: energyKwh * (prevRun.carbonIntensityUsed ?? 494) * (prevRun.pueUsed ?? 1.0),
         avgCpuUsage,
         avgGpuUsage,
         avgMemUsage,
@@ -170,6 +171,7 @@ export default function Dashboard() {
           </p>
         </div>
 
+
         {/* Project Overview */}
         <div className="mb-8">
           <h2 className="text-lg md:text-xl font-semibold text-foreground mb-4">
@@ -242,7 +244,10 @@ export default function Dashboard() {
           <h2 className="text-lg md:text-xl font-semibold text-foreground mb-4">
             Environmental Impact Equivalents
           </h2>
-          <EnvironmentalImpact totalEnergyWh={stats.totalEnergy} />
+          <EnvironmentalImpact 
+            totalEnergyWh={stats.totalEnergy} 
+            totalCo2G={stats.totalCarbonFootprint}
+          />
         </div>
 
         {/* Charts */}
@@ -253,7 +258,10 @@ export default function Dashboard() {
                 <EnergyChart data={currentRun.records} />
               </div>
               <div className="xl:col-span-1">
-                <PowerDistributionChart record={currentRun.records[currentRun.records.length - 1]} />
+                <PowerDistributionChart 
+                  record={currentRun.records[currentRun.records.length - 1]} 
+                  prevRecord={currentRun.records.length > 1 ? currentRun.records[currentRun.records.length - 2] : undefined}
+                />
               </div>
             </div>
 

@@ -12,7 +12,7 @@ pub const DEFAULT_GPU_DEVICE_INDEX: u32 = 0;
 /// Per-GPU result from energy-by-PID calculation
 pub struct GpuPidResult {
     pub device_index: u32,
-    pub power_w: f64,
+    pub energy_j: f64,
     pub util_pct: f64,
     pub next_timestamp: u64,
 }
@@ -67,7 +67,7 @@ pub fn get_gpu_energy_by_pid(
     energy_1: f64,
     energy_2: f64,
     timestamp: u64,
-    interval_secs: f64,
+    _interval_secs: f64,
     max_energy_seen: f64,
 ) -> (f64, f64, u64) {
     let stats = match device.process_utilization_stats(timestamp) {
@@ -112,11 +112,11 @@ pub fn get_gpu_energy_by_pid(
         (energy_2 + (max_energy_seen - energy_1)).max(0.0)
     };
 
-    let total_gpu_power_w = delta_energy_mj / 1000.0 / interval_secs;
-    let process_gpu_power_w = total_gpu_power_w * process_util;
+    let total_gpu_energy_mj = delta_energy_mj;
+    let process_gpu_energy_j = (total_gpu_energy_mj / 1000.0) * process_util;
 
     (
-        process_gpu_power_w,
+        process_gpu_energy_j,
         (process_util * 100.0).round_ties_even(),
         next_timestamp,
     )
@@ -129,25 +129,25 @@ pub fn get_all_gpu_energies_by_pid(
     energies_1: &[f64],
     energies_2: &[f64],
     timestamps: &[u64],
-    interval_secs: f64,
+    _interval_secs: f64,
     max_energies: &[f64],
 ) -> Vec<GpuPidResult> {
     devices
         .iter()
         .enumerate()
         .map(|(i, device)| {
-            let (power_w, util_pct, next_ts) = get_gpu_energy_by_pid(
+            let (energy_j, util_pct, next_ts) = get_gpu_energy_by_pid(
                 device,
                 pid,
                 energies_1[i],
                 energies_2[i],
                 timestamps[i],
-                interval_secs,
+                _interval_secs,
                 max_energies[i],
             );
             GpuPidResult {
                 device_index: i as u32,
-                power_w,
+                energy_j,
                 util_pct,
                 next_timestamp: next_ts,
             }

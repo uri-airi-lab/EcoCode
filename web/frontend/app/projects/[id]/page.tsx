@@ -8,6 +8,9 @@ import { DashboardLayout } from '@/components/DashboardLayout'
 import { RecentRunsTable } from '@/components/RecentRunsTable'
 import { ProjectDetail, fetchProjectRuns } from '@/lib/api-client'
 import { MetricCard } from '@/components/MetricCard'
+import { CarbonSettings } from '@/components/CarbonSettings'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Leaf } from 'lucide-react'
 
 interface ProjectPageProps {
     params: Promise<{ id: string }>
@@ -113,85 +116,101 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                     </div>
                 </div>
 
-                <div className="mb-8">
-                    <h2 className="text-lg md:text-xl font-semibold text-foreground mb-4">
-                        Project Overview
-                    </h2>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 md:gap-4">
-                        <MetricCard
-                            icon={Zap}
-                            label="Total Energy"
-                            value={Number(project.totalEnergy.toFixed(2)).toLocaleString()}
-                            unit="Wh"
-                            loading={loading}
-                        />
-                        <MetricCard
-                            icon={Clock}
-                            label="Total Core Hours"
-                            value={(totalCoreHours / 24).toFixed(2)}
-                            unit="hrs"
-                            loading={loading}
-                        />
-                        <MetricCard
-                            icon={Zap}
-                            label="CPU Energy"
-                            value={Number(project.totalCpuEnergy.toFixed(2)).toLocaleString()}
-                            unit="Wh"
-                            loading={loading}
-                        />
-                        <MetricCard
-                            icon={Zap}
-                            label="GPU Energy"
-                            value={Number(project.totalGpuEnergy.toFixed(2)).toLocaleString()}
-                            unit="Wh"
-                            loading={loading}
-                        />
-                        <MetricCard
-                            icon={Zap}
-                            label="Memory Energy"
-                            value={Number(project.totalMemEnergy.toFixed(2)).toLocaleString()}
-                            unit="Wh"
-                            loading={loading}
-                        />
-                        <MetricCard
-                            icon={Zap}
-                            label="iGPU Energy"
-                            value={Number(project.totalIgpuEnergy.toFixed(2)).toLocaleString()}
-                            unit="Wh"
-                            loading={loading}
-                        />
-                        <MetricCard
-                            icon={Folder}
-                            label="Total Runs"
-                            value={project.totalRuns.toString()}
-                            unit=""
-                            loading={loading}
-                        />
-                        <MetricCard
-                            icon={Activity}
-                            label="Avg CPU Usage"
-                            value={project.avgCpuUsage.toFixed(1)}
-                            unit="%"
-                            loading={loading}
-                        />
-                        <MetricCard
-                            icon={Activity}
-                            label="Avg GPU Usage"
-                            value={project.avgGpuUsage.toFixed(1)}
-                            unit="%"
-                            loading={loading}
-                        />
-                        <MetricCard
-                            icon={Activity}
-                            label="Avg Memory Usage"
-                            value={project.avgMemUsage.toFixed(1)}
-                            unit="%"
-                            loading={loading}
-                        />
-                    </div>
-                </div>
+                <Tabs defaultValue="overview" className="space-y-6">
+                    <TabsList className="bg-white/5 border border-white/10 p-1">
+                        <TabsTrigger value="overview" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground gap-2">
+                            <Activity className="w-4 h-4" />
+                            Overview
+                        </TabsTrigger>
+                        <TabsTrigger value="environmental" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground gap-2">
+                            <Leaf className="w-4 h-4" />
+                            Environmental Settings
+                        </TabsTrigger>
+                    </TabsList>
 
-                <RecentRunsTable runs={project.runs} />
+                    <TabsContent value="overview" className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                        <div className="space-y-8">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 md:gap-4">
+                                <MetricCard
+                                    icon={Zap}
+                                    label="Total Energy"
+                                    value={Number(project.totalEnergy.toFixed(2)).toLocaleString()}
+                                    unit="Wh"
+                                    loading={loading}
+                                />
+                                <MetricCard
+                                    icon={Clock}
+                                    label="Total Core Hours"
+                                    value={(totalCoreHours / 24).toFixed(2)}
+                                    unit="hrs"
+                                    loading={loading}
+                                />
+                                <MetricCard
+                                    icon={Zap}
+                                    label="CPU Energy"
+                                    value={Number(project.totalCpuEnergy.toFixed(2)).toLocaleString()}
+                                    unit="Wh"
+                                    loading={loading}
+                                />
+                                <MetricCard
+                                    icon={Zap}
+                                    label="GPU Energy"
+                                    value={Number(project.totalGpuEnergy.toFixed(2)).toLocaleString()}
+                                    unit="Wh"
+                                    loading={loading}
+                                />
+                                <MetricCard
+                                    icon={Zap}
+                                    label="Memory Energy"
+                                    value={Number(project.totalMemEnergy.toFixed(2)).toLocaleString()}
+                                    unit="Wh"
+                                    loading={loading}
+                                />
+                                <MetricCard
+                                    icon={Zap}
+                                    label="iGPU Energy"
+                                    value={Number(project.totalIgpuEnergy.toFixed(2)).toLocaleString()}
+                                    unit="Wh"
+                                    loading={loading}
+                                />
+                                <MetricCard
+                                    icon={Folder}
+                                    label="Total Runs"
+                                    value={project.totalRuns.toString()}
+                                    unit=""
+                                    loading={loading}
+                                />
+                                <MetricCard
+                                    icon={Activity}
+                                    label="Avg CPU Usage"
+                                    value={project.avgCpuUsage.toFixed(1)}
+                                    unit="%"
+                                    loading={loading}
+                                />
+                                <MetricCard
+                                    icon={Activity}
+                                    label="Avg GPU Usage"
+                                    value={project.avgGpuUsage.toFixed(1)}
+                                    unit="%"
+                                    loading={loading}
+                                />
+                                <MetricCard
+                                    icon={Activity}
+                                    label="Avg Memory Usage"
+                                    value={project.avgMemUsage.toFixed(1)}
+                                    unit="%"
+                                    loading={loading}
+                                />
+                            </div>
+
+                            <RecentRunsTable runs={project.runs} />
+                        </div>
+                    </TabsContent>
+
+                    <TabsContent value="environmental" className="animate-in fade-in slide-in-from-bottom-2 duration-500">
+                        <CarbonSettings projectId={Number(paramId)} />
+                    </TabsContent>
+                </Tabs>
             </div>
         </DashboardLayout>
     )

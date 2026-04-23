@@ -6,6 +6,7 @@ use sqlx::{Row, postgres::PgPool};
 use dotenv::dotenv;
 use std::{env, io};
 
+use crate::carbon::{calculate_co2_g, static_intensity};
 use crate::exporter::{Exporter, ExporterType, ProjectInfo, Record};
 use async_trait::async_trait;
 
@@ -167,7 +168,40 @@ impl OnlineExporter {
             db,
             "runs",
             "command",
-            "ALTER TABLE runs ADD COLUMN command TEXT",
+            "ALTER TABLE runs ADD COLUMN IF NOT EXISTS command TEXT",
+        )
+        .await?;
+
+        // Carbon fields for projects
+        Self::ensure_column(db, "projects", "country_code", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS country_code TEXT NOT NULL DEFAULT 'WORLD'").await?;
+        Self::ensure_column(db, "projects", "address", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS address TEXT").await?;
+        Self::ensure_column(db, "projects", "latitude", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION").await?;
+        Self::ensure_column(db, "projects", "longitude", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION").await?;
+        Self::ensure_column(db, "projects", "electricity_maps_api_key", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS electricity_maps_api_key TEXT").await?;
+        Self::ensure_column(db, "projects", "resolved_intensity_g_per_kwh", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS resolved_intensity_g_per_kwh DOUBLE PRECISION NOT NULL DEFAULT 494.0").await?;
+        Self::ensure_column(db, "projects", "intensity_source", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS intensity_source TEXT NOT NULL DEFAULT 'static_WORLD'").await?;
+        Self::ensure_column(db, "projects", "intensity_fetched_at", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS intensity_fetched_at TEXT").await?;
+        Self::ensure_column(db, "projects", "pue_factor", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS pue_factor DOUBLE PRECISION NOT NULL DEFAULT 1.0").await?;
+
+        Self::ensure_column(
+            db,
+            "runsummary",
+            "total_co2_g",
+            "ALTER TABLE runsummary ADD COLUMN total_co2_g DOUBLE PRECISION",
+        )
+        .await?;
+        Self::ensure_column(
+            db,
+            "runsummary",
+            "carbon_intensity_used",
+            "ALTER TABLE runsummary ADD COLUMN carbon_intensity_used DOUBLE PRECISION",
+        )
+        .await?;
+        Self::ensure_column(
+            db,
+            "runsummary",
+            "pue_used",
+            "ALTER TABLE runsummary ADD COLUMN pue_used DOUBLE PRECISION",
         )
         .await?;
 
@@ -189,6 +223,7 @@ impl OnlineExporter {
 
         Ok(())
     }
+
 
     async fn ensure_column(
         db: &PgPool,
@@ -564,23 +599,87 @@ impl Exporter for OnlineExporter {
             return Ok(());
         }
 
-        // $1 is used twice: once as the inserted run_id value, once in the WHERE clause.
+        // Read carbon config from the project associated with this run
+        let (intensity, pue, source): (f64, f64, String) = sqlx::query_as::<_, (f64, f64, String)>(
+            "SELECT p.resolved_intensity_g_per_kwh, p.pue_factor, p.intensity_source
+             FROM projects p
+             JOIN runs r ON r.project_id = p.id
+             WHERE r.id = $1",
+        )
+        .bind(run_id)
+        .fetch_optional(&self.db)
+        .await?
+        .unwrap_or_else(|| (static_intensity("WORLD"), 1.0, "static_WORLD".to_string()));
+
+        println!("Carbon footprint calculation: Intensity={:.2} g/kWh (source: {}), PUE={:.2}", 
+                 intensity, source, pue);
+
+        // Insert energy totals with placeholder CO2 (updated below)
         sqlx::query(
             "INSERT INTO runsummary
-                (run_id, total_cpu_energy, total_gpu_energy, total_mem_energy, total_igpu_energy)
+                (run_id, total_cpu_energy, total_gpu_energy, total_mem_energy, total_igpu_energy,
+                 total_co2_g, carbon_intensity_used, pue_used)
              SELECT
                 $1,
                 COALESCE(SUM(cpu_energy),  0.0),
                 COALESCE(SUM(gpu_energy),  0.0),
                 COALESCE(SUM(mem_energy),  0.0),
-                COALESCE(SUM(igpu_energy), 0.0)
+                COALESCE(SUM(igpu_energy), 0.0),
+                0.0, $2, $3
              FROM records
              WHERE run_id = $1",
         )
         .bind(run_id)
+        .bind(intensity)
+        .bind(pue)
         .execute(&self.db)
         .await?;
 
+        // Read back totals to compute CO2
+        let (total_cpu, total_gpu, total_mem, total_igpu): (f64, f64, f64, f64) =
+            sqlx::query_as::<_, (f64, f64, f64, f64)>(
+                "SELECT total_cpu_energy, total_gpu_energy, total_mem_energy, total_igpu_energy
+                 FROM runsummary WHERE run_id = $1",
+            )
+            .bind(run_id)
+            .fetch_one(&self.db)
+            .await?;
+
+        let energy_wh = (total_cpu + total_gpu + total_mem + total_igpu) / 3600.0;
+        let co2_g = calculate_co2_g(energy_wh, intensity, pue);
+
+        sqlx::query("UPDATE runsummary SET total_co2_g = $1 WHERE run_id = $2")
+            .bind(co2_g)
+            .bind(run_id)
+            .execute(&self.db)
+            .await?;
+
         Ok(())
+    }
+
+    async fn get_carbon_config(
+        &mut self,
+        project_id: i64,
+    ) -> Result<crate::exporter::CarbonConfig, Box<dyn std::error::Error>> {
+        let row: Option<(f64, f64, String)> = sqlx::query_as(
+            "SELECT resolved_intensity_g_per_kwh, pue_factor, intensity_source FROM projects WHERE id = $1"
+        )
+        .bind(project_id)
+        .fetch_optional(&self.db)
+        .await?;
+
+        if let Some((intensity, pue, source)) = row {
+            Ok(crate::exporter::CarbonConfig {
+                resolved_intensity_g_per_kwh: intensity,
+                pue_factor: pue,
+                intensity_source: source,
+            })
+        } else {
+            Ok(crate::exporter::CarbonConfig {
+                resolved_intensity_g_per_kwh: static_intensity("WORLD"),
+                pue_factor: 1.0,
+                intensity_source: "static_WORLD".to_string(),
+            })
+        }
     }
 }

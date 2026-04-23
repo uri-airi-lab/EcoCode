@@ -68,7 +68,7 @@ pub fn get_all_energies(
 pub fn delta_cpu_energy_per_pid_w(
     energies_1: &[RaplEnergy],
     energies_2: &[RaplEnergy],
-    elapsed_secs: f64,
+    _elapsed_secs: f64,
     cpu_usage: f64,
     mem_usage: f64,
     igpu_usage: f64,
@@ -103,7 +103,7 @@ pub fn delta_cpu_energy_per_pid_w(
         };
 
         let delta_energy_per_pid =
-            (((energy_2 - energy_1) / 1_000_000.0) / elapsed_secs * usage_fraction).max(0.0);
+            (((energy_2 - energy_1) / 1_000_000.0) * usage_fraction).max(0.0);
 
         delta_energy.push(RaplEnergyDelta {
             socket: energies_1[i].socket,

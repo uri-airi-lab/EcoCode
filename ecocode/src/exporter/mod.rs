@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 pub struct GpuMetric {
     pub device_index: u32,
     pub gpu_usage: f64,  // percentage (0-100)
-    pub gpu_energy: f64, // watts
+    pub gpu_energy: f64, // Joules (Watt-seconds)
 }
 
 /// Per-socket RAPL metrics for a single measurement record
@@ -32,7 +32,7 @@ pub struct GpuMetric {
 pub struct SocketMetric {
     pub socket: i16,
     pub domain: String, // "cpu", "dram", "igpu"
-    pub energy: f64,    // watts
+    pub energy: f64,    // Joules (Watt-seconds)
 }
 
 /// Represents a single measurement record
@@ -43,11 +43,11 @@ pub struct Record {
     pub pid: u32,
     pub timestamp: String,                 // RFC3339 UTC timestamp
     pub cpu_usage: f64,                    // percentage (0-100)
-    pub cpu_energy: f64,                   // watts (aggregate across sockets)
+    pub cpu_energy: f64,                   // Joules (Watt-seconds) (aggregate across sockets)
     pub gpu_usage: f64,                    // percentage (0-100) (aggregate across GPUs)
-    pub gpu_energy: f64,                   // watts (aggregate across GPUs)
+    pub gpu_energy: f64,                   // Joules (Watt-seconds) (aggregate across GPUs)
     pub mem_usage: f64,                    // percentage (0-100), always available from sysinfo
-    pub mem_energy: Option<f64>, // watts — None when DRAM RAPL domain absent on this system
+    pub mem_energy: Option<f64>, // Joules (Watt-seconds) — None when DRAM RAPL domain absent on this system
     pub igpu_usage: Option<f64>, // None — no per-process iGPU sensor available
     pub igpu_energy: Option<f64>, // None when iGPU RAPL domain absent on this system
     pub gpu_metrics: Vec<GpuMetric>, // per-GPU breakdown
@@ -141,6 +141,13 @@ pub struct ProjectInfo {
     pub collaborators: Vec<String>,
 }
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct CarbonConfig {
+    pub resolved_intensity_g_per_kwh: f64,
+    pub pue_factor: f64,
+    pub intensity_source: String,
+}
+
 /// Trait for different export formats
 #[async_trait(?Send)]
 pub trait Exporter {
@@ -173,4 +180,15 @@ pub trait Exporter {
         ended_at: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error>>;
     async fn run_summary(&mut self, run_id: i64) -> Result<(), Box<dyn std::error::Error>>;
+    async fn get_carbon_config(
+        &mut self,
+        _project_id: i64,
+    ) -> Result<CarbonConfig, Box<dyn std::error::Error>> {
+        // Default fallback for exporters that don't have a database connection (CSV, JSON, etc.)
+        Ok(CarbonConfig {
+            resolved_intensity_g_per_kwh: 494.0,
+            pue_factor: 1.0,
+            intensity_source: "static_WORLD_fallback".to_string(),
+        })
+    }
 }
