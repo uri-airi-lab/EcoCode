@@ -44,10 +44,22 @@ export function EnergyChart({ data }: EnergyChartProps) {
   }, [data])
 
   const chartData = useMemo(() => {
-    return data.map((record, index) => {
-      // Calculate time delta in seconds from previous record (fallback to 1s for first record)
-      const prev = index > 0 ? data[index - 1] : null
-      const deltaMs = prev 
+    // Skip the first record: it captures the process startup burst (CUDA init,
+    // library loading) before the backend warm-up pass fully settles.
+    // The backend already discards the main spike; this is a safety-net so any
+    // remaining transient doesn't distort the chart scale.
+    const records = data.length > 1 ? data.slice(1) : data
+
+    return records.map((record, index) => {
+      // Calculate time delta in seconds from previous record.
+      // KEY FIX: for the first *displayed* record (index=0 after slice), use
+      // data[0] (the skipped warmup record) as prev so deltaS reflects the
+      // real measurement interval (e.g. 5 s) instead of the 1 s fallback.
+      // Without this, energy_J / 1s = inflated Watts spike on the first point.
+      const prev = index > 0
+        ? records[index - 1]
+        : (data.length > 1 ? data[0] : null)
+      const deltaMs = prev
         ? new Date(record.timestamp).getTime() - new Date(prev.timestamp).getTime()
         : 1000
       const deltaS = (deltaMs / 1000) || 1

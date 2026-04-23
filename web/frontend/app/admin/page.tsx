@@ -39,19 +39,19 @@ export default function AdminPage() {
     const loadProjects = async () => {
       setLoading(true)
       try {
-        const [adminData, summaryData] = await Promise.all([
+        const [adminResult, summaryResult] = await Promise.allSettled([
           fetchAdminProjects(source),
           fetchAllProjects(source),
         ])
 
         if (!cancelled) {
-          setProjects(adminData)
-          setProjectSummaries(summaryData)
-          setError(null)
+          if (adminResult.status === 'fulfilled') setProjects(adminResult.value)
+          if (summaryResult.status === 'fulfilled') setProjectSummaries(summaryResult.value)
+          const failed = adminResult.status === 'rejected' || summaryResult.status === 'rejected'
+          setError(failed ? 'Failed to load some data. Is the backend running?' : null)
         }
       } catch (fetchError) {
         if (!cancelled) {
-          console.error('Failed to fetch admin project monitor data:', fetchError)
           setError('Failed to load admin monitor data.')
         }
       } finally {

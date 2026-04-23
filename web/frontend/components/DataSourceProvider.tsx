@@ -35,6 +35,7 @@ export function DataSourceProvider({
 
   useEffect(() => {
     let cancelled = false
+    let retryTimer: ReturnType<typeof setTimeout> | null = null
 
     const loadSources = async () => {
       try {
@@ -52,18 +53,17 @@ export function DataSourceProvider({
         setAvailableSources(availability.availableSources)
         setSourceState(nextSource)
         storeDataSource(nextSource)
-      } catch (error) {
+        setLoadingSources(false)
+      } catch {
         if (cancelled) return
 
+        // Backend not reachable yet — fall back to local and retry in 5s
         const stored = readStoredDataSource()
-        const nextSource = stored ?? 'local'
         setAvailableSources(['local'])
-        setSourceState(nextSource === 'online' ? 'local' : nextSource)
-        storeDataSource(nextSource === 'online' ? 'local' : nextSource)
-      } finally {
-        if (!cancelled) {
-          setLoadingSources(false)
-        }
+        setSourceState('local')
+        storeDataSource('local')
+        setLoadingSources(false)
+        retryTimer = setTimeout(loadSources, 5000)
       }
     }
 
@@ -71,6 +71,7 @@ export function DataSourceProvider({
 
     return () => {
       cancelled = true
+      if (retryTimer) clearTimeout(retryTimer)
     }
   }, [])
 

@@ -23,7 +23,7 @@ use exporter::terminal::TerminalExporter;
 use exporter::{Exporter, ExporterType, GpuMetric, Record, SocketMetric};
 
 use crate::exporter::prometheus::PrometheusExporter;
-use crate::sensor::rapl::{delta_cpu_energy_per_pid_w, get_all_energies};
+use crate::sensor::rapl::{delta_cpu_energy_per_pid_j, get_all_energies};
 
 // TODO: Make it prettier dynamic with Rattatui
 // --- Command-line argument parsing ---
@@ -49,9 +49,9 @@ struct Args {
     #[arg(short, long)]
     file: Option<String>,
 
-    /// Measurement interval in seconds
-    #[arg(short, long, default_value = "1")]
-    interval: u64,
+    /// Measurement interval in seconds (supports decimals, e.g. 0.5)
+    #[arg(short, long, default_value = "1.0")]
+    interval: f64,
     /// Command to monitor (with its arguments)
     #[arg(trailing_var_arg = true, required = true)]
     command: Vec<String>,
@@ -261,11 +261,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    println!(
-        "║  Exporter: {:39}║",
-        format!("{:?}", exporter.exporter_type())
-    );
-    println!("║  Interval: {:39}║", format!("{}s", args.interval));
+    println!("║  Exporter: {:38}║", format!("{:?}", exporter.exporter_type()));
+    println!("║  Interval: {:38}║", format!("{:.1}s", args.interval));
     println!("╠════════════════════════════════════════════════════╣");
     println!("║  Carbon Intensity: {:31}║", format!("{:.1} gCO2/kWh", carbon_config.resolved_intensity_g_per_kwh));
     println!("║  Intensity Source: {:31}║", carbon_config.intensity_source);
@@ -279,16 +276,54 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Per-GPU timestamps for process utilization sampling
     let mut gpu_timestamps: Vec<u64> = vec![0; gpu_count];
 
-    // Take initial energy readings before the loop
+    // Take placeholder initial readings so the mut bindings exist before the
+    // warm-up block. The warm-up block immediately overwrites them with clean
+    // post-startup baselines, which is intentional — suppress the warning.
+    #[allow(unused_assignments)]
     sys.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
+    #[allow(unused_assignments)]
     let mut cpu_energy_1 = get_all_energies(&mut rapl_readers)?;
 
+    #[allow(unused_assignments)]
     let mut gpu_energies_1 = get_all_gpu_energies(&devices)?;
     // Running maximum energy (mJ) observed per GPU — used for rollover correction
     // when the NVML counter resets (driver reload / GPU reset).
+    #[allow(unused_assignments)]
     let mut gpu_max_energies: Vec<f64> = gpu_energies_1.clone();
 
-    let period = Duration::from_secs(interval);
+    // --- Warm-up pass (runs once, before the measurement loop) ---
+    // Fixes three first-sample artefacts:
+    //   1. gpu_timestamps=0 makes NVML return ALL historical utilisation data,
+    //      not just the last interval → inflated process_util on sample 1.
+    //   2. The RAPL/GPU counters include the process startup burst
+    //      (CUDA context init, library loading) which is much higher than
+    //      steady-state and would corrupt the first energy delta.
+    //   3. sysinfo has no prior CPU snapshot before the loop begins, so the
+    //      first cpu_usage() call spans from process spawn to tick 1 rather
+    //      than a clean interval window.
+    {
+        // Re-baseline RAPL so that sample 1 only covers the first real interval.
+        cpu_energy_1 = get_all_energies(&mut rapl_readers)?;
+
+        // Re-baseline GPU absolute-energy counters.
+        gpu_energies_1 = get_all_gpu_energies(&devices)?;
+        gpu_max_energies = gpu_energies_1.clone();
+
+        // Advance per-GPU timestamps past all historical NVML samples so that
+        // the first call to process_utilization_stats() in the loop only
+        // returns samples from this moment forward.
+        for (i, device) in devices.iter().enumerate() {
+            if let Ok(stats) = device.process_utilization_stats(gpu_timestamps[i]) {
+                gpu_timestamps[i] = stats.iter().map(|s| s.timestamp).max().unwrap_or(0);
+            }
+        }
+
+        // Re-baseline sysinfo so cpu_usage on sample 1 reflects the first real
+        // interval, not the time from process spawn to tick 1.
+        sys.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
+    }
+
+    let period = Duration::from_secs_f64(args.interval);
     let mut last_sample = Instant::now();
     let mut ticker = time::interval_at(last_sample + period, period);
     ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -326,7 +361,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Each domain is weighted by its own process-level resource usage.
             // Domains not present on this system produce no entries, so mem_w / igpu_w
             // remain 0.0 automatically when those RAPL domains are unavailable.
-            let delta_cpu_energy_j = delta_cpu_energy_per_pid_w(
+            let delta_cpu_energy_j = delta_cpu_energy_per_pid_j(
                 &cpu_energy_1,
                 &cpu_energy_2,
                 elapsed_secs,

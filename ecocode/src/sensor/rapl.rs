@@ -65,7 +65,7 @@ pub fn get_all_energies(
 }
 
 // TODO: Make it concurrant for faster processing
-pub fn delta_cpu_energy_per_pid_w(
+pub fn delta_cpu_energy_per_pid_j(
     energies_1: &[RaplEnergy],
     energies_2: &[RaplEnergy],
     _elapsed_secs: f64,

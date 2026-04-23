@@ -18,8 +18,21 @@ interface PowerDistributionChartProps {
 }
 
 export function PowerDistributionChart({ record, prevRecord }: PowerDistributionChartProps) {
+  if (!record) return null;
+
+  // Without a previous record we cannot compute a valid time delta, so
+  // energy / deltaS would use the 1 s fallback and wildly over-report Watts.
+  // Show a loading indicator until the second record arrives (~one interval).
+  if (!prevRecord) {
+    return (
+      <div className="chart-container flex flex-col h-full items-center justify-center min-h-[300px]">
+        <h3 className="text-lg font-semibold text-foreground mb-2">Live Power Distribution</h3>
+        <p className="text-sm text-muted-foreground">Waiting for second sample…</p>
+      </div>
+    )
+  }
+
   const deltaS = React.useMemo(() => {
-    if (!prevRecord) return 1
     const deltaMs = new Date(record.timestamp).getTime() - new Date(prevRecord.timestamp).getTime()
     return (deltaMs / 1000) || 1
   }, [record, prevRecord])

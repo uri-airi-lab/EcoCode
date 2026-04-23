@@ -15,6 +15,7 @@ import { useDataSource } from '@/components/DataSourceProvider'
 import { PowerDistributionChart } from '@/components/PowerDistributionChart'
 import { CumulativePowerChart } from '@/components/CumulativePowerChart'
 import { EnvironmentalImpact } from '@/components/EnvironmentalImpact'
+import { CarbonSettings } from '@/components/CarbonSettings'
 import { Run } from '@/lib/mock-data'
 import { fetchAllRuns, fetchRunDetail, fetchAllProjects, ProjectSummary } from '@/lib/api-client'
 import { useSSE } from '@/hooks/use-sse'
@@ -239,16 +240,26 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Environmental Impact Translation */}
+        {/* Environmental Impact Translation
         <div className="mb-8">
           <h2 className="text-lg md:text-xl font-semibold text-foreground mb-4">
             Environmental Impact Equivalents
           </h2>
-          <EnvironmentalImpact 
-            totalEnergyWh={stats.totalEnergy} 
+          <EnvironmentalImpact
+            totalEnergyWh={stats.totalEnergy}
             totalCo2G={stats.totalCarbonFootprint}
           />
         </div>
+
+        {/* Carbon Settings */}
+        {/* {projects.length > 0 && (
+          <div className="mb-8">
+            <h2 className="text-lg md:text-xl font-semibold text-foreground mb-4">
+              Carbon & Energy Settings
+            </h2>
+            <CarbonSettings projectId={Number(projects[0].id)} />
+          </div>
+        )} */}
 
         {/* Charts */}
         {currentRun && (
@@ -257,12 +268,14 @@ export default function Dashboard() {
               <div className="xl:col-span-2">
                 <EnergyChart data={currentRun.records} />
               </div>
-              <div className="xl:col-span-1">
-                <PowerDistributionChart 
-                  record={currentRun.records[currentRun.records.length - 1]} 
-                  prevRecord={currentRun.records.length > 1 ? currentRun.records[currentRun.records.length - 2] : undefined}
-                />
-              </div>
+              {currentRun.records.length > 0 && (
+                <div className="xl:col-span-1">
+                  <PowerDistributionChart 
+                    record={currentRun.records[currentRun.records.length - 1]} 
+                    prevRecord={currentRun.records.length > 1 ? currentRun.records[currentRun.records.length - 2] : undefined}
+                  />
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">

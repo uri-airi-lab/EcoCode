@@ -206,12 +206,14 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
             <div className="xl:col-span-2">
               <EnergyChart data={run.records} />
             </div>
-            <div className="xl:col-span-1">
-              <PowerDistributionChart 
-                record={run.records[run.records.length - 1]} 
-                prevRecord={run.records.length > 1 ? run.records[run.records.length - 2] : undefined}
-              />
-            </div>
+            {run.records.length > 0 && (
+              <div className="xl:col-span-1">
+                <PowerDistributionChart 
+                  record={run.records[run.records.length - 1]} 
+                  prevRecord={run.records.length > 1 ? run.records[run.records.length - 2] : undefined}
+                />
+              </div>
+            )}
           </div>
           
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">

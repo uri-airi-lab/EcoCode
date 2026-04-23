@@ -47,15 +47,16 @@ export function useSSE(source: DataSource) {
             }
         }
 
-        eventSource.onerror = (err) => {
-            console.error('SSE connection error:', err)
-            setError('Connection lost. Reconnecting...')
-            eventSource.close()
+        eventSource.onerror = () => {
+            // EventSource auto-reconnects natively; closing here would break that.
+            const next = eventSource.readyState === EventSource.CLOSED
+                ? 'SSE disconnected'
+                : 'SSE reconnecting...'
+            setError(prev => prev === next ? prev : next)
+        }
 
-            // Reconnect after 5 seconds
-            setTimeout(() => {
-                setError(null)
-            }, 5000)
+        eventSource.onopen = () => {
+            setError(null)
         }
 
         return () => {

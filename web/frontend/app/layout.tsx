@@ -1,4 +1,4 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
 
 import { DataSourceProvider } from '@/components/DataSourceProvider'
@@ -12,11 +12,12 @@ export const metadata: Metadata = {
   title: 'EcoCode Dashboard',
   description: 'Monitor energy consumption and environmental impact metrics',
   generator: 'v0.app',
-  viewport: {
-    width: 'device-width',
-    initialScale: 1,
-    maximumScale: 1,
-  },
+}
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
 }
 
 export default function RootLayout({

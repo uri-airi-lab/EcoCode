@@ -236,16 +236,17 @@ function calculateDurationSeconds(
 const WORLD_AVERAGE_INTENSITY_G_PER_KWH = 494
 
 function calculateEnergyTotals(summary: BackendRunSummary | null) {
-  const totalCpuEnergy = summary?.total_cpu_energy ?? 0
-  const totalGpuEnergy = summary?.total_gpu_energy ?? 0
-  const totalMemEnergy = summary?.total_mem_energy ?? 0
-  const totalIgpuEnergy = summary?.total_igpu_energy ?? 0
-  const totalEnergy = totalCpuEnergy + totalGpuEnergy + totalMemEnergy + totalIgpuEnergy
+  // DB stores energy in Joules; convert to Wh for display (1 Wh = 3600 J)
+  const totalCpuEnergy = (summary?.total_cpu_energy ?? 0) / 3600
+  const totalGpuEnergy = (summary?.total_gpu_energy ?? 0) / 3600
+  const totalMemEnergy = (summary?.total_mem_energy ?? 0) / 3600
+  const totalIgpuEnergy = (summary?.total_igpu_energy ?? 0) / 3600
+  const totalEnergy = totalCpuEnergy + totalGpuEnergy + totalMemEnergy + totalIgpuEnergy // Wh
 
   // Use DB-stored CO2 value if available, otherwise estimate from world average
   const totalCo2G = summary?.total_co2_g != null
     ? summary.total_co2_g
-    : (totalEnergy / 1000) * WORLD_AVERAGE_INTENSITY_G_PER_KWH
+    : (totalEnergy / 1000) * WORLD_AVERAGE_INTENSITY_G_PER_KWH // Wh → kWh × gCO₂/kWh
 
   return {
     totalCpuEnergy,
@@ -463,6 +464,8 @@ export interface AdminProjectMonitor {
 export async function fetchAllProjects(source?: DataSource): Promise<ProjectSummary[]> {
   try {
     const projectsRes = await fetch(buildApiUrl('/api/projects', source))
+    // 404 = no projects yet — valid empty state
+    if (projectsRes.status === 404) return []
     if (!projectsRes.ok) throw new Error('Failed to fetch projects')
     const projects: BackendProject[] = await projectsRes.json()
 
@@ -501,7 +504,6 @@ export async function fetchAllProjects(source?: DataSource): Promise<ProjectSumm
 
     return projectSummaries
   } catch (error) {
-    console.error('Error fetching projects:', error)
     throw error
   }
 }
@@ -512,6 +514,7 @@ export async function fetchAllProjects(source?: DataSource): Promise<ProjectSumm
 export async function fetchProjectRuns(projectId: string, source?: DataSource): Promise<ProjectDetail> {
   try {
     const projectsRes = await fetch(buildApiUrl('/api/projects', source))
+    if (projectsRes.status === 404) throw new Error(`Project ${projectId} not found`)
     if (!projectsRes.ok) throw new Error('Failed to fetch projects')
     const projects: BackendProject[] = await projectsRes.json()
 
@@ -562,7 +565,6 @@ export async function fetchProjectRuns(projectId: string, source?: DataSource): 
       runs: runSummaries.sort((a, b) => b.timestamp - a.timestamp)
     }
   } catch (error) {
-    console.error(`Error fetching project ${projectId}:`, error)
     throw error
   }
 }
@@ -573,6 +575,7 @@ export async function fetchProjectRuns(projectId: string, source?: DataSource): 
 export async function fetchAllRuns(source?: DataSource): Promise<RunSummary[]> {
   try {
     const projectsRes = await fetch(buildApiUrl('/api/projects', source))
+    if (projectsRes.status === 404) return []
     if (!projectsRes.ok) throw new Error('Failed to fetch projects')
     const projects: BackendProject[] = await projectsRes.json()
 
@@ -592,7 +595,6 @@ export async function fetchAllRuns(source?: DataSource): Promise<RunSummary[]> {
 
     return allRuns.sort((a, b) => b.timestamp - a.timestamp)
   } catch (error) {
-    console.error('Error fetching runs:', error)
     throw error
   }
 }
@@ -617,21 +619,22 @@ export async function fetchRunDetail(id: string, source?: DataSource): Promise<R
       .map(mapRecord)
       .sort((left, right) => left.timestamp - right.timestamp)
 
-    // Use summary if available, otherwise compute from records
+    // Use summary if available, otherwise compute from records.
+    // DB stores energy in Joules; convert to Wh (÷ 3600) for display.
     let totalCpuEnergy: number, totalGpuEnergy: number, totalMemEnergy: number, totalIgpuEnergy: number
     if (summary) {
-      totalCpuEnergy = summary.total_cpu_energy
-      totalGpuEnergy = summary.total_gpu_energy
-      totalMemEnergy = summary.total_mem_energy
-      totalIgpuEnergy = summary.total_igpu_energy
+      totalCpuEnergy = summary.total_cpu_energy / 3600
+      totalGpuEnergy = summary.total_gpu_energy / 3600
+      totalMemEnergy = summary.total_mem_energy / 3600
+      totalIgpuEnergy = summary.total_igpu_energy / 3600
     } else {
-      totalCpuEnergy = records.reduce((sum, r) => sum + r.cpu_energy, 0)
-      totalGpuEnergy = records.reduce((sum, r) => sum + r.gpu_energy, 0)
-      totalMemEnergy = records.reduce((sum, r) => sum + r.mem_energy, 0)
-      totalIgpuEnergy = records.reduce((sum, r) => sum + r.igpu_energy, 0)
+      totalCpuEnergy = records.reduce((sum, r) => sum + r.cpu_energy, 0) / 3600
+      totalGpuEnergy = records.reduce((sum, r) => sum + r.gpu_energy, 0) / 3600
+      totalMemEnergy = records.reduce((sum, r) => sum + r.mem_energy, 0) / 3600
+      totalIgpuEnergy = records.reduce((sum, r) => sum + r.igpu_energy, 0) / 3600
     }
 
-    const totalEnergy = totalCpuEnergy + totalGpuEnergy + totalMemEnergy + totalIgpuEnergy
+    const totalEnergy = totalCpuEnergy + totalGpuEnergy + totalMemEnergy + totalIgpuEnergy // Wh
     const energyKwh = totalEnergy / 1000
     const carbonFootprint = summary?.total_co2_g != null
       ? summary.total_co2_g
@@ -676,7 +679,6 @@ export async function fetchRunDetail(id: string, source?: DataSource): Promise<R
       records,
     }
   } catch (error) {
-    console.error(`Error fetching run ${id}:`, error)
     throw error
   }
 }

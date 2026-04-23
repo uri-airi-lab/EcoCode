@@ -73,7 +73,7 @@ pub fn static_intensity(country_code: &str) -> f64 {
 
 /// Computes CO₂ emissions in grams.
 ///
-/// - `energy_wh`: total energy in Wh (sum of cpu + gpu + mem + igpu energy)
+/// - `energy_wh`: total energy in Wh (sum of cpu + gpu + mem + igpu energy, already converted from J)
 /// - `intensity_g_per_kwh`: carbon intensity of the grid in gCO₂eq/kWh
 /// - `pue`: Power Usage Effectiveness factor (1.0 for workstations, ~1.58 for avg data center)
 pub fn calculate_co2_g(energy_wh: f64, intensity_g_per_kwh: f64, pue: f64) -> f64 {

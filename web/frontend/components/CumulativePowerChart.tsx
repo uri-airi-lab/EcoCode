@@ -21,10 +21,17 @@ interface CumulativePowerChartProps {
 
 export function CumulativePowerChart({ data }: CumulativePowerChartProps) {
   const chartData = useMemo(() => {
-    return data.map((record, index) => {
-      // Calculate time delta in seconds
-      const prev = index > 0 ? data[index - 1] : null
-      const deltaMs = prev 
+    // Skip first record (startup warmup) and use it as a ghost prev for
+    // deltaS so the first displayed point shows the real interval, not 1s.
+    const records = data.length > 1 ? data.slice(1) : data
+
+    return records.map((record, index) => {
+      // For the first displayed record use data[0] (skipped warmup) as prev
+      // so deltaS reflects the actual interval instead of the 1s fallback.
+      const prev = index > 0
+        ? records[index - 1]
+        : (data.length > 1 ? data[0] : null)
+      const deltaMs = prev
         ? new Date(record.timestamp).getTime() - new Date(prev.timestamp).getTime()
         : 1000
       const deltaS = (deltaMs / 1000) || 1
