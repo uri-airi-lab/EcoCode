@@ -10,9 +10,11 @@ import {
   LayoutDashboard,
   Users,
   ChevronDown,
+  LogOut,
   Plus
 } from 'lucide-react'
 import { useWorkspace } from './WorkspaceProvider'
+import { toast } from 'sonner'
 
 export function Sidebar() {
   const pathname = usePathname()
@@ -20,6 +22,23 @@ export function Sidebar() {
   const { workspaces, currentWorkspace, dropdownOpen, setDropdownOpen } = useWorkspace()
 
   const workspaceSlug = currentWorkspace?.slug ?? pathname.split('/').filter(Boolean)[0] ?? ''
+
+  const handleLogout = async () => {
+    try {
+      const res = await fetch('/api/auth/logout', { 
+        method: 'POST',
+        credentials: 'include'
+      })
+      if (res.ok) {
+        toast.success('Logged out successfully')
+        router.push('/login')
+      } else {
+        toast.error('Failed to logout')
+      }
+    } catch (error) {
+      toast.error('An error occurred during logout')
+    }
+  }
 
   const navItems = [
     { href: `/${workspaceSlug}`, label: 'Dashboard', icon: LayoutDashboard, exact: true },
@@ -84,7 +103,7 @@ export function Sidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+      <nav className="flex-1 p-4 flex flex-col space-y-1 overflow-y-auto">
         <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground/50 font-semibold mb-3 px-2">
           Menu
         </p>
@@ -104,6 +123,16 @@ export function Sidebar() {
             </Link>
           )
         })}
+
+        <div className="flex-1" />
+
+        <button
+          onClick={handleLogout}
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-neutral-400 hover:text-red-400 hover:bg-red-500/10 transition-all duration-200 border border-transparent mt-4"
+        >
+          <LogOut className="w-4 h-4" />
+          <span className="text-sm">Logout</span>
+        </button>
       </nav>
 
       {/* Footer */}

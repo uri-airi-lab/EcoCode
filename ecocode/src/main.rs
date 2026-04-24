@@ -84,7 +84,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let output = args.output.to_lowercase();
     let project_name = args.project;
     let collaborator = match args.collaborator {
-        Some(name) => {
+        Some(ref name) => {
             let trimmed = name.trim();
             if trimmed.len() > 0 {
                 Some(trimmed.to_string())

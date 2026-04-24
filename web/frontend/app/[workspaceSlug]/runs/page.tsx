@@ -33,7 +33,7 @@ export default function RunsPage() {
             : allProjects
           
           const workspaceRunList = currentWorkspace
-            ? allRuns.filter(r => workspaceProjects.some(p => p.id === r.project_id.toString()))
+            ? allRuns.filter(r => workspaceProjects.some(p => p.id === r.projectId))
             : allRuns
 
           setRuns(workspaceRunList)

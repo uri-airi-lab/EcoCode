@@ -31,6 +31,7 @@ export interface MetricRecord {
 
 export interface Run {
   id: string
+  projectId: string
   name: string
   timestamp: number
   status: 'running' | 'finished' | 'failed'
@@ -158,6 +159,7 @@ export function generateMockRuns(): Run[] {
 
     runs.push({
       id: `run-${i + 1}`,
+      projectId: '1',
       name: `Training Run ${i + 1}`,
       timestamp: now - (10 - i) * 86400000,
       status: i < 2 ? 'running' : i === 2 ? 'failed' : 'finished',

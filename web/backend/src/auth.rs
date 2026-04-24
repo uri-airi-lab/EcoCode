@@ -1,8 +1,8 @@
 use axum::{
     extract::{FromRequestParts, State, Path, FromRef},
     http::{request::Parts, StatusCode, header},
-    response::{IntoResponse, Response},
-    routing::{post, get, delete},
+    response::IntoResponse,
+    routing::{post, delete},
     Json, Router,
 };
 use axum_extra::extract::cookie::{Cookie, CookieJar};
@@ -19,7 +19,8 @@ use rand::{distributions::Alphanumeric, Rng};
 use chrono::{Utc, Duration};
 use sqlx::Row;
 
-use crate::{AppState, ApiError};
+use crate::state::AppState;
+use crate::error::ApiError;
 
 pub(crate) fn auth_routes() -> Router<AppState> {
     Router::new()
@@ -44,7 +45,7 @@ struct Claims {
     exp: usize,
 }
 
-pub(crate) struct AuthUser {
+pub struct AuthUser {
     pub user_id: i64,
     /// Set when authenticated via a workspace-scoped API key; None for JWT auth.
     pub workspace_id: Option<i64>,

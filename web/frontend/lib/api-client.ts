@@ -259,10 +259,17 @@ function calculateEnergyTotals(summary: BackendRunSummary | null) {
   }
 }
 
+async function apiFetch(url: string, init?: RequestInit) {
+  return fetch(url, {
+    ...init,
+    credentials: 'include',
+  })
+}
+
 async function fetchRunMetricSnapshot(backendRun: BackendRun): Promise<RunMetricSnapshot> {
   const [summaryRes, recordsRes] = await Promise.all([
-    fetch(buildApiUrl(`/api/run/${backendRun.id}/summary`)),
-    fetch(buildApiUrl(`/api/run/${backendRun.id}/record_points`)),
+    apiFetch(buildApiUrl(`/api/run/${backendRun.id}/summary`)),
+    apiFetch(buildApiUrl(`/api/run/${backendRun.id}/record_points`)),
   ])
 
   const summary: BackendRunSummary | null = summaryRes.ok ? await summaryRes.json() : null
@@ -288,7 +295,7 @@ async function fetchRunMetricSnapshot(backendRun: BackendRun): Promise<RunMetric
 }
 
 async function fetchRunTotalsSnapshot(backendRun: BackendRun): Promise<RunTotalsSnapshot> {
-  const summaryRes = await fetch(buildApiUrl(`/api/run/${backendRun.id}/summary`))
+  const summaryRes = await apiFetch(buildApiUrl(`/api/run/${backendRun.id}/summary`))
   const summary: BackendRunSummary | null = summaryRes.ok ? await summaryRes.json() : null
   const energyTotals = calculateEnergyTotals(summary)
   const timestamp =
@@ -302,32 +309,32 @@ async function fetchRunTotalsSnapshot(backendRun: BackendRun): Promise<RunTotals
 // --- Carbon API ---
 
 export async function fetchCarbonConfig(projectId: number): Promise<CarbonConfig> {
-  const res = await fetch(buildApiUrl(`/api/project/${projectId}/carbon-config`))
-  if (!res.ok) throw new Error('Failed to fetch carbon config')
+  const res = await apiFetch(buildApiUrl(`/api/project/${projectId}/carbon-config`))
+  if (!res.ok) throw new Error(`Failed to fetch carbon config: ${res.status}`)
   return res.json()
 }
 
 export async function updateCarbonConfig(projectId: number, payload: CarbonConfigUpdate): Promise<CarbonConfig> {
-  const res = await fetch(buildApiUrl(`/api/project/${projectId}/carbon-config`), {
+  const res = await apiFetch(buildApiUrl(`/api/project/${projectId}/carbon-config`), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })
-  if (!res.ok) throw new Error('Failed to update carbon config')
+  if (!res.ok) throw new Error(`Failed to update carbon config: ${res.status}`)
   return res.json()
 }
 
 export async function refreshCarbonIntensity(projectId: number): Promise<CarbonConfig> {
-  const res = await fetch(buildApiUrl(`/api/project/${projectId}/carbon-config/refresh`), {
+  const res = await apiFetch(buildApiUrl(`/api/project/${projectId}/carbon-config/refresh`), {
     method: 'POST',
   })
-  if (!res.ok) throw new Error('Failed to refresh carbon intensity')
+  if (!res.ok) throw new Error(`Failed to refresh carbon intensity: ${res.status}`)
   return res.json()
 }
 
 export async function fetchCarbonRegions(): Promise<CarbonRegion[]> {
-  const res = await fetch(buildApiUrl('/api/carbon-regions'))
-  if (!res.ok) throw new Error('Failed to fetch carbon regions')
+  const res = await apiFetch(buildApiUrl('/api/carbon-regions'))
+  if (!res.ok) throw new Error(`Failed to fetch carbon regions: ${res.status}`)
   return res.json()
 }
 
@@ -337,6 +344,7 @@ async function mapRunSummary(backendRun: BackendRun): Promise<RunSummary> {
 
   return {
     id: backendRun.id.toString(),
+    projectId: backendRun.project_id.toString(),
     name: backendRun.name,
     timestamp: snapshot.timestamp,
     status: normalizeRunStatus(backendRun.status),
@@ -367,6 +375,7 @@ async function mapRun(backendRun: BackendRun): Promise<Run> {
 
   return {
     id: backendRun.id.toString(),
+    projectId: backendRun.project_id.toString(),
     name: backendRun.name,
     timestamp: snapshot.timestamp,
     status: normalizeRunStatus(backendRun.status),
@@ -463,7 +472,7 @@ export async function createProject(
   workspaceId: number,
   config: { intensity?: number; cost?: number; currency?: string; address?: string; use_api_for_cost?: boolean }
 ): Promise<BackendProject> {
-  const res = await fetch(buildApiUrl('/api/projects'), {
+  const res = await apiFetch(buildApiUrl('/api/projects'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, workspace_id: workspaceId, ...config }),
@@ -480,14 +489,14 @@ export async function createProject(
  */
 export async function fetchAllProjects(): Promise<ProjectSummary[]> {
   try {
-    const projectsRes = await fetch(buildApiUrl('/api/projects'))
+    const projectsRes = await apiFetch(buildApiUrl('/api/projects'))
     if (projectsRes.status === 404) return []
-    if (!projectsRes.ok) throw new Error('Failed to fetch projects')
+    if (!projectsRes.ok) throw new Error(`Failed to fetch projects: ${projectsRes.status}`)
     const projects: BackendProject[] = await projectsRes.json()
 
     const projectSummaries = await Promise.all(
       projects.map(async (project) => {
-        const runsRes = await fetch(buildApiUrl(`/api/project/${project.id}/runs`))
+        const runsRes = await apiFetch(buildApiUrl(`/api/project/${project.id}/runs`))
 
         if (!runsRes.ok) {
           return {
@@ -527,15 +536,15 @@ export async function fetchAllProjects(): Promise<ProjectSummary[]> {
  */
 export async function fetchProjectRuns(projectId: string): Promise<ProjectDetail> {
   try {
-    const projectsRes = await fetch(buildApiUrl('/api/projects'))
+    const projectsRes = await apiFetch(buildApiUrl('/api/projects'))
     if (projectsRes.status === 404) throw new Error(`Project ${projectId} not found`)
-    if (!projectsRes.ok) throw new Error('Failed to fetch projects')
+    if (!projectsRes.ok) throw new Error(`Failed to fetch projects: ${projectsRes.status}`)
     const projects: BackendProject[] = await projectsRes.json()
 
     const project = projects.find(p => p.id.toString() === projectId)
     if (!project) throw new Error(`Project ${projectId} not found`)
 
-    const runsRes = await fetch(buildApiUrl(`/api/project/${project.id}/runs`))
+    const runsRes = await apiFetch(buildApiUrl(`/api/project/${project.id}/runs`))
     let runSummaries: RunSummary[] = []
 
     if (runsRes.ok) {
@@ -582,14 +591,14 @@ export async function fetchProjectRuns(projectId: string): Promise<ProjectDetail
  */
 export async function fetchAllRuns(): Promise<RunSummary[]> {
   try {
-    const projectsRes = await fetch(buildApiUrl('/api/projects'))
+    const projectsRes = await apiFetch(buildApiUrl('/api/projects'))
     if (projectsRes.status === 404) return []
-    if (!projectsRes.ok) throw new Error('Failed to fetch projects')
+    if (!projectsRes.ok) throw new Error(`Failed to fetch projects: ${projectsRes.status}`)
     const projects: BackendProject[] = await projectsRes.json()
 
     const projectRunsArrays = await Promise.all(
       projects.map(async (project) => {
-        const runsRes = await fetch(buildApiUrl(`/api/project/${project.id}/runs`))
+        const runsRes = await apiFetch(buildApiUrl(`/api/project/${project.id}/runs`))
         if (!runsRes.ok) return []
         const backendRuns: BackendRun[] = await runsRes.json()
         return Promise.all(backendRuns.map(mapRunSummary))
@@ -608,9 +617,9 @@ export async function fetchAllRuns(): Promise<RunSummary[]> {
 export async function fetchRunDetail(id: string): Promise<RunDetail> {
   try {
     const [runRes, summaryRes, recordsRes] = await Promise.all([
-      fetch(buildApiUrl(`/api/run/${id}`)),
-      fetch(buildApiUrl(`/api/run/${id}/summary`)),
-      fetch(buildApiUrl(`/api/run/${id}/record_points`)),
+      apiFetch(buildApiUrl(`/api/run/${id}`)),
+      apiFetch(buildApiUrl(`/api/run/${id}/summary`)),
+      apiFetch(buildApiUrl(`/api/run/${id}/record_points`)),
     ])
 
     if (!runRes.ok) throw new Error(`Run ${id} not found`)
@@ -653,6 +662,7 @@ export async function fetchRunDetail(id: string): Promise<RunDetail> {
 
     return {
       id,
+      projectId: backendRun.project_id.toString(),
       name: backendRun.name,
       timestamp,
       status: normalizeRunStatus(backendRun.status),
@@ -747,8 +757,8 @@ function mapAdminRun(run: BackendAdminRun): AdminRunInfo {
 }
 
 export async function fetchAdminProjects(): Promise<AdminProjectMonitor[]> {
-  const response = await fetch(buildApiUrl('/api/admin/projects'))
-  if (!response.ok) throw new Error('Failed to fetch admin project monitor data')
+  const response = await apiFetch(buildApiUrl('/api/admin/projects'))
+  if (!response.ok) throw new Error(`Failed to fetch admin project monitor data: ${response.status}`)
 
   const projects: BackendAdminProject[] = await response.json()
   return projects.map((project) => ({

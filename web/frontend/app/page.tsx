@@ -1,45 +1,24 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { FolderPlus, Loader2, ArrowRight } from 'lucide-react'
-
-interface Workspace {
-  id: number
-  name: string
-  slug: string
-  role: string
-}
+import { useWorkspace } from '@/components/WorkspaceProvider'
 
 export default function RootPage() {
   const router = useRouter()
-  const [loading, setLoading] = useState(true)
+  const { workspaces, loading, refresh } = useWorkspace()
   const [creating, setCreating] = useState(false)
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   
   const [name, setName] = useState('')
   const [slug, setSlug] = useState('')
 
   useEffect(() => {
-    fetch('/api/workspaces')
-      .then(res => {
-        if (!res.ok) throw new Error('Failed to fetch')
-        return res.json()
-      })
-      .then((data: Workspace[]) => {
-        if (data.length > 0) {
-          // Redirect to the first available workspace
-          router.push(`/${data[0].slug}`)
-        } else {
-          setWorkspaces([])
-          setLoading(false)
-        }
-      })
-      .catch(() => {
-        // Assume unauthenticated or error, middleware handles unauth mostly
-        router.push('/login')
-      })
-  }, [router])
+    if (!loading && workspaces.length > 0) {
+      // Redirect to the first available workspace
+      router.push(`/${workspaces[0].slug}`)
+    }
+  }, [loading, workspaces, router])
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -50,12 +29,17 @@ export default function RootPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, slug }),
+        credentials: 'include'
       })
 
       if (res.ok) {
+        // Refresh the global workspace context before navigating
+        await refresh()
         router.push(`/${slug}`)
       } else if (res.status === 409) {
         alert('Failed to create workspace. Slug might be taken.')
+      } else if (res.status === 401) {
+        router.push('/login')
       } else {
         const errorData = await res.json().catch(() => ({}))
         alert(`Failed to create workspace: ${errorData.message || 'Server error'}`)

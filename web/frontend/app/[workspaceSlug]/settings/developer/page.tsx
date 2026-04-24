@@ -27,7 +27,7 @@ export default function DeveloperSettingsPage() {
 
   const fetchKeys = async () => {
     try {
-      const res = await fetch('/api/auth/api-keys')
+      const res = await fetch('/api/auth/api-keys', { credentials: 'include' })
       if (res.ok) {
         setKeys(await res.json())
       }
@@ -47,7 +47,8 @@ export default function DeveloperSettingsPage() {
         body: JSON.stringify({ 
           name: keyName,
           workspace_id: currentWorkspace?.id 
-        })
+        }),
+        credentials: 'include'
       })
       if (res.ok) {
         const data = await res.json()
@@ -64,7 +65,10 @@ export default function DeveloperSettingsPage() {
     if (!confirm('Are you sure you want to revoke this key?')) return
     
     try {
-      const res = await fetch(`/api/auth/api-keys/${id}`, { method: 'DELETE' })
+      const res = await fetch(`/api/auth/api-keys/${id}`, { 
+        method: 'DELETE',
+        credentials: 'include'
+      })
       if (res.ok) {
         await fetchKeys()
       }

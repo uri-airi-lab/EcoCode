@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { MetricRecord } from '@/lib/mock-data'
-import { buildApiUrl } from '@/lib/data-source'
+import { buildAbsoluteApiUrl } from '@/lib/data-source'
 
 export function useSSE() {
     const [latestRecord, setLatestRecord] = useState<MetricRecord | null>(null)
@@ -10,7 +10,7 @@ export function useSSE() {
 
     useEffect(() => {
         setLatestRecord(null)
-        const eventSource = new EventSource(buildApiUrl('/api/sse'))
+        const eventSource = new EventSource(buildAbsoluteApiUrl('/api/sse'))
 
         eventSource.onmessage = (event) => {
             try {

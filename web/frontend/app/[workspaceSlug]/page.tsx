@@ -90,7 +90,7 @@ export default function Dashboard() {
         if (cancelled) return
         
         const filteredRuns = currentWorkspace
-            ? runsData.filter(r => filteredProjects.some(p => p.id === r.project_id.toString()))
+            ? runsData.filter(r => filteredProjects.some(p => p.id === r.projectId))
             : runsData
         setRuns(filteredRuns)
 
