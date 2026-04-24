@@ -1,100 +1,115 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import {
   History,
   Leaf,
   Folder,
   Shield,
-  LayoutDashboard
+  LayoutDashboard,
+  Users,
+  ChevronDown,
+  Plus
 } from 'lucide-react'
-import { useDataSource } from './DataSourceProvider'
-
-const navItems = [
-  { href: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/admin', label: 'Admin', icon: Shield },
-  { href: '/projects', label: 'Projects', icon: Folder },
-  { href: '/runs', label: 'Run History', icon: History },
-
-]
+import { useWorkspace } from './WorkspaceProvider'
 
 export function Sidebar() {
   const pathname = usePathname()
-  const { source, setSource, availableSources, loadingSources } = useDataSource()
+  const router = useRouter()
+  const { workspaces, currentWorkspace, dropdownOpen, setDropdownOpen } = useWorkspace()
+
+  const workspaceSlug = currentWorkspace?.slug ?? pathname.split('/').filter(Boolean)[0] ?? ''
+
+  const navItems = [
+    { href: `/${workspaceSlug}`, label: 'Dashboard', icon: LayoutDashboard, exact: true },
+    { href: `/${workspaceSlug}/projects`, label: 'Projects', icon: Folder },
+    { href: `/${workspaceSlug}/runs`, label: 'Run History', icon: History },
+    { href: `/${workspaceSlug}/settings/developer`, label: 'Developer API', icon: Shield },
+    { href: `/${workspaceSlug}/settings/members`, label: 'Members', icon: Users },
+  ]
 
   return (
     <aside className="sidebar-glass h-screen w-64 fixed left-0 top-0 flex flex-col lg:relative lg:w-64 z-50">
-      {/* Header */}
-      <div className="p-6">
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded bg-primary">
-            <Leaf className="w-5 h-5 text-black" />
+      {/* Header / Workspace Switcher */}
+      <div className="p-4 border-b border-border relative">
+        <div
+          className="flex items-center justify-between p-2 rounded-lg hover:bg-neutral-800/50 cursor-pointer transition-colors"
+          onClick={() => setDropdownOpen(!dropdownOpen)}
+        >
+          <div className="flex items-center gap-3 overflow-hidden">
+            <div className="p-1.5 rounded-md bg-gradient-to-br from-emerald-400 to-emerald-600 flex-shrink-0">
+              <Leaf className="w-4 h-4 text-white" />
+            </div>
+            <div className="truncate">
+              <h1 className="font-semibold text-sm text-foreground truncate">
+                {currentWorkspace ? currentWorkspace.name : 'Loading...'}
+              </h1>
+              <p className="text-[10px] uppercase tracking-widest text-emerald-400 font-medium">Workspace</p>
+            </div>
           </div>
-          <div>
-            <h1 className="font-bold text-lg text-foreground tracking-tight">EcoCode</h1>
-            <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60">Energy Monitor</p>
-          </div>
+          <ChevronDown className={`w-4 h-4 text-neutral-400 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
         </div>
-      </div>
 
-      <div className="px-4 py-4">
-        <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground/50 font-semibold mb-3 px-2">
-          Data Source
-        </p>
-        <div className="grid grid-cols-2 gap-2 px-2">
-          {(['local', 'online'] as const).map((candidate) => {
-            const available = availableSources.includes(candidate)
-            const active = source === candidate
-
-            return (
+        {dropdownOpen && (
+          <div className="absolute top-[100%] left-4 right-4 mt-2 bg-neutral-900 border border-neutral-800 rounded-xl shadow-xl overflow-hidden z-50">
+            <div className="p-2 space-y-1">
+              <p className="px-2 py-1 text-[10px] uppercase tracking-wider text-neutral-500 font-semibold">Your Workspaces</p>
+              {workspaces.map(ws => (
+                <button
+                  key={ws.id}
+                  onClick={() => {
+                    setDropdownOpen(false)
+                    router.push(`/${ws.slug}`)
+                  }}
+                  className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${ws.slug === workspaceSlug ? 'bg-emerald-500/10 text-emerald-400 font-medium' : 'text-neutral-300 hover:bg-neutral-800'}`}
+                >
+                  {ws.name}
+                </button>
+              ))}
+              <div className="h-px bg-neutral-800 my-1" />
               <button
-                key={candidate}
-                type="button"
-                onClick={() => setSource(candidate)}
-                disabled={loadingSources || !available}
-                className={`rounded border px-3 py-1.5 text-xs font-medium transition-all ${
-                  active
-                    ? 'border-primary bg-primary text-black'
-                    : available
-                      ? 'border-border bg-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30'
-                      : 'border-border/30 bg-transparent text-muted-foreground/30 cursor-not-allowed'
-                }`}
+                onClick={() => {
+                  setDropdownOpen(false)
+                  router.push('/')
+                }}
+                className="w-full text-left px-3 py-2 rounded-lg text-sm text-neutral-300 hover:bg-neutral-800 flex items-center"
               >
-                {candidate === 'local' ? 'Local' : 'Online'}
+                <Plus className="w-4 h-4 mr-2" />
+                Create Workspace
               </button>
-            )
-          })}
-        </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 p-4 space-y-1">
+      <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
         <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground/50 font-semibold mb-3 px-2">
-          Project
+          Menu
         </p>
-        {navItems.map(({ href, label, icon: Icon }) => {
-          const isActive = pathname === href
+        {navItems.map(({ href, label, icon: Icon, exact }) => {
+          const isActive = exact ? pathname === href : pathname.startsWith(href)
           return (
             <Link
               key={href}
               href={href}
-              className={`flex items-center gap-3 px-3 py-2 rounded transition-all duration-200 ${isActive
-                  ? 'bg-muted text-primary'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 ${isActive
+                  ? 'bg-emerald-500/10 text-emerald-400 font-medium border border-emerald-500/20'
+                  : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/50 border border-transparent'
                 }`}
             >
-              <Icon className={`w-4 h-4 ${isActive ? 'text-primary' : ''}`} />
-              <span className="text-sm font-medium">{label}</span>
+              <Icon className={`w-4 h-4 ${isActive ? 'text-emerald-400' : ''}`} />
+              <span className="text-sm">{label}</span>
             </Link>
           )
         })}
       </nav>
 
       {/* Footer */}
-      <div className="p-6 border-t border-border space-y-1 text-[10px] text-muted-foreground/60 uppercase tracking-wider font-medium">
-        <p>Dashboard v0.1</p>
-        <p>Real-time energy monitoring</p>
+      <div className="p-6 border-t border-border space-y-1 text-[10px] text-muted-foreground/60 uppercase tracking-wider font-medium bg-neutral-950/30">
+        <p>EcoCode Platform v1.0</p>
+        <p>Sustainable Engineering</p>
       </div>
     </aside>
   )

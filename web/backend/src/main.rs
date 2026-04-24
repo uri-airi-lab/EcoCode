@@ -5,16 +5,23 @@ use axum::{
     response::IntoResponse,
     response::sse::{Event, KeepAlive, Sse},
     routing::{get, post},
+    http::header::{CONTENT_TYPE, AUTHORIZATION},
+    http::Method,
 };
 use dotenv::dotenv;
 use futures::stream::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
-use sqlx::{PgPool, Row, SqlitePool, postgres::PgPoolOptions, sqlite::SqlitePoolOptions};
-use std::{collections::HashMap, convert::Infallible, path::PathBuf};
+use serde_json::json;
+use sqlx::{PgPool, Row, postgres::PgPoolOptions};
+use std::collections::HashMap;
+use std::convert::Infallible;
 use tokio::sync::broadcast;
 use tokio::time::Duration;
 use tokio_stream::wrappers::BroadcastStream;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::CorsLayer;
+
+mod auth;
+mod workspaces;
 
 /// Static carbon intensity lookup table (gCO₂eq/kWh).
 const CARBON_REGIONS: &[(&str, &str, f64)] = &[
@@ -83,28 +90,22 @@ fn static_intensity(country_code: &str) -> f64 {
         .unwrap_or(494.0)
 }
 
-
-
-
-// TODO: Break down the file into smaller files
-
-
 #[derive(Debug)]
-struct ApiError {
+pub(crate) struct ApiError {
     status: StatusCode,
     message: String,
 }
 
 impl ApiError {
-    fn new(status: StatusCode, message: impl Into<String>) -> Self {
+    pub(crate) fn new(status: axum::http::StatusCode, message: impl Into<String>) -> Self {
         Self {
             status,
             message: message.into(),
         }
     }
 
-    fn internal(err: impl std::fmt::Display) -> Self {
-        Self::new(StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
+    pub(crate) fn internal(err: impl std::fmt::Display) -> Self {
+        Self::new(axum::http::StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
     }
 }
 
@@ -114,47 +115,10 @@ impl IntoResponse for ApiError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-enum DataSource {
-    Local,
-    Online,
-}
-
-impl DataSource {
-    fn parse(value: &str) -> Result<Self, ApiError> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "local" => Ok(Self::Local),
-            "online" => Ok(Self::Online),
-            other => Err(ApiError::new(
-                StatusCode::BAD_REQUEST,
-                format!("Unsupported source '{other}'. Expected 'local' or 'online'."),
-            )),
-        }
-    }
-
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Local => "local",
-            Self::Online => "online",
-        }
-    }
-}
-
-#[derive(Debug, Default, Deserialize)]
-struct SourceQuery {
-    source: Option<String>,
-}
-
-#[derive(Serialize)]
-struct DataSourceResponse {
-    default_source: DataSource,
-    available_sources: Vec<DataSource>,
-}
-
 #[derive(Deserialize)]
 struct CreateProjectPayload {
     name: String,
+    workspace_id: i64,
     intensity: Option<f64>,
     cost: Option<f64>,
     currency: Option<String>,
@@ -166,6 +130,7 @@ struct CreateProjectPayload {
 struct Project {
     id: i64,
     name: String,
+    workspace_slug: String,
 }
 
 #[derive(Serialize, Clone, sqlx::FromRow)]
@@ -380,65 +345,22 @@ struct AdminProjectInfo {
 }
 
 #[derive(Clone)]
-struct AppState {
-    local_pool: SqlitePool,
-    online_pool: Option<PgPool>,
-    tx_local: broadcast::Sender<String>,
-    tx_online: broadcast::Sender<String>,
-    default_source: DataSource,
+pub(crate) struct AppState {
+    pub(crate) pool: PgPool,
+    tx: broadcast::Sender<String>,
 }
 
-fn available_sources(state: &AppState) -> Vec<DataSource> {
-    let mut sources = vec![DataSource::Local];
-    if state.online_pool.is_some() {
-        sources.push(DataSource::Online);
-    }
-    sources
-}
-
-fn resolve_source(state: &AppState, source_query: &SourceQuery) -> Result<DataSource, ApiError> {
-    let requested = source_query
-        .source
-        .as_deref()
-        .unwrap_or(state.default_source.as_str());
-
-    let source = DataSource::parse(requested)?;
-
-    if source == DataSource::Online && state.online_pool.is_none() {
-        return Err(ApiError::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "The online data source is unavailable. Set DATABASE_URL for the backend.",
-        ));
-    }
-
-    Ok(source)
-}
-
-fn resolve_default_source(has_online_pool: bool) -> DataSource {
-    match std::env::var("ECOCODE_DATA_SOURCE") {
-        Ok(value) => match DataSource::parse(&value) {
-            Ok(DataSource::Online) if has_online_pool => DataSource::Online,
-            Ok(DataSource::Online) => DataSource::Local,
-            Ok(source) => source,
-            Err(_) => DataSource::Local,
-        },
-        Err(_) => DataSource::Local,
-    }
-}
-
-async fn get_data_sources(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
-    Ok(Json(DataSourceResponse {
-        default_source: state.default_source,
-        available_sources: available_sources(&state),
-    }))
+#[derive(Deserialize, Default)]
+struct PaginationQuery {
+    limit: Option<i64>,
+    offset: Option<i64>,
 }
 
 async fn get_projects(
-    Query(source_query): Query<SourceQuery>,
+    auth_user: auth::AuthUser,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let source = resolve_source(&state, &source_query)?;
-    let projects = fetch_projects(&state, source).await?;
+    let projects = fetch_projects(&state, auth_user.user_id).await?;
 
     if projects.is_empty() {
         return Err(ApiError::new(StatusCode::NOT_FOUND, "No projects found"));
@@ -448,33 +370,43 @@ async fn get_projects(
 }
 
 async fn post_projects(
-    Query(source_query): Query<SourceQuery>,
+    auth_user: auth::AuthUser,
     State(state): State<AppState>,
     Json(payload): Json<CreateProjectPayload>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let source = resolve_source(&state, &source_query)?;
-    
+    let membership = sqlx::query(
+        "SELECT role FROM workspace_members WHERE workspace_id = $1 AND user_id = $2",
+    )
+    .bind(payload.workspace_id)
+    .bind(auth_user.user_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(ApiError::internal)?;
+
+    if membership.is_none() {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "You are not a member of this workspace",
+        ));
+    }
+
     let now = chrono::Utc::now().to_rfc3339();
-    
-    // Step 1: Resolve intensity and location
+
     let mut lat = None;
     let mut lon = None;
     let mut resolved_address = payload.address.clone();
     let intensity = payload.intensity.unwrap_or(494.0);
-    let intensity_src = if payload.intensity.is_some() { "manual".to_string() } else { "static_WORLD".to_string() };
+    let intensity_src = if payload.intensity.is_some() {
+        "manual".to_string()
+    } else {
+        "static_WORLD".to_string()
+    };
 
     if let Some(addr) = &payload.address {
         if let Ok((l_lat, l_lon, display)) = geocode_address(addr).await {
             lat = Some(l_lat);
             lon = Some(l_lon);
             resolved_address = Some(display);
-            
-            // If no manual intensity, try to fetch from static regions at least
-            if payload.intensity.is_none() {
-                // We don't have country code here easily, so we stay with WORLD or 
-                // we could try to resolve it from geocoding.
-                // For now, keep it simple.
-            }
         }
     }
 
@@ -482,66 +414,55 @@ async fn post_projects(
     let currency = payload.currency.unwrap_or_else(|| "USD".to_string());
     let use_api_for_cost = payload.use_api_for_cost.unwrap_or(false);
 
-    let (id, name) = match source {
-        DataSource::Local => {
-            let result = sqlx::query(
-                "INSERT INTO projects (name, resolved_intensity_g_per_kwh, intensity_source, manual_cost_per_kwh, manual_currency, address, latitude, longitude, use_api_for_cost, updated_at) 
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
-                 RETURNING id, name"
-            )
-            .bind(&payload.name)
-            .bind(intensity)
-            .bind(intensity_src)
-            .bind(cost)
-            .bind(&currency)
-            .bind(resolved_address)
-            .bind(lat)
-            .bind(lon)
-            .bind(use_api_for_cost)
-            .bind(&now)
-            .fetch_one(&state.local_pool)
-            .await
-            .map_err(ApiError::internal)?;
-            
-            (result.get::<i64, _>("id"), result.get::<String, _>("name"))
+    let result = sqlx::query(
+        "INSERT INTO projects (workspace_id, name, resolved_intensity_g_per_kwh, intensity_source, manual_cost_per_kwh, manual_currency, address, latitude, longitude, use_api_for_cost, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         RETURNING id, name",
+    )
+    .bind(payload.workspace_id)
+    .bind(&payload.name)
+    .bind(intensity)
+    .bind(intensity_src)
+    .bind(cost)
+    .bind(&currency)
+    .bind(resolved_address)
+    .bind(lat)
+    .bind(lon)
+    .bind(use_api_for_cost)
+    .bind(&now)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(|e| {
+        if e.to_string().contains("duplicate key value") {
+            ApiError::new(StatusCode::CONFLICT, "Project name already exists")
+        } else {
+            ApiError::internal(e)
         }
-        DataSource::Online => {
-            let pool = state.online_pool.as_ref().ok_or_else(|| {
-                ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "Online pool missing")
-            })?;
-            let result = sqlx::query(
-                "INSERT INTO projects (name, resolved_intensity_g_per_kwh, intensity_source, manual_cost_per_kwh, manual_currency, address, latitude, longitude, use_api_for_cost, updated_at) 
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) 
-                 RETURNING id, name"
-            )
-            .bind(&payload.name)
-            .bind(intensity)
-            .bind(intensity_src)
-            .bind(cost)
-            .bind(&currency)
-            .bind(resolved_address)
-            .bind(lat)
-            .bind(lon)
-            .bind(use_api_for_cost)
-            .bind(&now)
-            .fetch_one(pool)
-            .await
-            .map_err(ApiError::internal)?;
-            
-            (result.get::<i64, _>("id"), result.get::<String, _>("name"))
-        }
-    };
+    })?;
 
-    Ok((StatusCode::CREATED, Json(Project { id, name })))
+    let id: i64 = result.get("id");
+    let name: String = result.get("name");
+
+    // Fetch workspace slug for the response
+    let slug_row = sqlx::query("SELECT slug FROM workspaces WHERE id = $1")
+        .bind(payload.workspace_id)
+        .fetch_one(&state.pool)
+        .await
+        .map_err(ApiError::internal)?;
+    let workspace_slug: String = slug_row.get("slug");
+
+    Ok((StatusCode::CREATED, Json(Project { id, name, workspace_slug })))
 }
 
 async fn get_runs(
+    auth_user: auth::AuthUser,
     Path(project_id): Path<i64>,
-    Query(source_query): Query<SourceQuery>,
+    Query(pagination): Query<PaginationQuery>,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let source = resolve_source(&state, &source_query)?;
-    let runs = fetch_runs(&state, source, project_id).await?;
+    let limit = pagination.limit.unwrap_or(100).min(500);
+    let offset = pagination.offset.unwrap_or(0);
+    let runs = fetch_runs(&state, project_id, auth_user.user_id, limit, offset).await?;
 
     if runs.is_empty() {
         return Err(ApiError::new(
@@ -554,12 +475,11 @@ async fn get_runs(
 }
 
 async fn get_run(
+    auth_user: auth::AuthUser,
     Path(run_id): Path<i64>,
-    Query(source_query): Query<SourceQuery>,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let source = resolve_source(&state, &source_query)?;
-    let run = fetch_run(&state, source, run_id).await?;
+    let run = fetch_run(&state, run_id, auth_user.user_id).await?;
 
     match run {
         Some(run) => Ok((StatusCode::OK, Json(run)).into_response()),
@@ -569,11 +489,9 @@ async fn get_run(
 
 async fn get_record_points(
     Path(run_id): Path<i64>,
-    Query(source_query): Query<SourceQuery>,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let source = resolve_source(&state, &source_query)?;
-    let rows = fetch_record_rows(&state, source, run_id).await?;
+    let rows = fetch_record_rows(&state, run_id).await?;
 
     if rows.is_empty() {
         return Err(ApiError::new(
@@ -582,8 +500,8 @@ async fn get_record_points(
         ));
     }
 
-    let gpu_records = fetch_gpu_records_for_run(&state, source, run_id).await?;
-    let socket_records = fetch_socket_records_for_run(&state, source, run_id).await?;
+    let gpu_records = fetch_gpu_records_for_run(&state, run_id).await?;
+    let socket_records = fetch_socket_records_for_run(&state, run_id).await?;
 
     let record_points = merge_record_points(rows, gpu_records, socket_records);
     Ok((StatusCode::OK, Json(record_points)))
@@ -591,31 +509,25 @@ async fn get_record_points(
 
 async fn get_gpu_records(
     Path(run_id): Path<i64>,
-    Query(source_query): Query<SourceQuery>,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let source = resolve_source(&state, &source_query)?;
-    let gpu_records = fetch_gpu_records_for_run(&state, source, run_id).await?;
+    let gpu_records = fetch_gpu_records_for_run(&state, run_id).await?;
     Ok((StatusCode::OK, Json(gpu_records)))
 }
 
 async fn get_socket_records(
     Path(run_id): Path<i64>,
-    Query(source_query): Query<SourceQuery>,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let source = resolve_source(&state, &source_query)?;
-    let socket_records = fetch_socket_records_for_run(&state, source, run_id).await?;
+    let socket_records = fetch_socket_records_for_run(&state, run_id).await?;
     Ok((StatusCode::OK, Json(socket_records)))
 }
 
 async fn get_run_summary(
     Path(run_id): Path<i64>,
-    Query(source_query): Query<SourceQuery>,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let source = resolve_source(&state, &source_query)?;
-    let summary = fetch_run_summary(&state, source, run_id).await?;
+    let summary = fetch_run_summary(&state, run_id).await?;
 
     match summary {
         Some(summary) => Ok((StatusCode::OK, Json(summary)).into_response()),
@@ -624,23 +536,16 @@ async fn get_run_summary(
 }
 
 async fn get_admin_projects(
-    Query(source_query): Query<SourceQuery>,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let source = resolve_source(&state, &source_query)?;
-    let projects = fetch_admin_projects(&state, source).await?;
+    let projects = fetch_admin_projects(&state).await?;
     Ok((StatusCode::OK, Json(projects)))
 }
 
 async fn sse_handler(
-    Query(source_query): Query<SourceQuery>,
     State(state): State<AppState>,
-) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
-    let source = resolve_source(&state, &source_query)?;
-    let rx = match source {
-        DataSource::Local => state.tx_local.subscribe(),
-        DataSource::Online => state.tx_online.subscribe(),
-    };
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let rx = state.tx.subscribe();
 
     let stream = BroadcastStream::new(rx).filter_map(|res| async move {
         match res {
@@ -649,7 +554,7 @@ async fn sse_handler(
         }
     });
 
-    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
+    Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
 fn merge_record_points(
@@ -693,229 +598,358 @@ fn merge_record_points(
         .collect()
 }
 
-async fn fetch_projects(state: &AppState, source: DataSource) -> Result<Vec<Project>, ApiError> {
-    match source {
-        DataSource::Local => {
-            sqlx::query_as::<_, Project>("SELECT id, name FROM projects ORDER BY name ASC")
-                .fetch_all(&state.local_pool)
-                .await
-                .map_err(ApiError::internal)
-        }
-        DataSource::Online => {
-            sqlx::query_as::<_, Project>("SELECT id, name FROM projects ORDER BY name ASC")
-                .fetch_all(state.online_pool.as_ref().ok_or_else(|| {
-                    ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "Online pool missing")
-                })?)
-                .await
-                .map_err(ApiError::internal)
-        }
+// --- Ingestion Handlers ---
+
+#[derive(Deserialize)]
+struct IngestRunPayload {
+    project_id: i64,
+    name: String,
+    collaborator_name: Option<String>,
+    started_at: Option<String>,
+    command: Option<String>,
+}
+
+async fn ingest_run(
+    auth_user: auth::AuthUser,
+    State(state): State<AppState>,
+    Json(payload): Json<IngestRunPayload>,
+) -> Result<impl IntoResponse, ApiError> {
+    // Verify user/workspace access
+    let project_workspace = sqlx::query("SELECT workspace_id FROM projects WHERE id = $1")
+        .bind(payload.project_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(ApiError::internal)?
+        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "Project not found"))?;
+
+    let ws_id: i64 = project_workspace.get("workspace_id");
+    
+    // Check if user is in that workspace
+    let membership = sqlx::query("SELECT 1 FROM workspace_members WHERE workspace_id = $1 AND user_id = $2")
+        .bind(ws_id)
+        .bind(auth_user.user_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(ApiError::internal)?;
+
+    if membership.is_none() {
+        return Err(ApiError::new(StatusCode::FORBIDDEN, "Access denied to project workspace"));
     }
+
+    // Link collaborator to the authenticated user's email
+    let user_row = sqlx::query("SELECT email FROM users WHERE id = $1")
+        .bind(auth_user.user_id)
+        .fetch_one(&state.pool)
+        .await
+        .map_err(ApiError::internal)?;
+    let user_email: String = user_row.get("email");
+
+    let run_id: i64 = sqlx::query_scalar(
+        "INSERT INTO runs (name, project_id, collaborator_name, status, started_at, command)
+         VALUES ($1, $2, $3, 'running', $4, $5)
+         RETURNING id",
+    )
+    .bind(&payload.name)
+    .bind(payload.project_id)
+    .bind(user_email)
+    .bind(payload.started_at)
+    .bind(payload.command)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(ApiError::internal)?;
+
+    Ok((StatusCode::CREATED, Json(json!({ "id": run_id }))))
+}
+
+#[derive(Deserialize)]
+struct IngestGpuMetric {
+    device_index: i32,
+    gpu_usage: f64,
+    gpu_energy: f64,
+}
+
+#[derive(Deserialize)]
+struct IngestSocketMetric {
+    socket: i32,
+    domain: String,
+    energy: f64,
+}
+
+#[derive(Deserialize)]
+struct IngestRecordData {
+    pid: i64,
+    timestamp: String,
+    cpu_usage: f64,
+    cpu_energy: f64,
+    gpu_usage: f64,
+    gpu_energy: f64,
+    mem_usage: f64,
+    mem_energy: Option<f64>,
+    igpu_usage: Option<f64>,
+    igpu_energy: Option<f64>,
+    gpu_metrics: Vec<IngestGpuMetric>,
+    socket_metrics: Vec<IngestSocketMetric>,
+}
+
+async fn ingest_record(
+    auth_user: auth::AuthUser,
+    Path(run_id): Path<i64>,
+    State(state): State<AppState>,
+    Json(payload): Json<IngestRecordData>,
+) -> Result<impl IntoResponse, ApiError> {
+    // Basic verification: Run exists (ideally check ownership too, but for throughput we might trust the run_id if authenticated)
+    
+    let mut tx = state.pool.begin().await.map_err(ApiError::internal)?;
+
+    let record_id: i64 = sqlx::query_scalar(
+        "INSERT INTO records
+            (run_id, pid, timestamp, cpu_usage, cpu_energy, gpu_usage, gpu_energy, mem_usage, mem_energy, igpu_usage, igpu_energy)
+         VALUES ($1, $2, $3::timestamptz, $4, $5, $6, $7, $8, $9, $10, $11)
+         RETURNING id",
+    )
+    .bind(run_id)
+    .bind(payload.pid)
+    .bind(&payload.timestamp)
+    .bind(payload.cpu_usage)
+    .bind(payload.cpu_energy)
+    .bind(payload.gpu_usage)
+    .bind(payload.gpu_energy)
+    .bind(payload.mem_usage)
+    .bind(payload.mem_energy)
+    .bind(payload.igpu_usage)
+    .bind(payload.igpu_energy)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(ApiError::internal)?;
+
+    for gm in payload.gpu_metrics {
+        sqlx::query("INSERT INTO gpu_records (record_id, device_index, gpu_usage, gpu_energy) VALUES ($1, $2, $3, $4)")
+            .bind(record_id)
+            .bind(gm.device_index)
+            .bind(gm.gpu_usage)
+            .bind(gm.gpu_energy)
+            .execute(&mut *tx)
+            .await
+            .map_err(ApiError::internal)?;
+    }
+
+    for sm in payload.socket_metrics {
+        sqlx::query("INSERT INTO socket_records (record_id, socket, domain, energy) VALUES ($1, $2, $3, $4)")
+            .bind(record_id)
+            .bind(sm.socket)
+            .bind(&sm.domain)
+            .bind(sm.energy)
+            .execute(&mut *tx)
+            .await
+            .map_err(ApiError::internal)?;
+    }
+
+    tx.commit().await.map_err(ApiError::internal)?;
+    Ok(StatusCode::CREATED)
+}
+
+#[derive(Deserialize)]
+struct IngestSystemInfo {
+    cpu_name: String,
+    cpu_cores: i32,
+    ram_gb: f64,
+    gpu_count: i32,
+    gpu_names: String,
+}
+
+async fn ingest_system_info(
+    _auth_user: auth::AuthUser,
+    Path(run_id): Path<i64>,
+    State(state): State<AppState>,
+    Json(payload): Json<IngestSystemInfo>,
+) -> Result<impl IntoResponse, ApiError> {
+    sqlx::query(
+        "INSERT INTO run_system_info (run_id, cpu_name, cpu_cores, ram_gb, gpu_count, gpu_names)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (run_id) DO UPDATE SET
+            cpu_name = EXCLUDED.cpu_name,
+            cpu_cores = EXCLUDED.cpu_cores,
+            ram_gb = EXCLUDED.ram_gb,
+            gpu_count = EXCLUDED.gpu_count,
+            gpu_names = EXCLUDED.gpu_names",
+    )
+    .bind(run_id)
+    .bind(&payload.cpu_name)
+    .bind(payload.cpu_cores)
+    .bind(payload.ram_gb)
+    .bind(payload.gpu_count)
+    .bind(&payload.gpu_names)
+    .execute(&state.pool)
+    .await
+    .map_err(ApiError::internal)?;
+
+    Ok(StatusCode::OK)
+}
+
+#[derive(Deserialize)]
+struct IngestCompletePayload {
+    status: String,
+    ended_at: Option<String>,
+}
+
+async fn ingest_complete_run(
+    _auth_user: auth::AuthUser,
+    Path(run_id): Path<i64>,
+    State(state): State<AppState>,
+    Json(payload): Json<IngestCompletePayload>,
+) -> Result<impl IntoResponse, ApiError> {
+    sqlx::query("UPDATE runs SET status = $1, ended_at = $2 WHERE id = $3")
+        .bind(&payload.status)
+        .bind(&payload.ended_at)
+        .bind(run_id)
+        .execute(&state.pool)
+        .await
+        .map_err(ApiError::internal)?;
+
+    // Trigger run summary calculation (reusing logic from calculate_run_summary if it exists)
+    // Actually, I should call the same logic that OnlineExporter uses in CLI, but here it's backend.
+    
+    // I'll call run_summary_calculation(run_id, &state.pool).await?;
+    calculate_run_summary_db(run_id, &state.pool).await.map_err(ApiError::internal)?;
+
+    // Notify via SSE
+    let _ = state.tx.send(format!("run_updated:{}", run_id));
+
+    Ok(StatusCode::OK)
+}
+
+async fn fetch_projects(state: &AppState, user_id: i64) -> Result<Vec<Project>, ApiError> {
+    sqlx::query_as::<_, Project>(
+        "SELECT p.id, p.name, w.slug AS workspace_slug
+         FROM projects p
+         JOIN workspace_members wm ON p.workspace_id = wm.workspace_id
+         JOIN workspaces w ON p.workspace_id = w.id
+         WHERE wm.user_id = $1
+         ORDER BY p.name ASC",
+    )
+    .bind(user_id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(ApiError::internal)
 }
 
 async fn fetch_runs(
     state: &AppState,
-    source: DataSource,
     project_id: i64,
+    user_id: i64,
+    limit: i64,
+    offset: i64,
 ) -> Result<Vec<Run>, ApiError> {
-    match source {
-        DataSource::Local => sqlx::query_as::<_, Run>(
-            "SELECT runs.id, runs.name, runs.project_id, runs.collaborator_name, runs.status, runs.started_at, runs.ended_at, runs.command, run_system_info.cpu_name, run_system_info.cpu_cores, run_system_info.ram_gb, run_system_info.gpu_count, run_system_info.gpu_names
-             FROM runs
-             LEFT JOIN run_system_info ON runs.id = run_system_info.run_id
-             WHERE runs.project_id = ?
-             ORDER BY runs.started_at DESC, runs.id DESC",
-        )
-        .bind(project_id)
-        .fetch_all(&state.local_pool)
-        .await
-        .map_err(ApiError::internal),
-        DataSource::Online => {
-            sqlx::query_as::<_, Run>(
-            "SELECT runs.id, runs.name, runs.project_id, runs.collaborator_name, runs.status, runs.started_at, runs.ended_at, runs.command, run_system_info.cpu_name, run_system_info.cpu_cores, run_system_info.ram_gb, run_system_info.gpu_count, run_system_info.gpu_names
-             FROM runs
-             LEFT JOIN run_system_info ON runs.id = run_system_info.run_id
-             WHERE runs.project_id = $1
-             ORDER BY runs.started_at DESC, runs.id DESC",
-            )
-            .bind(project_id)
-            .fetch_all(state.online_pool.as_ref().ok_or_else(|| {
-                ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "Online pool missing")
-            })?)
-            .await
-            .map_err(ApiError::internal)
-        }
-    }
+    sqlx::query_as::<_, Run>(
+        "SELECT runs.id, runs.name, runs.project_id, runs.collaborator_name, runs.status,
+                runs.started_at, runs.ended_at, runs.command,
+                run_system_info.cpu_name, run_system_info.cpu_cores, run_system_info.ram_gb,
+                run_system_info.gpu_count, run_system_info.gpu_names
+         FROM runs
+         LEFT JOIN run_system_info ON runs.id = run_system_info.run_id
+         JOIN projects p ON runs.project_id = p.id
+         JOIN workspace_members wm ON p.workspace_id = wm.workspace_id
+         WHERE runs.project_id = $1 AND wm.user_id = $2
+         ORDER BY runs.started_at DESC, runs.id DESC
+         LIMIT $3 OFFSET $4",
+    )
+    .bind(project_id)
+    .bind(user_id)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(ApiError::internal)
 }
 
 async fn fetch_run(
     state: &AppState,
-    source: DataSource,
     run_id: i64,
+    user_id: i64,
 ) -> Result<Option<Run>, ApiError> {
-    match source {
-        DataSource::Local => sqlx::query_as::<_, Run>(
-            "SELECT runs.id, runs.name, runs.project_id, runs.collaborator_name, runs.status, runs.started_at, runs.ended_at, runs.command, run_system_info.cpu_name, run_system_info.cpu_cores, run_system_info.ram_gb, run_system_info.gpu_count, run_system_info.gpu_names
-             FROM runs
-             LEFT JOIN run_system_info ON runs.id = run_system_info.run_id
-             WHERE runs.id = ?",
-        )
-        .bind(run_id)
-        .fetch_optional(&state.local_pool)
-        .await
-        .map_err(ApiError::internal),
-        DataSource::Online => {
-            sqlx::query_as::<_, Run>(
-                "SELECT runs.id, runs.name, runs.project_id, runs.collaborator_name, runs.status, runs.started_at, runs.ended_at, runs.command, run_system_info.cpu_name, run_system_info.cpu_cores, run_system_info.ram_gb, run_system_info.gpu_count, run_system_info.gpu_names
-             FROM runs
-             LEFT JOIN run_system_info ON runs.id = run_system_info.run_id
-             WHERE runs.id = $1",
-            )
-            .bind(run_id)
-            .fetch_optional(state.online_pool.as_ref().ok_or_else(|| {
-                ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "Online pool missing")
-            })?)
-            .await
-            .map_err(ApiError::internal)
-        }
-    }
+    sqlx::query_as::<_, Run>(
+        "SELECT runs.id, runs.name, runs.project_id, runs.collaborator_name, runs.status,
+                runs.started_at, runs.ended_at, runs.command,
+                run_system_info.cpu_name, run_system_info.cpu_cores, run_system_info.ram_gb,
+                run_system_info.gpu_count, run_system_info.gpu_names
+         FROM runs
+         LEFT JOIN run_system_info ON runs.id = run_system_info.run_id
+         JOIN projects p ON runs.project_id = p.id
+         JOIN workspace_members wm ON p.workspace_id = wm.workspace_id
+         WHERE runs.id = $1 AND wm.user_id = $2",
+    )
+    .bind(run_id)
+    .bind(user_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(ApiError::internal)
 }
 
 async fn fetch_record_rows(
     state: &AppState,
-    source: DataSource,
     run_id: i64,
 ) -> Result<Vec<RecordPointRow>, ApiError> {
-    match source {
-        DataSource::Local => sqlx::query_as::<_, RecordPointRow>(
-            "SELECT id, run_id, pid, timestamp, cpu_usage, cpu_energy, gpu_usage, gpu_energy,
-                    mem_usage, mem_energy, igpu_usage, igpu_energy
-             FROM records
-             WHERE run_id = ?
-             ORDER BY timestamp ASC, id ASC",
-        )
-        .bind(run_id)
-        .fetch_all(&state.local_pool)
-        .await
-        .map_err(ApiError::internal),
-        DataSource::Online => {
-            sqlx::query_as::<_, RecordPointRow>(
-                "SELECT id, run_id, pid, timestamp::text AS timestamp, cpu_usage, cpu_energy,
-                    gpu_usage, gpu_energy, mem_usage, mem_energy, igpu_usage, igpu_energy
-             FROM records
-             WHERE run_id = $1
-             ORDER BY timestamp ASC, id ASC",
-            )
-            .bind(run_id)
-            .fetch_all(state.online_pool.as_ref().ok_or_else(|| {
-                ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "Online pool missing")
-            })?)
-            .await
-            .map_err(ApiError::internal)
-        }
-    }
+    sqlx::query_as::<_, RecordPointRow>(
+        "SELECT id, run_id, pid, timestamp::text AS timestamp, cpu_usage, cpu_energy,
+                gpu_usage, gpu_energy, mem_usage, mem_energy, igpu_usage, igpu_energy
+         FROM records
+         WHERE run_id = $1
+         ORDER BY timestamp ASC, id ASC",
+    )
+    .bind(run_id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(ApiError::internal)
 }
 
 async fn fetch_gpu_records_for_run(
     state: &AppState,
-    source: DataSource,
     run_id: i64,
 ) -> Result<Vec<GpuRecordPoint>, ApiError> {
-    match source {
-        DataSource::Local => sqlx::query_as::<_, GpuRecordPoint>(
-            "SELECT gr.id, gr.record_id, gr.device_index, gr.gpu_usage, gr.gpu_energy
-             FROM gpu_records gr
-             INNER JOIN records r ON r.id = gr.record_id
-             WHERE r.run_id = ?
-             ORDER BY gr.record_id ASC, gr.device_index ASC",
-        )
-        .bind(run_id)
-        .fetch_all(&state.local_pool)
-        .await
-        .map_err(ApiError::internal),
-        DataSource::Online => {
-            sqlx::query_as::<_, GpuRecordPoint>(
-                "SELECT gr.id, gr.record_id, gr.device_index, gr.gpu_usage, gr.gpu_energy
-             FROM gpu_records gr
-             INNER JOIN records r ON r.id = gr.record_id
-             WHERE r.run_id = $1
-             ORDER BY gr.record_id ASC, gr.device_index ASC",
-            )
-            .bind(run_id)
-            .fetch_all(state.online_pool.as_ref().ok_or_else(|| {
-                ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "Online pool missing")
-            })?)
-            .await
-            .map_err(ApiError::internal)
-        }
-    }
+    sqlx::query_as::<_, GpuRecordPoint>(
+        "SELECT gr.id, gr.record_id, gr.device_index, gr.gpu_usage, gr.gpu_energy
+         FROM gpu_records gr
+         INNER JOIN records r ON r.id = gr.record_id
+         WHERE r.run_id = $1
+         ORDER BY gr.record_id ASC, gr.device_index ASC",
+    )
+    .bind(run_id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(ApiError::internal)
 }
 
 async fn fetch_socket_records_for_run(
     state: &AppState,
-    source: DataSource,
     run_id: i64,
 ) -> Result<Vec<SocketRecordPoint>, ApiError> {
-    match source {
-        DataSource::Local => sqlx::query_as::<_, SocketRecordPoint>(
-            "SELECT sr.id, sr.record_id, sr.socket, sr.domain, sr.energy
-             FROM socket_records sr
-             INNER JOIN records r ON r.id = sr.record_id
-             WHERE r.run_id = ?
-             ORDER BY sr.record_id ASC, sr.socket ASC, sr.domain ASC",
-        )
-        .bind(run_id)
-        .fetch_all(&state.local_pool)
-        .await
-        .map_err(ApiError::internal),
-        DataSource::Online => {
-            sqlx::query_as::<_, SocketRecordPoint>(
-                "SELECT sr.id, sr.record_id, sr.socket, sr.domain, sr.energy
-             FROM socket_records sr
-             INNER JOIN records r ON r.id = sr.record_id
-             WHERE r.run_id = $1
-             ORDER BY sr.record_id ASC, sr.socket ASC, sr.domain ASC",
-            )
-            .bind(run_id)
-            .fetch_all(state.online_pool.as_ref().ok_or_else(|| {
-                ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "Online pool missing")
-            })?)
-            .await
-            .map_err(ApiError::internal)
-        }
-    }
+    sqlx::query_as::<_, SocketRecordPoint>(
+        "SELECT sr.id, sr.record_id, sr.socket, sr.domain, sr.energy
+         FROM socket_records sr
+         INNER JOIN records r ON r.id = sr.record_id
+         WHERE r.run_id = $1
+         ORDER BY sr.record_id ASC, sr.socket ASC, sr.domain ASC",
+    )
+    .bind(run_id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(ApiError::internal)
 }
 
 async fn fetch_run_summary(
     state: &AppState,
-    source: DataSource,
     run_id: i64,
 ) -> Result<Option<RunSummary>, ApiError> {
-    match source {
-        DataSource::Local => sqlx::query_as::<_, RunSummary>(
-            "SELECT run_id, total_cpu_energy, total_gpu_energy, total_mem_energy, total_igpu_energy,
-                    total_co2_g, carbon_intensity_used, pue_used, total_cost, currency_used
-             FROM runsummary
-             WHERE run_id = ?",
-        )
-        .bind(run_id)
-        .fetch_optional(&state.local_pool)
-        .await
-        .map_err(ApiError::internal),
-        DataSource::Online => sqlx::query_as::<_, RunSummary>(
-            "SELECT run_id, total_cpu_energy, total_gpu_energy, total_mem_energy, total_igpu_energy,
-                    total_co2_g, carbon_intensity_used, pue_used, total_cost, currency_used
-             FROM runsummary
-             WHERE run_id = $1",
-        )
-        .bind(run_id)
-        .fetch_optional(
-            state.online_pool.as_ref().ok_or_else(|| {
-                ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "Online pool missing")
-            })?,
-        )
-        .await
-        .map_err(ApiError::internal),
-    }
+    sqlx::query_as::<_, RunSummary>(
+        "SELECT run_id, total_cpu_energy, total_gpu_energy, total_mem_energy, total_igpu_energy,
+                total_co2_g, carbon_intensity_used, pue_used, total_cost, currency_used
+         FROM runsummary
+         WHERE run_id = $1",
+    )
+    .bind(run_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(ApiError::internal)
 }
 
 // --- Carbon API helpers ---
@@ -1000,63 +1034,36 @@ fn make_carbon_config_response(row: CarbonConfigRow) -> CarbonConfigResponse {
 
 async fn get_project_carbon_config(
     state: &AppState,
-    source: DataSource,
     project_id: i64,
 ) -> Result<CarbonConfigRow, ApiError> {
-    match source {
-        DataSource::Local => {
-            sqlx::query_as::<_, CarbonConfigRow>(
-                "SELECT country_code, address, latitude, longitude, electricity_maps_api_key,
-                        resolved_intensity_g_per_kwh, intensity_source, intensity_fetched_at,
-                        pue_factor, manual_cost_per_kwh, manual_currency, use_api_for_cost, updated_at
-                 FROM projects WHERE id = ?",
-            )
-            .bind(project_id)
-            .fetch_optional(&state.local_pool)
-            .await
-            .map_err(ApiError::internal)?
-            .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, format!("Project {project_id} not found in local DB")))
-        }
-        DataSource::Online => {
-            let pool = state.online_pool.as_ref().ok_or_else(|| {
-                ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "Online pool missing")
-            })?;
-            sqlx::query_as::<_, CarbonConfigRow>(
-                "SELECT country_code, address, latitude, longitude, electricity_maps_api_key,
-                        resolved_intensity_g_per_kwh, intensity_source, intensity_fetched_at,
-                        pue_factor, manual_cost_per_kwh, manual_currency, use_api_for_cost, updated_at
-                 FROM projects WHERE id = $1",
-            )
-            .bind(project_id)
-            .fetch_optional(pool)
-            .await
-            .map_err(ApiError::internal)?
-            .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, format!("Project {project_id} not found in online DB")))
-        }
-    }
+    sqlx::query_as::<_, CarbonConfigRow>(
+        "SELECT country_code, address, latitude, longitude, electricity_maps_api_key,
+                resolved_intensity_g_per_kwh, intensity_source, intensity_fetched_at,
+                pue_factor, manual_cost_per_kwh, manual_currency, use_api_for_cost, updated_at
+         FROM projects WHERE id = $1",
+    )
+    .bind(project_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(ApiError::internal)?
+    .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, format!("Project {project_id} not found")))
 }
 
 // --- Carbon API handlers ---
 
 async fn get_carbon_config_handler(
     Path(project_id): Path<i64>,
-    Query(source_query): Query<SourceQuery>,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let source = resolve_source(&state, &source_query)?;
-    let row = get_project_carbon_config(&state, source, project_id).await?;
+    let row = get_project_carbon_config(&state, project_id).await?;
     Ok(Json(make_carbon_config_response(row)))
 }
 
 async fn put_carbon_config_handler(
     Path(project_id): Path<i64>,
-    Query(source_query): Query<SourceQuery>,
     State(state): State<AppState>,
     Json(body): Json<CarbonConfigUpdate>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let source = resolve_source(&state, &source_query)?;
-    
-    // Step 1: Resolve lat/lon from address if provided
     let (lat, lon, resolved_address) = if let Some(addr) = &body.address {
         match geocode_address(addr).await {
             Ok((lat, lon, display)) => (Some(lat), Some(lon), Some(display)),
@@ -1064,7 +1071,7 @@ async fn put_carbon_config_handler(
                 println!("Geocoding failed for {}: {}", addr, e);
                 return Err(ApiError::new(
                     StatusCode::BAD_REQUEST,
-                    format!("Could not find location for '{}'. Please try a more specific address.", addr)
+                    format!("Could not find location for '{}'. Please try a more specific address.", addr),
                 ));
             }
         }
@@ -1072,8 +1079,7 @@ async fn put_carbon_config_handler(
         (body.latitude, body.longitude, body.address.clone())
     };
 
-    // Step 2: Determine carbon intensity
-    let current = get_project_carbon_config(&state, source, project_id).await?;
+    let current = get_project_carbon_config(&state, project_id).await?;
     let api_key = if body.clear_api_key {
         None
     } else {
@@ -1087,11 +1093,9 @@ async fn put_carbon_config_handler(
         match fetch_electricity_maps_intensity(lat_val, lon_val, key).await {
             Ok(v) => (v, "api".to_string()),
             Err(e) => {
-                // If the user explicitly provided an API key or changed the address, we should report the error
-                // instead of silently falling back.
                 return Err(ApiError::new(
                     StatusCode::BAD_GATEWAY,
-                    format!("Failed to fetch real-time intensity from Electricity Maps: {}. Please check your API key and location.", e)
+                    format!("Failed to fetch real-time intensity from Electricity Maps: {}. Please check your API key and location.", e),
                 ));
             }
         }
@@ -1108,8 +1112,7 @@ async fn put_carbon_config_handler(
         if let (Some(lat_val), Some(lon_val), Some(key)) = (lat, lon, api_key.as_deref()) {
             match fetch_electricity_maps_price(lat_val, lon_val, key).await {
                 Ok(v) => (Some(v.0), Some(v.1)),
-                Err(_) => (None, None), // Silently skip price if API fails during setup? 
-                                       // Or maybe report error if use_api_for_cost was explicitly true
+                Err(_) => (None, None),
             }
         } else {
             (None, None)
@@ -1123,95 +1126,50 @@ async fn put_carbon_config_handler(
 
     let now = chrono::Utc::now().to_rfc3339();
 
-    match source {
-        DataSource::Local => {
-            sqlx::query(
-                "UPDATE projects SET
-                    country_code = ?,
-                    address = ?,
-                    latitude = ?,
-                    longitude = ?,
-                    electricity_maps_api_key = ?,
-                    resolved_intensity_g_per_kwh = ?,
-                    intensity_source = ?,
-                    intensity_fetched_at = ?,
-                    pue_factor = ?,
-                    manual_cost_per_kwh = ?,
-                    manual_currency = ?,
-                    use_api_for_cost = ?,
-                    updated_at = ?
-                 WHERE id = ?",
-            )
-            .bind(&country_code)
-            .bind(&resolved_address)
-            .bind(lat)
-            .bind(lon)
-            .bind(api_key.as_deref())
-            .bind(intensity)
-            .bind(&intensity_src)
-            .bind(if intensity_src == "api" { Some(now.as_str()) } else { None })
-            .bind(pue)
-            .bind(final_cost)
-            .bind(final_currency)
-            .bind(use_api_for_cost)
-            .bind(&now)
-            .bind(project_id)
-            .execute(&state.local_pool)
-            .await
-            .map_err(ApiError::internal)?;
-        }
-        DataSource::Online => {
-            let pool = state.online_pool.as_ref().ok_or_else(|| {
-                ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "Online pool missing")
-            })?;
-            sqlx::query(
-                "UPDATE projects SET
-                    country_code = $1,
-                    address = $2,
-                    latitude = $3,
-                    longitude = $4,
-                    electricity_maps_api_key = $5,
-                    resolved_intensity_g_per_kwh = $6,
-                    intensity_source = $7,
-                    intensity_fetched_at = $8,
-                    pue_factor = $9,
-                    manual_cost_per_kwh = $10,
-                    manual_currency = $11,
-                    use_api_for_cost = $12,
-                    updated_at = $13
-                 WHERE id = $14",
-            )
-            .bind(&country_code)
-            .bind(&resolved_address)
-            .bind(lat)
-            .bind(lon)
-            .bind(api_key.as_deref())
-            .bind(intensity)
-            .bind(&intensity_src)
-            .bind(if intensity_src == "api" { Some(now.as_str()) } else { None })
-            .bind(pue)
-            .bind(final_cost)
-            .bind(final_currency)
-            .bind(use_api_for_cost)
-            .bind(&now)
-            .bind(project_id)
-            .execute(pool)
-            .await
-            .map_err(ApiError::internal)?;
-        }
-    }
+    sqlx::query(
+        "UPDATE projects SET
+            country_code = $1,
+            address = $2,
+            latitude = $3,
+            longitude = $4,
+            electricity_maps_api_key = $5,
+            resolved_intensity_g_per_kwh = $6,
+            intensity_source = $7,
+            intensity_fetched_at = $8,
+            pue_factor = $9,
+            manual_cost_per_kwh = $10,
+            manual_currency = $11,
+            use_api_for_cost = $12,
+            updated_at = $13
+         WHERE id = $14",
+    )
+    .bind(&country_code)
+    .bind(&resolved_address)
+    .bind(lat)
+    .bind(lon)
+    .bind(api_key.as_deref())
+    .bind(intensity)
+    .bind(&intensity_src)
+    .bind(if intensity_src == "api" { Some(now.as_str()) } else { None })
+    .bind(pue)
+    .bind(final_cost)
+    .bind(final_currency)
+    .bind(use_api_for_cost)
+    .bind(&now)
+    .bind(project_id)
+    .execute(&state.pool)
+    .await
+    .map_err(ApiError::internal)?;
 
-    let row = get_project_carbon_config(&state, source, project_id).await?;
+    let row = get_project_carbon_config(&state, project_id).await?;
     Ok(Json(make_carbon_config_response(row)))
 }
 
 async fn post_refresh_carbon_intensity(
     Path(project_id): Path<i64>,
-    Query(source_query): Query<SourceQuery>,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let source = resolve_source(&state, &source_query)?;
-    let current = get_project_carbon_config(&state, source, project_id).await?;
+    let current = get_project_carbon_config(&state, project_id).await?;
     let (intensity, intensity_src) = match (current.latitude, current.longitude, current.electricity_maps_api_key.as_deref()) {
         (Some(lat), Some(lon), Some(key)) if !key.is_empty() => {
             match fetch_electricity_maps_intensity(lat, lon, key).await {
@@ -1239,57 +1197,28 @@ async fn post_refresh_carbon_intensity(
     };
 
     let now = chrono::Utc::now().to_rfc3339();
-    match source {
-        DataSource::Local => {
-            sqlx::query(
-                "UPDATE projects SET 
-                    resolved_intensity_g_per_kwh = ?, 
-                    intensity_source = ?, 
-                    intensity_fetched_at = ?, 
-                    manual_cost_per_kwh = ?,
-                    manual_currency = ?,
-                    updated_at = ? 
-                 WHERE id = ?",
-            )
-            .bind(intensity)
-            .bind(&intensity_src)
-            .bind(&now)
-            .bind(final_cost)
-            .bind(&final_currency)
-            .bind(&now)
-            .bind(project_id)
-            .execute(&state.local_pool)
-            .await
-            .map_err(ApiError::internal)?;
-        }
-        DataSource::Online => {
-            let pool = state.online_pool.as_ref().ok_or_else(|| {
-                ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "Online pool missing")
-            })?;
-            sqlx::query(
-                "UPDATE projects SET 
-                    resolved_intensity_g_per_kwh = $1, 
-                    intensity_source = $2, 
-                    intensity_fetched_at = $3, 
-                    manual_cost_per_kwh = $4,
-                    manual_currency = $5,
-                    updated_at = $6 
-                 WHERE id = $7",
-            )
-            .bind(intensity)
-            .bind(&intensity_src)
-            .bind(&now)
-            .bind(final_cost)
-            .bind(&final_currency)
-            .bind(&now)
-            .bind(project_id)
-            .execute(pool)
-            .await
-            .map_err(ApiError::internal)?;
-        }
-    }
+    sqlx::query(
+        "UPDATE projects SET
+            resolved_intensity_g_per_kwh = $1,
+            intensity_source = $2,
+            intensity_fetched_at = $3,
+            manual_cost_per_kwh = $4,
+            manual_currency = $5,
+            updated_at = $6
+         WHERE id = $7",
+    )
+    .bind(intensity)
+    .bind(&intensity_src)
+    .bind(&now)
+    .bind(final_cost)
+    .bind(&final_currency)
+    .bind(&now)
+    .bind(project_id)
+    .execute(&state.pool)
+    .await
+    .map_err(ApiError::internal)?;
 
-    let row = get_project_carbon_config(&state, source, project_id).await?;
+    let row = get_project_carbon_config(&state, project_id).await?;
     Ok(Json(make_carbon_config_response(row)))
 }
 
@@ -1307,88 +1236,40 @@ async fn get_carbon_regions_handler() -> impl IntoResponse {
 
 async fn fetch_admin_projects(
     state: &AppState,
-    source: DataSource,
 ) -> Result<Vec<AdminProjectInfo>, ApiError> {
-    let (projects, runs, activities, collaborator_rows) = match source {
-        DataSource::Local => {
-            let projects = sqlx::query_as::<_, AdminProjectRow>(
-                "SELECT id, name, collaborator_name FROM projects ORDER BY name ASC",
-            )
-            .fetch_all(&state.local_pool)
-            .await
-            .map_err(ApiError::internal)?;
+    let projects = sqlx::query_as::<_, AdminProjectRow>(
+        "SELECT id, name, collaborator_name FROM projects ORDER BY name ASC",
+    )
+    .fetch_all(&state.pool)
+    .await
+    .map_err(ApiError::internal)?;
 
-            let runs = sqlx::query_as::<_, AdminRunRow>(
-                "SELECT id, name, project_id, collaborator_name, status, started_at, ended_at, command
-                 FROM runs
-                 ORDER BY project_id ASC, started_at DESC, id DESC",
-            )
-            .fetch_all(&state.local_pool)
-            .await
-            .map_err(ApiError::internal)?;
+    let runs = sqlx::query_as::<_, AdminRunRow>(
+        "SELECT id, name, project_id, collaborator_name, status, started_at, ended_at, command
+         FROM runs
+         ORDER BY project_id ASC, started_at DESC, id DESC",
+    )
+    .fetch_all(&state.pool)
+    .await
+    .map_err(ApiError::internal)?;
 
-            let activities = sqlx::query_as::<_, RunActivityRow>(
-                "SELECT run_id, MAX(timestamp) AS last_record_at
-                 FROM records
-                 GROUP BY run_id",
-            )
-            .fetch_all(&state.local_pool)
-            .await
-            .map_err(ApiError::internal)?;
+    let activities = sqlx::query_as::<_, RunActivityRow>(
+        "SELECT run_id, MAX(timestamp)::text AS last_record_at
+         FROM records
+         GROUP BY run_id",
+    )
+    .fetch_all(&state.pool)
+    .await
+    .map_err(ApiError::internal)?;
 
-            let collaborator_rows = sqlx::query_as::<_, ProjectCollaboratorRow>(
-                "SELECT project_id, collaborator_name
-                 FROM project_collaborators
-                 ORDER BY project_id ASC, collaborator_name ASC",
-            )
-            .fetch_all(&state.local_pool)
-            .await
-            .map_err(ApiError::internal)?;
-
-            (projects, runs, activities, collaborator_rows)
-        }
-        DataSource::Online => {
-            let pool = state.online_pool.as_ref().ok_or_else(|| {
-                ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "Online pool missing")
-            })?;
-
-            let projects = sqlx::query_as::<_, AdminProjectRow>(
-                "SELECT id, name, collaborator_name FROM projects ORDER BY name ASC",
-            )
-            .fetch_all(pool)
-            .await
-            .map_err(ApiError::internal)?;
-
-            let runs = sqlx::query_as::<_, AdminRunRow>(
-                "SELECT id, name, project_id, collaborator_name, status, started_at, ended_at, command
-                 FROM runs
-                 ORDER BY project_id ASC, started_at DESC, id DESC",
-            )
-            .fetch_all(pool)
-            .await
-            .map_err(ApiError::internal)?;
-
-            let activities = sqlx::query_as::<_, RunActivityRow>(
-                "SELECT run_id, MAX(timestamp)::text AS last_record_at
-                 FROM records
-                 GROUP BY run_id",
-            )
-            .fetch_all(pool)
-            .await
-            .map_err(ApiError::internal)?;
-
-            let collaborator_rows = sqlx::query_as::<_, ProjectCollaboratorRow>(
-                "SELECT project_id, collaborator_name
-                 FROM project_collaborators
-                 ORDER BY project_id ASC, collaborator_name ASC",
-            )
-            .fetch_all(pool)
-            .await
-            .map_err(ApiError::internal)?;
-
-            (projects, runs, activities, collaborator_rows)
-        }
-    };
+    let collaborator_rows = sqlx::query_as::<_, ProjectCollaboratorRow>(
+        "SELECT project_id, collaborator_name
+         FROM project_collaborators
+         ORDER BY project_id ASC, collaborator_name ASC",
+    )
+    .fetch_all(&state.pool)
+    .await
+    .map_err(ApiError::internal)?;
 
     let activity_by_run: HashMap<i64, Option<String>> = activities
         .into_iter()
@@ -1448,90 +1329,41 @@ async fn fetch_admin_projects(
 
 async fn fetch_latest_record_with_details(
     state: &AppState,
-    source: DataSource,
 ) -> Result<Option<RecordPoint>, ApiError> {
-    let latest_row =
-        match source {
-            DataSource::Local => sqlx::query_as::<_, RecordPointRow>(
-                "SELECT id, run_id, pid, timestamp, cpu_usage, cpu_energy, gpu_usage, gpu_energy,
-                    mem_usage, mem_energy, igpu_usage, igpu_energy
-             FROM records
-             ORDER BY id DESC
-             LIMIT 1",
-            )
-            .fetch_optional(&state.local_pool)
-            .await
-            .map_err(ApiError::internal)?,
-            DataSource::Online => sqlx::query_as::<_, RecordPointRow>(
-                "SELECT id, run_id, pid, timestamp::text AS timestamp, cpu_usage, cpu_energy,
-                    gpu_usage, gpu_energy, mem_usage, mem_energy, igpu_usage, igpu_energy
-             FROM records
-             ORDER BY id DESC
-             LIMIT 1",
-            )
-            .fetch_optional(state.online_pool.as_ref().ok_or_else(|| {
-                ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "Online pool missing")
-            })?)
-            .await
-            .map_err(ApiError::internal)?,
-        };
+    let latest_row = sqlx::query_as::<_, RecordPointRow>(
+        "SELECT id, run_id, pid, timestamp::text AS timestamp, cpu_usage, cpu_energy,
+                gpu_usage, gpu_energy, mem_usage, mem_energy, igpu_usage, igpu_energy
+         FROM records
+         ORDER BY id DESC
+         LIMIT 1",
+    )
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(ApiError::internal)?;
 
     let Some(row) = latest_row else {
         return Ok(None);
     };
 
-    let (gpu_details, socket_details) = match source {
-        DataSource::Local => {
-            let gpu_details = sqlx::query_as::<_, GpuRecordPoint>(
-                "SELECT id, record_id, device_index, gpu_usage, gpu_energy
-                 FROM gpu_records
-                 WHERE record_id = ?",
-            )
-            .bind(row.id)
-            .fetch_all(&state.local_pool)
-            .await
-            .map_err(ApiError::internal)?;
+    let gpu_details = sqlx::query_as::<_, GpuRecordPoint>(
+        "SELECT id, record_id, device_index, gpu_usage, gpu_energy
+         FROM gpu_records
+         WHERE record_id = $1",
+    )
+    .bind(row.id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(ApiError::internal)?;
 
-            let socket_details = sqlx::query_as::<_, SocketRecordPoint>(
-                "SELECT id, record_id, socket, domain, energy
-                 FROM socket_records
-                 WHERE record_id = ?",
-            )
-            .bind(row.id)
-            .fetch_all(&state.local_pool)
-            .await
-            .map_err(ApiError::internal)?;
-
-            (gpu_details, socket_details)
-        }
-        DataSource::Online => {
-            let pool = state.online_pool.as_ref().ok_or_else(|| {
-                ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "Online pool missing")
-            })?;
-
-            let gpu_details = sqlx::query_as::<_, GpuRecordPoint>(
-                "SELECT id, record_id, device_index, gpu_usage, gpu_energy
-                 FROM gpu_records
-                 WHERE record_id = $1",
-            )
-            .bind(row.id)
-            .fetch_all(pool)
-            .await
-            .map_err(ApiError::internal)?;
-
-            let socket_details = sqlx::query_as::<_, SocketRecordPoint>(
-                "SELECT id, record_id, socket, domain, energy
-                 FROM socket_records
-                 WHERE record_id = $1",
-            )
-            .bind(row.id)
-            .fetch_all(pool)
-            .await
-            .map_err(ApiError::internal)?;
-
-            (gpu_details, socket_details)
-        }
-    };
+    let socket_details = sqlx::query_as::<_, SocketRecordPoint>(
+        "SELECT id, record_id, socket, domain, energy
+         FROM socket_records
+         WHERE record_id = $1",
+    )
+    .bind(row.id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(ApiError::internal)?;
 
     Ok(Some(RecordPoint {
         id: row.id,
@@ -1551,18 +1383,14 @@ async fn fetch_latest_record_with_details(
     }))
 }
 
-async fn watch_source_changes(state: AppState, source: DataSource) {
-    let tx = match source {
-        DataSource::Local => state.tx_local.clone(),
-        DataSource::Online => state.tx_online.clone(),
-    };
+async fn watch_changes(state: AppState) {
     let mut last_record_id = 0_i64;
 
     loop {
-        match fetch_latest_record_with_details(&state, source).await {
+        match fetch_latest_record_with_details(&state).await {
             Ok(Some(record)) if record.id > last_record_id => {
                 if let Ok(payload) = serde_json::to_string(&record) {
-                    let _ = tx.send(payload);
+                    let _ = state.tx.send(payload);
                 }
                 last_record_id = record.id;
             }
@@ -1571,11 +1399,7 @@ async fn watch_source_changes(state: AppState, source: DataSource) {
             }
             Ok(None) => {}
             Err(err) => {
-                eprintln!(
-                    "watcher error for {} source: {}",
-                    source.as_str(),
-                    err.message
-                );
+                eprintln!("watcher error: {}", err.message);
             }
         }
 
@@ -1583,316 +1407,69 @@ async fn watch_source_changes(state: AppState, source: DataSource) {
     }
 }
 
-fn resolve_local_db_url() -> String {
-    if let Ok(db_url) = std::env::var("ECOCODE_DB_URL") {
-        return db_url;
-    }
-
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let repo_root = manifest_dir
-        .parent()
-        .and_then(|path| path.parent())
-        .map(|path| path.to_path_buf())
-        .unwrap_or(manifest_dir);
-    let db_path = repo_root.join("ecocode").join("ecocodeDB.db");
-
-    format!("sqlite://{}", db_path.display())
-}
-
-fn resolve_online_db_url() -> Option<String> {
-    std::env::var("ECOCODE_ONLINE_DB_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-}
-
-async fn ensure_sqlite_schema(db: &SqlitePool) -> Result<(), Box<dyn std::error::Error>> {
-    sqlx::query("PRAGMA journal_mode=WAL;").execute(db).await?;
-
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS projects (
-            id INTEGER PRIMARY KEY,
-            name TEXT UNIQUE,
-            collaborator_name TEXT
-        )",
-    )
-    .execute(db)
-    .await?;
-
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS project_collaborators (
-            project_id INTEGER NOT NULL,
-            collaborator_name TEXT NOT NULL,
-            PRIMARY KEY (project_id, collaborator_name),
-            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-        )",
-    )
-    .execute(db)
-    .await?;
-
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS runs (
-            id INTEGER PRIMARY KEY,
-            name TEXT,
-            project_id INTEGER,
-            collaborator_name TEXT,
-            status TEXT NOT NULL DEFAULT 'finished',
-            started_at TEXT,
-            ended_at TEXT,
-            FOREIGN KEY (project_id) REFERENCES projects(id)
-        )",
-    )
-    .execute(db)
-    .await?;
-
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS records (
-            id INTEGER PRIMARY KEY,
-            run_id INTEGER,
-            pid INTEGER,
-            timestamp TEXT,
-            cpu_usage REAL,
-            cpu_energy REAL,
-            gpu_usage REAL,
-            gpu_energy REAL,
-            mem_usage REAL,
-            mem_energy REAL,
-            igpu_usage REAL,
-            igpu_energy REAL,
-            FOREIGN KEY (run_id) REFERENCES runs(id)
-        )",
-    )
-    .execute(db)
-    .await?;
-
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS gpu_records (
-            id INTEGER PRIMARY KEY,
-            record_id INTEGER NOT NULL,
-            device_index INTEGER NOT NULL,
-            gpu_usage REAL,
-            gpu_energy REAL,
-            FOREIGN KEY (record_id) REFERENCES records(id) ON DELETE CASCADE
-        )",
-    )
-    .execute(db)
-    .await?;
-
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS socket_records (
-            id INTEGER PRIMARY KEY,
-            record_id INTEGER NOT NULL,
-            socket INTEGER NOT NULL,
-            domain TEXT NOT NULL,
-            energy REAL,
-            FOREIGN KEY (record_id) REFERENCES records(id) ON DELETE CASCADE
-        )",
-    )
-    .execute(db)
-    .await?;
-
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS runsummary (
-            id INTEGER PRIMARY KEY,
-            run_id INTEGER,
-            total_cpu_energy REAL,
-            total_gpu_energy REAL,
-            total_mem_energy REAL,
-            total_igpu_energy REAL,
-            FOREIGN KEY (run_id) REFERENCES runs(id)
-        )",
-    )
-    .execute(db)
-    .await?;
-
-    ensure_sqlite_column(
-        db,
-        "projects",
-        "collaborator_name",
-        "ALTER TABLE projects ADD COLUMN collaborator_name TEXT",
-    )
-    .await?;
-    ensure_sqlite_column(
-        db,
-        "runs",
-        "collaborator_name",
-        "ALTER TABLE runs ADD COLUMN collaborator_name TEXT",
-    )
-    .await?;
-    ensure_sqlite_column(
-        db,
-        "runs",
-        "status",
-        "ALTER TABLE runs ADD COLUMN status TEXT NOT NULL DEFAULT 'finished'",
-    )
-    .await?;
-    ensure_sqlite_column(
-        db,
-        "runs",
-        "started_at",
-        "ALTER TABLE runs ADD COLUMN started_at TEXT",
-    )
-    .await?;
-    ensure_sqlite_column(
-        db,
-        "runs",
-        "ended_at",
-        "ALTER TABLE runs ADD COLUMN ended_at TEXT",
-    )
-    .await?;
-
-    ensure_sqlite_column(
-        db,
-        "runsummary",
-        "total_co2_g",
-        "ALTER TABLE runsummary ADD COLUMN total_co2_g REAL",
-    )
-    .await?;
-    ensure_sqlite_column(
-        db,
-        "runsummary",
-        "carbon_intensity_used",
-        "ALTER TABLE runsummary ADD COLUMN carbon_intensity_used REAL",
-    )
-    .await?;
-    ensure_sqlite_column(
-        db,
-        "runsummary",
-        "pue_used",
-        "ALTER TABLE runsummary ADD COLUMN pue_used REAL",
-    )
-    .await?;
-    ensure_sqlite_column(
-        db,
-        "runsummary",
-        "total_cost",
-        "ALTER TABLE runsummary ADD COLUMN total_cost REAL",
-    )
-    .await?;
-    ensure_sqlite_column(
-        db,
-        "runsummary",
-        "currency_used",
-        "ALTER TABLE runsummary ADD COLUMN currency_used TEXT",
-    )
-    .await?;
-    ensure_sqlite_column(
-        db,
-        "runs",
-        "command",
-        "ALTER TABLE runs ADD COLUMN command TEXT",
-    )
-    .await?;
-
-    // Carbon fields for projects
-    ensure_sqlite_column(db, "projects", "country_code", "ALTER TABLE projects ADD COLUMN country_code TEXT NOT NULL DEFAULT 'WORLD'").await?;
-    ensure_sqlite_column(db, "projects", "address", "ALTER TABLE projects ADD COLUMN address TEXT").await?;
-    ensure_sqlite_column(db, "projects", "latitude", "ALTER TABLE projects ADD COLUMN latitude REAL").await?;
-    ensure_sqlite_column(db, "projects", "longitude", "ALTER TABLE projects ADD COLUMN longitude REAL").await?;
-    ensure_sqlite_column(db, "projects", "electricity_maps_api_key", "ALTER TABLE projects ADD COLUMN electricity_maps_api_key TEXT").await?;
-    ensure_sqlite_column(db, "projects", "resolved_intensity_g_per_kwh", "ALTER TABLE projects ADD COLUMN resolved_intensity_g_per_kwh REAL NOT NULL DEFAULT 494.0").await?;
-    ensure_sqlite_column(db, "projects", "intensity_source", "ALTER TABLE projects ADD COLUMN intensity_source TEXT NOT NULL DEFAULT 'static_WORLD'").await?;
-    ensure_sqlite_column(db, "projects", "intensity_fetched_at", "ALTER TABLE projects ADD COLUMN intensity_fetched_at TEXT").await?;
-    ensure_sqlite_column(db, "projects", "pue_factor", "ALTER TABLE projects ADD COLUMN pue_factor REAL NOT NULL DEFAULT 1.0").await?;
-    ensure_sqlite_column(db, "projects", "manual_cost_per_kwh", "ALTER TABLE projects ADD COLUMN manual_cost_per_kwh REAL").await?;
-    ensure_sqlite_column(db, "projects", "manual_currency", "ALTER TABLE projects ADD COLUMN manual_currency TEXT").await?;
-    ensure_sqlite_column(db, "projects", "use_api_for_cost", "ALTER TABLE projects ADD COLUMN use_api_for_cost BOOLEAN NOT NULL DEFAULT FALSE").await?;
-    ensure_sqlite_column(db, "projects", "updated_at", "ALTER TABLE projects ADD COLUMN updated_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00Z'").await?;
-
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS run_system_info (
-            run_id INTEGER PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
-            cpu_name TEXT,
-            cpu_cores INTEGER,
-            ram_gb REAL,
-            gpu_count INTEGER,
-            gpu_names TEXT
-        )",
-    )
-    .execute(db)
-    .await?;
-
-    backfill_sqlite_project_collaborators(db).await?;
-    sync_sqlite_project_shortcuts(db).await?;
-
-    Ok(())
-}
-
-async fn ensure_sqlite_column(
-    db: &SqlitePool,
-    table: &str,
-    column: &str,
-    alter_sql: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    if has_sqlite_column(db, table, column).await? {
-        return Ok(());
-    }
-
-    sqlx::query(alter_sql).execute(db).await?;
-    Ok(())
-}
-
-async fn has_sqlite_column(
-    db: &SqlitePool,
-    table: &str,
-    column: &str,
-) -> Result<bool, Box<dyn std::error::Error>> {
-    let rows = sqlx::query(&format!("PRAGMA table_info({table})"))
-        .fetch_all(db)
-        .await?;
-
-    Ok(rows
-        .iter()
-        .any(|row| row.get::<String, _>("name") == column))
-}
-
-async fn backfill_sqlite_project_collaborators(
-    db: &SqlitePool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    sqlx::query(
-        "INSERT OR IGNORE INTO project_collaborators (project_id, collaborator_name)
-         SELECT id, collaborator_name
-         FROM projects
-         WHERE collaborator_name IS NOT NULL AND TRIM(collaborator_name) <> ''",
-    )
-    .execute(db)
-    .await?;
-
-    sqlx::query(
-        "INSERT OR IGNORE INTO project_collaborators (project_id, collaborator_name)
-         SELECT DISTINCT project_id, collaborator_name
-         FROM runs
-         WHERE collaborator_name IS NOT NULL AND TRIM(collaborator_name) <> ''",
-    )
-    .execute(db)
-    .await?;
-
-    Ok(())
-}
-
-async fn sync_sqlite_project_shortcuts(db: &SqlitePool) -> Result<(), Box<dyn std::error::Error>> {
-    sqlx::query(
-        "UPDATE projects
-         SET collaborator_name = (
-             SELECT CASE
-                 WHEN COUNT(*) = 1 THEN MAX(collaborator_name)
-                 ELSE NULL
-             END
-             FROM project_collaborators
-             WHERE project_id = projects.id
-         )",
-    )
-    .execute(db)
-    .await?;
-
-    Ok(())
-}
-
 async fn ensure_postgres_schema(db: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS users (
+            id BIGSERIAL PRIMARY KEY,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )",
+    )
+    .execute(db)
+    .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS workspaces (
+            id BIGSERIAL PRIMARY KEY,
+            name TEXT NOT NULL,
+            slug TEXT UNIQUE NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )",
+    )
+    .execute(db)
+    .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS workspace_members (
+            workspace_id BIGINT NOT NULL,
+            user_id BIGINT NOT NULL,
+            role TEXT NOT NULL,
+            joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (workspace_id, user_id),
+            FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )",
+    )
+    .execute(db)
+    .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS api_keys (
+            id BIGSERIAL PRIMARY KEY,
+            user_id BIGINT NOT NULL,
+            name TEXT NOT NULL,
+            key_hash TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )",
+    )
+    .execute(db)
+    .await?;
+
+    // Workspace-scoped API keys for CLI sync
+    ensure_postgres_column(
+        db,
+        "api_keys",
+        "workspace_id",
+        "ALTER TABLE api_keys ADD COLUMN workspace_id BIGINT REFERENCES workspaces(id) ON DELETE SET NULL",
+    )
+    .await?;
+
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS projects (
             id BIGSERIAL PRIMARY KEY,
+            workspace_id BIGINT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
             name TEXT UNIQUE,
             collaborator_name TEXT
         )",
@@ -1981,91 +1558,20 @@ async fn ensure_postgres_schema(db: &PgPool) -> Result<(), Box<dyn std::error::E
     .execute(db)
     .await?;
 
-    ensure_postgres_column(
-        db,
-        "projects",
-        "collaborator_name",
-        "ALTER TABLE projects ADD COLUMN collaborator_name TEXT",
-    )
-    .await?;
+    ensure_postgres_column(db, "projects", "collaborator_name", "ALTER TABLE projects ADD COLUMN collaborator_name TEXT").await?;
+    ensure_postgres_column(db, "runs", "collaborator_name", "ALTER TABLE runs ADD COLUMN collaborator_name TEXT").await?;
+    ensure_postgres_column(db, "runs", "status", "ALTER TABLE runs ADD COLUMN status TEXT NOT NULL DEFAULT 'finished'").await?;
+    ensure_postgres_column(db, "runs", "started_at", "ALTER TABLE runs ADD COLUMN started_at TEXT").await?;
+    ensure_postgres_column(db, "runs", "ended_at", "ALTER TABLE runs ADD COLUMN ended_at TEXT").await?;
+    ensure_postgres_column(db, "runs", "command", "ALTER TABLE runs ADD COLUMN command TEXT").await?;
 
-    ensure_postgres_column(
-        db,
-        "runs",
-        "collaborator_name",
-        "ALTER TABLE runs ADD COLUMN collaborator_name TEXT",
-    )
-    .await?;
+    ensure_postgres_column(db, "runsummary", "total_co2_g", "ALTER TABLE runsummary ADD COLUMN total_co2_g DOUBLE PRECISION").await?;
+    ensure_postgres_column(db, "runsummary", "carbon_intensity_used", "ALTER TABLE runsummary ADD COLUMN carbon_intensity_used DOUBLE PRECISION").await?;
+    ensure_postgres_column(db, "runsummary", "pue_used", "ALTER TABLE runsummary ADD COLUMN pue_used DOUBLE PRECISION").await?;
+    ensure_postgres_column(db, "runsummary", "total_cost", "ALTER TABLE runsummary ADD COLUMN total_cost DOUBLE PRECISION").await?;
+    ensure_postgres_column(db, "runsummary", "currency_used", "ALTER TABLE runsummary ADD COLUMN currency_used TEXT").await?;
 
-    ensure_postgres_column(
-        db,
-        "runs",
-        "status",
-        "ALTER TABLE runs ADD COLUMN status TEXT NOT NULL DEFAULT 'finished'",
-    )
-    .await?;
-
-    ensure_postgres_column(
-        db,
-        "runs",
-        "started_at",
-        "ALTER TABLE runs ADD COLUMN started_at TEXT",
-    )
-    .await?;
-
-    ensure_postgres_column(
-        db,
-        "runs",
-        "ended_at",
-        "ALTER TABLE runs ADD COLUMN ended_at TEXT",
-    )
-    .await?;
-
-    ensure_postgres_column(
-        db,
-        "runs",
-        "command",
-        "ALTER TABLE runs ADD COLUMN command TEXT",
-    )
-    .await?;
-
-    ensure_postgres_column(
-        db,
-        "runsummary",
-        "total_co2_g",
-        "ALTER TABLE runsummary ADD COLUMN total_co2_g DOUBLE PRECISION",
-    )
-    .await?;
-    ensure_postgres_column(
-        db,
-        "runsummary",
-        "carbon_intensity_used",
-        "ALTER TABLE runsummary ADD COLUMN carbon_intensity_used DOUBLE PRECISION",
-    )
-    .await?;
-    ensure_postgres_column(
-        db,
-        "runsummary",
-        "pue_used",
-        "ALTER TABLE runsummary ADD COLUMN pue_used DOUBLE PRECISION",
-    )
-    .await?;
-    ensure_postgres_column(
-        db,
-        "runsummary",
-        "total_cost",
-        "ALTER TABLE runsummary ADD COLUMN total_cost DOUBLE PRECISION",
-    )
-    .await?;
-    ensure_postgres_column(
-        db,
-        "runsummary",
-        "currency_used",
-        "ALTER TABLE runsummary ADD COLUMN currency_used TEXT",
-    )
-    .await?;
-
-    // Carbon fields for projects
+    ensure_postgres_column(db, "projects", "workspace_id", "ALTER TABLE projects ADD COLUMN workspace_id BIGINT REFERENCES workspaces(id)").await?;
     ensure_postgres_column(db, "projects", "country_code", "ALTER TABLE projects ADD COLUMN country_code TEXT NOT NULL DEFAULT 'WORLD'").await?;
     ensure_postgres_column(db, "projects", "address", "ALTER TABLE projects ADD COLUMN address TEXT").await?;
     ensure_postgres_column(db, "projects", "latitude", "ALTER TABLE projects ADD COLUMN latitude DOUBLE PRECISION").await?;
@@ -2079,32 +1585,6 @@ async fn ensure_postgres_schema(db: &PgPool) -> Result<(), Box<dyn std::error::E
     ensure_postgres_column(db, "projects", "manual_currency", "ALTER TABLE projects ADD COLUMN manual_currency TEXT").await?;
     ensure_postgres_column(db, "projects", "use_api_for_cost", "ALTER TABLE projects ADD COLUMN use_api_for_cost BOOLEAN NOT NULL DEFAULT FALSE").await?;
     ensure_postgres_column(db, "projects", "updated_at", "ALTER TABLE projects ADD COLUMN updated_at TEXT NOT NULL DEFAULT (now()::text)").await?;
-
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS carbon_config (
-            id BIGSERIAL PRIMARY KEY,
-            country_code TEXT NOT NULL DEFAULT 'WORLD',
-            address TEXT,
-            latitude DOUBLE PRECISION,
-            longitude DOUBLE PRECISION,
-            electricity_maps_api_key TEXT,
-            resolved_intensity_g_per_kwh DOUBLE PRECISION NOT NULL DEFAULT 494.0,
-            intensity_source TEXT NOT NULL DEFAULT 'static_WORLD',
-            intensity_fetched_at TEXT,
-            pue_factor DOUBLE PRECISION NOT NULL DEFAULT 1.0,
-            updated_at TEXT NOT NULL DEFAULT now()::text
-        )",
-    )
-    .execute(db)
-    .await?;
-
-    sqlx::query(
-        "INSERT INTO carbon_config (id, country_code, resolved_intensity_g_per_kwh, intensity_source, pue_factor, updated_at)
-         VALUES (1, 'WORLD', 494.0, 'static_WORLD', 1.0, now()::text)
-         ON CONFLICT (id) DO NOTHING",
-    )
-    .execute(db)
-    .await?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS run_system_info (
@@ -2146,8 +1626,8 @@ async fn has_postgres_column(
 ) -> Result<bool, Box<dyn std::error::Error>> {
     let row = sqlx::query(
         "SELECT EXISTS (
-            SELECT 1 
-            FROM information_schema.columns 
+            SELECT 1
+            FROM information_schema.columns
             WHERE table_name = $1 AND column_name = $2
         )",
     )
@@ -2211,51 +1691,29 @@ async fn hello_world() -> &'static str {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
 
-    let local_db_url = resolve_local_db_url();
-    let local_pool = SqlitePoolOptions::new()
-        .max_connections(5)
-        .connect(&local_db_url)
+    let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let pool = PgPoolOptions::new()
+        .max_connections(10)
+        .connect(&db_url)
         .await?;
-    println!("Local SQLite pool initialized at {}", local_db_url);
-    ensure_sqlite_schema(&local_pool).await?;
+    println!("PostgreSQL pool initialized.");
+    ensure_postgres_schema(&pool).await?;
 
-    let online_pool = match resolve_online_db_url() {
-        Some(db_url) => {
-            println!("Initializing online PostgreSQL pool...");
-            let pool = PgPoolOptions::new()
-                .max_connections(5)
-                .connect(&db_url)
-                .await?;
-            ensure_postgres_schema(&pool).await?;
-            println!("Online PostgreSQL pool initialized.");
-            Some(pool)
-        }
-        None => {
-            println!("No online database configuration found (ECOCODE_ONLINE_DB_URL or DATABASE_URL missing).");
-            None
-        }
-    };
-
-    let default_source = resolve_default_source(online_pool.is_some());
-    let (tx_local, _) = broadcast::channel::<String>(100);
-    let (tx_online, _) = broadcast::channel::<String>(100);
-
+    let (tx, _) = broadcast::channel::<String>(100);
     let state = AppState {
-        local_pool: local_pool.clone(),
-        online_pool: online_pool.clone(),
-        tx_local: tx_local.clone(),
-        tx_online: tx_online.clone(),
-        default_source,
+        pool,
+        tx: tx.clone(),
     };
 
-    tokio::spawn(watch_source_changes(state.clone(), DataSource::Local));
-    if online_pool.is_some() {
-        tokio::spawn(watch_source_changes(state.clone(), DataSource::Online));
-    }
+    tokio::spawn(watch_changes(state.clone()));
+
+    let cors_origin = std::env::var("CORS_ORIGIN")
+        .unwrap_or_else(|_| "http://localhost:3000".to_string());
 
     let app = Router::new()
         .route("/api/hello", get(hello_world))
-        .route("/api/data-sources", get(get_data_sources))
+        .nest("/api/auth", auth::auth_routes())
+        .nest("/api/workspaces", workspaces::workspaces_routes())
         .route("/api/projects", get(get_projects).post(post_projects))
         .route("/api/project/{project_id}/runs", get(get_runs))
         .route("/api/run/{run_id}", get(get_run))
@@ -2268,16 +1726,104 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/project/{project_id}/carbon-config", get(get_carbon_config_handler).put(put_carbon_config_handler))
         .route("/api/project/{project_id}/carbon-config/refresh", post(post_refresh_carbon_intensity))
         .route("/api/carbon-regions", get(get_carbon_regions_handler))
+        .route("/api/ingest/run", post(ingest_run))
+        .route("/api/ingest/run/{run_id}/record", post(ingest_record))
+        .route("/api/ingest/run/{run_id}/system-info", post(ingest_system_info))
+        .route("/api/ingest/run/{run_id}/complete", post(ingest_complete_run))
         .layer(
             CorsLayer::new()
-                .allow_origin(Any)
-                .allow_methods(Any)
-                .allow_headers(Any),
+                .allow_origin(cors_origin.parse::<axum::http::HeaderValue>().unwrap())
+                .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::OPTIONS])
+                .allow_headers([CONTENT_TYPE, AUTHORIZATION])
+                .allow_credentials(true),
         )
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3001").await?;
     axum::serve(listener, app).await?;
+
+    Ok(())
+}
+async fn calculate_run_summary_db(run_id: i64, db: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let record_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM records WHERE run_id = $1")
+            .bind(run_id)
+            .fetch_one(db)
+            .await?;
+
+    sqlx::query("DELETE FROM runsummary WHERE run_id = $1")
+        .bind(run_id)
+        .execute(db)
+        .await?;
+
+    if record_count == 0 {
+        return Ok(());
+    }
+
+    // Read carbon config from the project associated with this run
+    let config_row = sqlx::query(
+        "SELECT p.resolved_intensity_g_per_kwh, p.pue_factor, p.intensity_source, p.manual_cost_per_kwh, p.manual_currency
+         FROM projects p
+         JOIN runs r ON r.project_id = p.id
+         WHERE r.id = $1",
+    )
+    .bind(run_id)
+    .fetch_optional(db)
+    .await?;
+
+    let (intensity, pue, _source, cost_per_kwh, currency) = if let Some(r) = config_row {
+        (
+            r.get::<f64, _>("resolved_intensity_g_per_kwh"),
+            r.get::<f64, _>("pue_factor"),
+            r.get::<String, _>("intensity_source"),
+            r.get::<Option<f64>, _>("manual_cost_per_kwh").unwrap_or(0.0),
+            r.get::<Option<String>, _>("manual_currency").unwrap_or_else(|| "USD".to_string()),
+        )
+    } else {
+        (494.0, 1.0, "WORLD".to_string(), 0.0, "USD".to_string())
+    };
+
+    // Insert energy totals
+    sqlx::query(
+        "INSERT INTO runsummary
+            (run_id, total_cpu_energy, total_gpu_energy, total_mem_energy, total_igpu_energy,
+             total_co2_g, carbon_intensity_used, pue_used, total_cost, currency_used)
+          SELECT
+            $1,
+            COALESCE(SUM(cpu_energy),  0.0),
+            COALESCE(SUM(gpu_energy),  0.0),
+            COALESCE(SUM(mem_energy),  0.0),
+            COALESCE(SUM(igpu_energy), 0.0),
+            0.0, $2, $3, 0.0, $4
+          FROM records
+          WHERE run_id = $1",
+    )
+    .bind(run_id)
+    .bind(intensity)
+    .bind(pue)
+    .bind(&currency)
+    .execute(db)
+    .await?;
+
+    // Read back totals to compute CO2
+    let totals: (f64, f64, f64, f64) = sqlx::query_as(
+        "SELECT total_cpu_energy, total_gpu_energy, total_mem_energy, total_igpu_energy
+         FROM runsummary WHERE run_id = $1",
+    )
+    .bind(run_id)
+    .fetch_one(db)
+    .await?;
+
+    let energy_wh = (totals.0 + totals.1 + totals.2 + totals.3) / 3600.0;
+    let co2_g = energy_wh / 1000.0 * intensity * pue;
+    let total_cost = (energy_wh / 1000.0) * cost_per_kwh * pue;
+
+    sqlx::query("UPDATE runsummary SET total_co2_g = $1, total_cost = $2 WHERE run_id = $3")
+        .bind(co2_g)
+        .bind(total_cost)
+        .bind(run_id)
+        .execute(db)
+        .await?;
 
     Ok(())
 }

@@ -67,6 +67,10 @@ struct Args {
     /// Use API to fetch energy prices automatically
     #[arg(long)]
     use_api_cost: bool,
+    
+    /// API key for online/http output
+    #[arg(long, alias = "apikey")]
+    api_key: Option<String>,
 
     /// Command to monitor (with its arguments)
     #[arg(trailing_var_arg = true, required = true)]
@@ -141,11 +145,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "csv" => Box::new(CsvExporter::new(require_file("csv"))?),
         "json" => Box::new(JsonExporter::new(require_file("json"))?),
         "local" => Box::new(SqliteExporter::new().await?),
-        "online" => Box::new(OnlineExporter::new().await?),
+        "online" => Box::new(exporter::http::HttpExporter::new(args.api_key)?),
         "prometheus" => Box::new(PrometheusExporter::new()),
         "logfile" => Box::new(LogFileExporter::new(require_file("logfile"))?),
         _ => Box::new(TerminalExporter::new()),
     };
+    if output == "online" && args.collaborator.is_some() {
+        println!("Notice: In 'online' mode, the collaborator name is automatically linked to your EcoCode account. The provided --collaborator value will be ignored.");
+    }
+
     println!("Exporter type: {:?}", exporter.exporter_type());
 
     let project = exporter

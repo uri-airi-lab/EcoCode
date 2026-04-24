@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { ProjectSummary } from '@/lib/api-client'
 import { format } from 'date-fns'
 import { ChevronRight, Folder } from 'lucide-react'
+import { useWorkspace } from './WorkspaceProvider'
 import {
   Pagination,
   PaginationContent,
@@ -21,6 +22,8 @@ interface ProjectsTableProps {
 const ITEMS_PER_PAGE = 5
 
 export const ProjectsTable = memo(function ProjectsTable({ projects }: ProjectsTableProps) {
+    const { currentWorkspace } = useWorkspace()
+    const workspaceSlug = currentWorkspace?.slug ?? ''
     const [currentPage, setCurrentPage] = useState(1)
     
     const totalPages = Math.ceil(projects.length / ITEMS_PER_PAGE)
@@ -36,7 +39,7 @@ export const ProjectsTable = memo(function ProjectsTable({ projects }: ProjectsT
                     Projects
                 </h3>
                 <Link
-                    href="/projects"
+                    href={`/${workspaceSlug}/projects`}
                     className="text-sm text-primary hover:text-primary/80 transition-colors"
                 >
                     View all →
@@ -87,7 +90,7 @@ export const ProjectsTable = memo(function ProjectsTable({ projects }: ProjectsT
                                     {project.lastRunTimestamp ? format(new Date(project.lastRunTimestamp), 'MMM d, yyyy') : '-'}
                                 </td>
                                 <td className="text-right py-3 px-4">
-                                    <Link href={`/projects/${project.id}`}>
+                                    <Link href={`/${workspaceSlug}/projects/${project.id}`}>
                                         <ChevronRight className="w-4 h-4 text-muted-foreground hover:text-primary transition-colors" />
                                     </Link>
                                 </td>

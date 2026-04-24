@@ -1,9 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Zap } from 'lucide-react'
-import { useDataSource } from '@/components/DataSourceProvider'
 import { DashboardLayout } from '@/components/DashboardLayout'
 import { EnergyChart } from '@/components/EnergyChart'
 import { UtilizationChart } from '@/components/UtilizationChart'
@@ -23,11 +23,12 @@ interface RunDetailPageProps {
 }
 
 export default function RunDetailPage({ params }: RunDetailPageProps) {
+  const routeParams = useParams()
+  const workspaceSlug = routeParams.workspaceSlug as string
   const [run, setRun] = useState<Run | null>(null)
   const [loading, setLoading] = useState(true)
   const [paramId, setParamId] = useState<string | null>(null)
-  const { source } = useDataSource()
-  const { latestRecord } = useSSE(source)
+  const { latestRecord } = useSSE()
 
   useEffect(() => {
     const initParams = async () => {
@@ -87,7 +88,7 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
     const fetchRun = async () => {
       setLoading(true)
       try {
-        const data = await fetchRunDetail(paramId, source)
+        const data = await fetchRunDetail(paramId)
         if (!cancelled) {
           setRun(data)
         }
@@ -108,7 +109,7 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
     return () => {
       cancelled = true
     }
-  }, [paramId, source])
+  }, [paramId])
 
   if (loading) {
     return (
@@ -127,7 +128,7 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
           <div className="text-center py-12">
             <p className="text-muted-foreground mb-4">Run not found</p>
             <Link
-              href="/runs"
+              href={`/${workspaceSlug}/runs`}
               className="inline-flex items-center gap-2 text-primary hover:text-primary/80 transition-colors"
             >
               <ArrowLeft className="w-4 h-4" />
@@ -152,7 +153,7 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
         {/* Header with back button */}
         <div className="mb-6 md:mb-8">
           <Link
-            href="/runs"
+            href={`/${workspaceSlug}/runs`}
             className="inline-flex items-center gap-2 text-primary hover:text-primary/80 transition-colors mb-4"
           >
             <ArrowLeft className="w-4 h-4" />

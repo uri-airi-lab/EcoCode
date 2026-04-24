@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
+import { usePathname } from 'next/navigation'
 import {
   Dialog,
   DialogContent,
@@ -15,9 +16,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import { Rocket, Copy, Check, AlertTriangle, Zap, Coins, Plus, Folder, MapPin, Globe, Settings2, User, Timer, FileCode, Tag } from 'lucide-react'
+import { Rocket, Copy, Check, AlertTriangle, Zap, Coins, Plus, Folder, MapPin, Globe, Settings2, User, Timer, FileCode, Tag, Key } from 'lucide-react'
 import { ProjectSummary, createProject, fetchCarbonConfig } from '@/lib/api-client'
-import { useDataSource } from '@/components/DataSourceProvider'
+import { useWorkspace } from '@/components/WorkspaceProvider'
 import { toast } from 'sonner'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
@@ -29,7 +30,7 @@ interface StartRunModalProps {
 }
 
 export function StartRunModal({ projects, onProjectCreated, defaultProjectId }: StartRunModalProps) {
-  const { source } = useDataSource()
+  const { currentWorkspace } = useWorkspace()
   const [open, setOpen] = useState(false)
   const [mode, setMode] = useState<'existing' | 'new'>('existing')
   const [selectedProjectId, setSelectedProjectId] = useState<string>('')
@@ -47,6 +48,9 @@ export function StartRunModal({ projects, onProjectCreated, defaultProjectId }: 
   const [interval, setInterval] = useState('1.0')
   const [collaborator, setCollaborator] = useState('')
   const [runName, setRunName] = useState('')
+  
+  const pathname = usePathname()
+  const workspaceId = currentWorkspace?.id ?? null
 
   useEffect(() => {
     if (defaultProjectId) {
@@ -64,7 +68,7 @@ export function StartRunModal({ projects, onProjectCreated, defaultProjectId }: 
     if (selectedProjectId && mode === 'existing') {
         const checkConfig = async () => {
             try {
-                const config = await fetchCarbonConfig(Number(selectedProjectId), source)
+                const config = await fetchCarbonConfig(Number(selectedProjectId))
                 setMissingConfig((!config.manual_cost_per_kwh || config.manual_cost_per_kwh === 0) && !config.use_api_for_cost)
                 
                 if (config.manual_cost_per_kwh) setCost(config.manual_cost_per_kwh.toString())
@@ -79,7 +83,7 @@ export function StartRunModal({ projects, onProjectCreated, defaultProjectId }: 
         }
         checkConfig()
     }
-  }, [selectedProjectId, mode, source])
+  }, [selectedProjectId, mode])
 
   const generateCommand = () => {
     const project = mode === 'new' ? projectName : projects.find(p => p.id === selectedProjectId)?.name
@@ -88,7 +92,7 @@ export function StartRunModal({ projects, onProjectCreated, defaultProjectId }: 
     let cmd = `ecocode --project "${project}"`
     
     if (runName) cmd += ` --name "${runName}"`
-    if (collaborator) cmd += ` --collaborator "${collaborator}"`
+    if (collaborator && outputFormat !== 'online') cmd += ` --collaborator "${collaborator}"`
     if (outputFormat !== 'terminal') cmd += ` --output ${outputFormat}`
     if (outputFile && ['csv', 'json', 'logfile'].includes(outputFormat)) cmd += ` --file "${outputFile}"`
     if (interval !== '1.0') cmd += ` --interval ${interval}`
@@ -105,6 +109,10 @@ export function StartRunModal({ projects, onProjectCreated, defaultProjectId }: 
         } else {
             cmd += ` --price ${cost}`
         }
+    }
+    
+    if (outputFormat === 'online') {
+        cmd += ` --api-key "ecocode_your_key_here"`
     }
     
     cmd += ` "<your-command>"`
@@ -168,20 +176,26 @@ export function StartRunModal({ projects, onProjectCreated, defaultProjectId }: 
         return
     }
 
+    if (!workspaceId) {
+        toast.error('Workspace not identified')
+        return
+    }
+
     try {
         setIsCreating(true)
-        await createProject(projectName, { 
+        await createProject(projectName, workspaceId, { 
             intensity: useApiIntensity ? undefined : intensityVal, 
             cost: useApiCost ? undefined : costVal, 
             currency,
             address: address || undefined,
             use_api_for_cost: useApiCost
-        }, source)
+        })
         handleCopy()
         if (onProjectCreated) onProjectCreated()
         setOpen(false) 
     } catch (err) {
-        toast.error('Failed to create project')
+        const errorMsg = err instanceof Error ? err.message : 'An error occurred'
+        toast.error(`Failed to create project: ${errorMsg}`)
     } finally {
         setIsCreating(false)
     }
@@ -392,16 +406,17 @@ export function StartRunModal({ projects, onProjectCreated, defaultProjectId }: 
                                 className="bg-background/50 border-white/5 h-10 rounded-lg text-sm"
                             />
                         </div>
-                        <div className="space-y-2">
+                        <div className={`space-y-2 ${outputFormat === 'online' ? 'opacity-50 pointer-events-none' : ''}`}>
                             <Label className="flex items-center gap-2 text-xs font-bold text-muted-foreground uppercase tracking-widest">
                                 <User className="w-3 h-3" />
-                                Collaborator
+                                {outputFormat === 'online' ? 'Collaborator (Linked to Account)' : 'Collaborator'}
                             </Label>
                             <Input 
-                                placeholder="Your name" 
-                                value={collaborator} 
+                                placeholder={outputFormat === 'online' ? 'Locked to account' : 'Your name'}
+                                value={outputFormat === 'online' ? '' : collaborator} 
                                 onChange={(e) => setCollaborator(e.target.value)}
                                 className="bg-background/50 border-white/5 h-10 rounded-lg text-sm"
+                                disabled={outputFormat === 'online'}
                             />
                         </div>
                     </div>
@@ -455,6 +470,31 @@ export function StartRunModal({ projects, onProjectCreated, defaultProjectId }: 
                                 onChange={(e) => setOutputFile(e.target.value)}
                                 className="bg-background/50 border-white/5 h-10 rounded-lg text-sm"
                             />
+                        </div>
+                    )}
+
+                    {outputFormat === 'online' && (
+                        <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 space-y-3 animate-in fade-in slide-in-from-top-2">
+                            <div className="flex items-center gap-2 text-emerald-400">
+                                <Key className="w-4 h-4" />
+                                <span className="text-sm font-bold">Authentication Required</span>
+                            </div>
+                            <p className="text-[11px] text-emerald-200/70 leading-relaxed">
+                                To push data to this dashboard, you must provide your API key using the <code>--api-key</code> parameter:
+                            </p>
+                            <div className="flex flex-col gap-2">
+                                <code className="text-[10px] bg-black/40 p-2 rounded border border-white/5 text-emerald-300 break-all font-mono">
+                                    --api-key "ecocode_..."
+                                </code>
+                                <a 
+                                    href={`/${currentWorkspace?.slug}/settings/developer`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-[10px] text-emerald-400 hover:text-emerald-300 font-bold flex items-center gap-1 transition-colors"
+                                >
+                                    Get your API key in Settings →
+                                </a>
+                            </div>
                         </div>
                     )}
                 </AccordionContent>

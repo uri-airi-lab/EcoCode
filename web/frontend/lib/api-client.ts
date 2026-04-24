@@ -1,17 +1,5 @@
-/**
- * API Client for EcoCode Dashboard
- * 
- * This service layer abstracts data fetching and makes it easy to swap
- * between mock data and real backend calls.
- * 
- * To integrate with a real backend:
- * 1. Replace the mock data imports with actual API calls
- * 2. Update the fetch URLs from `/api/*` to your backend endpoint
- * 3. Add error handling and retry logic as needed
- */
-
 import { Run, MetricRecord } from './mock-data'
-import { buildApiUrl, DataSource } from './data-source'
+import { buildApiUrl } from './data-source'
 
 // --- Internal Mappings ---
 
@@ -20,6 +8,7 @@ const WATER_FACTOR = 1.8 // L/kWh
 interface BackendProject {
   id: number
   name: string
+  workspace_slug: string
 }
 
 interface BackendRun {
@@ -213,17 +202,12 @@ interface RunTotalsSnapshot {
 
 function calculateAverages(records: MetricRecord[]) {
   if (records.length === 0) {
-    return {
-      avgCpuUsage: 0,
-      avgGpuUsage: 0,
-      avgMemUsage: 0,
-    }
+    return { avgCpuUsage: 0, avgGpuUsage: 0, avgMemUsage: 0 }
   }
-
   return {
-    avgCpuUsage: records.reduce((sum, record) => sum + record.cpu_usage, 0) / records.length,
-    avgGpuUsage: records.reduce((sum, record) => sum + record.gpu_usage, 0) / records.length,
-    avgMemUsage: records.reduce((sum, record) => sum + record.mem_usage, 0) / records.length,
+    avgCpuUsage: records.reduce((sum, r) => sum + r.cpu_usage, 0) / records.length,
+    avgGpuUsage: records.reduce((sum, r) => sum + r.gpu_usage, 0) / records.length,
+    avgMemUsage: records.reduce((sum, r) => sum + r.mem_usage, 0) / records.length,
   }
 }
 
@@ -255,12 +239,11 @@ function calculateEnergyTotals(summary: BackendRunSummary | null) {
   const totalGpuEnergy = (summary?.total_gpu_energy ?? 0) / 3600
   const totalMemEnergy = (summary?.total_mem_energy ?? 0) / 3600
   const totalIgpuEnergy = (summary?.total_igpu_energy ?? 0) / 3600
-  const totalEnergy = totalCpuEnergy + totalGpuEnergy + totalMemEnergy + totalIgpuEnergy // Wh
+  const totalEnergy = totalCpuEnergy + totalGpuEnergy + totalMemEnergy + totalIgpuEnergy
 
-  // Use DB-stored CO2 value if available, otherwise estimate from world average
   const totalCo2G = summary?.total_co2_g != null
     ? summary.total_co2_g
-    : (totalEnergy / 1000) * WORLD_AVERAGE_INTENSITY_G_PER_KWH // Wh → kWh × gCO₂/kWh
+    : (totalEnergy / 1000) * WORLD_AVERAGE_INTENSITY_G_PER_KWH
 
   return {
     totalCpuEnergy,
@@ -276,13 +259,10 @@ function calculateEnergyTotals(summary: BackendRunSummary | null) {
   }
 }
 
-async function fetchRunMetricSnapshot(
-  backendRun: BackendRun,
-  source?: DataSource
-): Promise<RunMetricSnapshot> {
+async function fetchRunMetricSnapshot(backendRun: BackendRun): Promise<RunMetricSnapshot> {
   const [summaryRes, recordsRes] = await Promise.all([
-    fetch(buildApiUrl(`/api/run/${backendRun.id}/summary`, source)),
-    fetch(buildApiUrl(`/api/run/${backendRun.id}/record_points`, source)),
+    fetch(buildApiUrl(`/api/run/${backendRun.id}/summary`)),
+    fetch(buildApiUrl(`/api/run/${backendRun.id}/record_points`)),
   ])
 
   const summary: BackendRunSummary | null = summaryRes.ok ? await summaryRes.json() : null
@@ -307,11 +287,8 @@ async function fetchRunMetricSnapshot(
   }
 }
 
-async function fetchRunTotalsSnapshot(
-  backendRun: BackendRun,
-  source?: DataSource
-): Promise<RunTotalsSnapshot> {
-  const summaryRes = await fetch(buildApiUrl(`/api/run/${backendRun.id}/summary`, source))
+async function fetchRunTotalsSnapshot(backendRun: BackendRun): Promise<RunTotalsSnapshot> {
+  const summaryRes = await fetch(buildApiUrl(`/api/run/${backendRun.id}/summary`))
   const summary: BackendRunSummary | null = summaryRes.ok ? await summaryRes.json() : null
   const energyTotals = calculateEnergyTotals(summary)
   const timestamp =
@@ -319,44 +296,43 @@ async function fetchRunTotalsSnapshot(
     parseTimestamp(backendRun.ended_at) ??
     Date.now()
 
-  return {
-    ...energyTotals,
-    timestamp,
-  }
+  return { ...energyTotals, timestamp }
 }
 
 // --- Carbon API ---
 
-export async function fetchCarbonConfig(projectId: number, source?: DataSource): Promise<CarbonConfig> {
-  const res = await fetch(buildApiUrl(`/api/project/${projectId}/carbon-config`, source))
+export async function fetchCarbonConfig(projectId: number): Promise<CarbonConfig> {
+  const res = await fetch(buildApiUrl(`/api/project/${projectId}/carbon-config`))
   if (!res.ok) throw new Error('Failed to fetch carbon config')
   return res.json()
 }
 
-export async function updateCarbonConfig(projectId: number, payload: any, source?: DataSource): Promise<CarbonConfig> {
-  const res = await fetch(buildApiUrl(`/api/project/${projectId}/carbon-config`, source), {
+export async function updateCarbonConfig(projectId: number, payload: CarbonConfigUpdate): Promise<CarbonConfig> {
+  const res = await fetch(buildApiUrl(`/api/project/${projectId}/carbon-config`), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
   })
   if (!res.ok) throw new Error('Failed to update carbon config')
   return res.json()
 }
 
-export async function refreshCarbonIntensity(projectId: number, source?: DataSource): Promise<CarbonConfig> {
-  const res = await fetch(buildApiUrl(`/api/project/${projectId}/carbon-config/refresh`, source), { method: 'POST' })
+export async function refreshCarbonIntensity(projectId: number): Promise<CarbonConfig> {
+  const res = await fetch(buildApiUrl(`/api/project/${projectId}/carbon-config/refresh`), {
+    method: 'POST',
+  })
   if (!res.ok) throw new Error('Failed to refresh carbon intensity')
   return res.json()
 }
 
-export async function fetchCarbonRegions(source?: DataSource): Promise<CarbonRegion[]> {
-  const res = await fetch(buildApiUrl('/api/carbon-regions', source))
+export async function fetchCarbonRegions(): Promise<CarbonRegion[]> {
+  const res = await fetch(buildApiUrl('/api/carbon-regions'))
   if (!res.ok) throw new Error('Failed to fetch carbon regions')
   return res.json()
 }
 
-async function mapRunSummary(backendRun: BackendRun, source?: DataSource): Promise<RunSummary> {
-  const snapshot = await fetchRunMetricSnapshot(backendRun, source)
+async function mapRunSummary(backendRun: BackendRun): Promise<RunSummary> {
+  const snapshot = await fetchRunMetricSnapshot(backendRun)
   const energyKwh = snapshot.totalEnergy / 1000
 
   return {
@@ -385,8 +361,8 @@ async function mapRunSummary(backendRun: BackendRun, source?: DataSource): Promi
   }
 }
 
-async function mapRun(backendRun: BackendRun, source?: DataSource): Promise<Run> {
-  const snapshot = await fetchRunMetricSnapshot(backendRun, source)
+async function mapRun(backendRun: BackendRun): Promise<Run> {
+  const snapshot = await fetchRunMetricSnapshot(backendRun)
   const energyKwh = snapshot.totalEnergy / 1000
 
   return {
@@ -400,7 +376,7 @@ async function mapRun(backendRun: BackendRun, source?: DataSource): Promise<Run>
     totalGpuEnergy: snapshot.totalGpuEnergy,
     totalMemEnergy: snapshot.totalMemEnergy,
     totalIgpuEnergy: snapshot.totalIgpuEnergy,
-    totalCoreHours: energyKwh * 24, // Mock calculation
+    totalCoreHours: energyKwh * 24,
     avgCpuUsage: snapshot.avgCpuUsage,
     avgGpuUsage: snapshot.avgGpuUsage,
     avgMemUsage: snapshot.avgMemUsage,
@@ -430,8 +406,9 @@ export interface RunDetail extends Run { }
 export interface ProjectSummary {
   id: string
   name: string
+  workspaceSlug: string
   totalRuns: number
-  totalEnergy: number // Wh
+  totalEnergy: number
   lastRunTimestamp: number
 }
 export interface ProjectDetail extends ProjectSummary {
@@ -482,39 +459,41 @@ export interface AdminProjectMonitor {
  * Create a new project with initial configuration
  */
 export async function createProject(
-    name: string,
-    config: { intensity?: number; cost?: number; currency?: string; address?: string; use_api_for_cost?: boolean },
-    source?: DataSource
+  name: string,
+  workspaceId: number,
+  config: { intensity?: number; cost?: number; currency?: string; address?: string; use_api_for_cost?: boolean }
 ): Promise<BackendProject> {
-    const res = await fetch(buildApiUrl('/api/projects', source), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, ...config })
-    })
-    if (!res.ok) throw new Error('Failed to create project')
-    return res.json()
+  const res = await fetch(buildApiUrl('/api/projects'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, workspace_id: workspaceId, ...config }),
+  })
+  if (!res.ok) {
+    const errorText = await res.text()
+    throw new Error(errorText || 'Failed to create project')
+  }
+  return res.json()
 }
 
 /**
  * Fetch all projects and aggregate their metrics
  */
-export async function fetchAllProjects(source?: DataSource): Promise<ProjectSummary[]> {
+export async function fetchAllProjects(): Promise<ProjectSummary[]> {
   try {
-    const projectsRes = await fetch(buildApiUrl('/api/projects', source))
-    // 404 = no projects yet — valid empty state
+    const projectsRes = await fetch(buildApiUrl('/api/projects'))
     if (projectsRes.status === 404) return []
     if (!projectsRes.ok) throw new Error('Failed to fetch projects')
     const projects: BackendProject[] = await projectsRes.json()
 
-    // Process projects concurrently
     const projectSummaries = await Promise.all(
       projects.map(async (project) => {
-        const runsRes = await fetch(buildApiUrl(`/api/project/${project.id}/runs`, source))
+        const runsRes = await fetch(buildApiUrl(`/api/project/${project.id}/runs`))
 
         if (!runsRes.ok) {
           return {
             id: project.id.toString(),
             name: project.name,
+            workspaceSlug: project.workspace_slug,
             totalRuns: 0,
             totalEnergy: 0,
             lastRunTimestamp: 0,
@@ -522,16 +501,14 @@ export async function fetchAllProjects(source?: DataSource): Promise<ProjectSumm
         }
 
         const backendRuns: BackendRun[] = await runsRes.json()
-
-        const runSummaries = await Promise.all(
-          backendRuns.map((backendRun) => fetchRunTotalsSnapshot(backendRun, source))
-        )
+        const runSummaries = await Promise.all(backendRuns.map(fetchRunTotalsSnapshot))
         const totalEnergy = runSummaries.reduce((sum, run) => sum + run.totalEnergy, 0)
         const lastRunTimestamp = runSummaries.reduce((max, run) => Math.max(max, run.timestamp), 0)
 
         return {
           id: project.id.toString(),
           name: project.name,
+          workspaceSlug: project.workspace_slug,
           totalRuns: backendRuns.length,
           totalEnergy,
           lastRunTimestamp: lastRunTimestamp || Date.now(),
@@ -548,9 +525,9 @@ export async function fetchAllProjects(source?: DataSource): Promise<ProjectSumm
 /**
  * Fetch a specific project and its runs
  */
-export async function fetchProjectRuns(projectId: string, source?: DataSource): Promise<ProjectDetail> {
+export async function fetchProjectRuns(projectId: string): Promise<ProjectDetail> {
   try {
-    const projectsRes = await fetch(buildApiUrl('/api/projects', source))
+    const projectsRes = await fetch(buildApiUrl('/api/projects'))
     if (projectsRes.status === 404) throw new Error(`Project ${projectId} not found`)
     if (!projectsRes.ok) throw new Error('Failed to fetch projects')
     const projects: BackendProject[] = await projectsRes.json()
@@ -558,37 +535,31 @@ export async function fetchProjectRuns(projectId: string, source?: DataSource): 
     const project = projects.find(p => p.id.toString() === projectId)
     if (!project) throw new Error(`Project ${projectId} not found`)
 
-    const runsRes = await fetch(buildApiUrl(`/api/project/${project.id}/runs`, source))
+    const runsRes = await fetch(buildApiUrl(`/api/project/${project.id}/runs`))
     let runSummaries: RunSummary[] = []
 
     if (runsRes.ok) {
       const backendRuns: BackendRun[] = await runsRes.json()
-      // Map properties currently in parallel
-      runSummaries = await Promise.all(backendRuns.map((backendRun) => mapRunSummary(backendRun, source)))
+      runSummaries = await Promise.all(backendRuns.map(mapRunSummary))
     }
 
     const totalEnergy = runSummaries.reduce((sum, r) => sum + r.totalEnergy, 0)
     const lastRunTimestamp = runSummaries.reduce((max, r) => Math.max(max, r.timestamp), 0)
-    const totalCpuEnergy = runSummaries.reduce((sum, run) => sum + run.totalCpuEnergy, 0)
-    const totalGpuEnergy = runSummaries.reduce((sum, run) => sum + run.totalGpuEnergy, 0)
-    const totalMemEnergy = runSummaries.reduce((sum, run) => sum + run.totalMemEnergy, 0)
-    const totalIgpuEnergy = runSummaries.reduce((sum, run) => sum + run.totalIgpuEnergy, 0)
-    const avgCpuUsage =
-      runSummaries.length > 0
-        ? runSummaries.reduce((sum, run) => sum + run.avgCpuUsage, 0) / runSummaries.length
-        : 0
-    const avgGpuUsage =
-      runSummaries.length > 0
-        ? runSummaries.reduce((sum, run) => sum + run.avgGpuUsage, 0) / runSummaries.length
-        : 0
-    const avgMemUsage =
-      runSummaries.length > 0
-        ? runSummaries.reduce((sum, run) => sum + run.avgMemUsage, 0) / runSummaries.length
-        : 0
+    const totalCpuEnergy = runSummaries.reduce((sum, r) => sum + r.totalCpuEnergy, 0)
+    const totalGpuEnergy = runSummaries.reduce((sum, r) => sum + r.totalGpuEnergy, 0)
+    const totalMemEnergy = runSummaries.reduce((sum, r) => sum + r.totalMemEnergy, 0)
+    const totalIgpuEnergy = runSummaries.reduce((sum, r) => sum + r.totalIgpuEnergy, 0)
+    const avgCpuUsage = runSummaries.length > 0
+      ? runSummaries.reduce((sum, r) => sum + r.avgCpuUsage, 0) / runSummaries.length : 0
+    const avgGpuUsage = runSummaries.length > 0
+      ? runSummaries.reduce((sum, r) => sum + r.avgGpuUsage, 0) / runSummaries.length : 0
+    const avgMemUsage = runSummaries.length > 0
+      ? runSummaries.reduce((sum, r) => sum + r.avgMemUsage, 0) / runSummaries.length : 0
 
     return {
       id: project.id.toString(),
       name: project.name,
+      workspaceSlug: project.workspace_slug,
       totalRuns: runSummaries.length,
       totalEnergy,
       lastRunTimestamp: lastRunTimestamp || Date.now(),
@@ -599,7 +570,7 @@ export async function fetchProjectRuns(projectId: string, source?: DataSource): 
       totalGpuEnergy,
       totalMemEnergy,
       totalIgpuEnergy,
-      runs: runSummaries.sort((a, b) => b.timestamp - a.timestamp)
+      runs: runSummaries.sort((a, b) => b.timestamp - a.timestamp),
     }
   } catch (error) {
     throw error
@@ -609,28 +580,23 @@ export async function fetchProjectRuns(projectId: string, source?: DataSource): 
 /**
  * Fetch all runs for all projects
  */
-export async function fetchAllRuns(source?: DataSource): Promise<RunSummary[]> {
+export async function fetchAllRuns(): Promise<RunSummary[]> {
   try {
-    const projectsRes = await fetch(buildApiUrl('/api/projects', source))
+    const projectsRes = await fetch(buildApiUrl('/api/projects'))
     if (projectsRes.status === 404) return []
     if (!projectsRes.ok) throw new Error('Failed to fetch projects')
     const projects: BackendProject[] = await projectsRes.json()
 
-    // Fetch runs for ALL projects concurrently
     const projectRunsArrays = await Promise.all(
       projects.map(async (project) => {
-        const runsRes = await fetch(buildApiUrl(`/api/project/${project.id}/runs`, source))
+        const runsRes = await fetch(buildApiUrl(`/api/project/${project.id}/runs`))
         if (!runsRes.ok) return []
-
         const backendRuns: BackendRun[] = await runsRes.json()
-        return Promise.all(backendRuns.map((backendRun) => mapRunSummary(backendRun, source)))
+        return Promise.all(backendRuns.map(mapRunSummary))
       })
     )
 
-    // Flatten array of arrays
-    const allRuns = projectRunsArrays.flat()
-
-    return allRuns.sort((a, b) => b.timestamp - a.timestamp)
+    return projectRunsArrays.flat().sort((a, b) => b.timestamp - a.timestamp)
   } catch (error) {
     throw error
   }
@@ -639,12 +605,12 @@ export async function fetchAllRuns(source?: DataSource): Promise<RunSummary[]> {
 /**
  * Fetch a specific run with record points
  */
-export async function fetchRunDetail(id: string, source?: DataSource): Promise<RunDetail> {
+export async function fetchRunDetail(id: string): Promise<RunDetail> {
   try {
     const [runRes, summaryRes, recordsRes] = await Promise.all([
-      fetch(buildApiUrl(`/api/run/${id}`, source)),
-      fetch(buildApiUrl(`/api/run/${id}/summary`, source)),
-      fetch(buildApiUrl(`/api/run/${id}/record_points`, source)),
+      fetch(buildApiUrl(`/api/run/${id}`)),
+      fetch(buildApiUrl(`/api/run/${id}/summary`)),
+      fetch(buildApiUrl(`/api/run/${id}/record_points`)),
     ])
 
     if (!runRes.ok) throw new Error(`Run ${id} not found`)
@@ -656,8 +622,6 @@ export async function fetchRunDetail(id: string, source?: DataSource): Promise<R
       .map(mapRecord)
       .sort((left, right) => left.timestamp - right.timestamp)
 
-    // Use summary if available, otherwise compute from records.
-    // DB stores energy in Joules; convert to Wh (÷ 3600) for display.
     let totalCpuEnergy: number, totalGpuEnergy: number, totalMemEnergy: number, totalIgpuEnergy: number
     if (summary) {
       totalCpuEnergy = summary.total_cpu_energy / 3600
@@ -671,7 +635,7 @@ export async function fetchRunDetail(id: string, source?: DataSource): Promise<R
       totalIgpuEnergy = records.reduce((sum, r) => sum + r.igpu_energy, 0) / 3600
     }
 
-    const totalEnergy = totalCpuEnergy + totalGpuEnergy + totalMemEnergy + totalIgpuEnergy // Wh
+    const totalEnergy = totalCpuEnergy + totalGpuEnergy + totalMemEnergy + totalIgpuEnergy
     const energyKwh = totalEnergy / 1000
     const carbonFootprint = summary?.total_co2_g != null
       ? summary.total_co2_g
@@ -708,8 +672,8 @@ export async function fetchRunDetail(id: string, source?: DataSource): Promise<R
       command: backendRun.command ?? null,
       carbonIntensityUsed: summary?.carbon_intensity_used ?? null,
       pueUsed: summary?.pue_used ?? null,
-      totalCost: totalCost,
-      currency: currency,
+      totalCost,
+      currency,
       systemInfo: backendRun.cpu_name ? {
         cpuName: backendRun.cpu_name,
         cpuCores: backendRun.cpu_cores ?? 0,
@@ -724,11 +688,8 @@ export async function fetchRunDetail(id: string, source?: DataSource): Promise<R
   }
 }
 
-/**
- * Fetch improvements (placeholder as backend doesn't have this yet)
- */
 export async function fetchImprovements(): Promise<Improvement[]> {
-  return [] // Return empty for now
+  return []
 }
 
 export async function createRun(data: Partial<Run>): Promise<Run> {
@@ -743,11 +704,8 @@ export async function deleteRun(id: string): Promise<void> {
   throw new Error('Not implemented')
 }
 
-export async function searchRuns(
-  filters: Record<string, any>,
-  source?: DataSource
-): Promise<RunSummary[]> {
-  const allRuns = await fetchAllRuns(source)
+export async function searchRuns(filters: Record<string, unknown>): Promise<RunSummary[]> {
+  const allRuns = await fetchAllRuns()
   return allRuns.filter(run => {
     if (filters.status && run.status !== filters.status) return false
     if (filters.collaborator && run.collaboratorName !== filters.collaborator) return false
@@ -759,9 +717,8 @@ export async function batchDeleteRuns(ids: string[]): Promise<void> {
   await Promise.all(ids.map(id => deleteRun(id)))
 }
 
-
-export async function exportRunAsCSV(id: string, source?: DataSource): Promise<Blob> {
-  const run = await fetchRunDetail(id, source)
+export async function exportRunAsCSV(id: string): Promise<Blob> {
+  const run = await fetchRunDetail(id)
   const headers = ['Timestamp', 'CPU Usage (%)', 'CPU Energy (W)', 'GPU Usage (%)', 'GPU Energy (W)', 'MEM Energy (W)', 'iGPU Energy (W)']
   const rows = run.records.map(record => [
     new Date(record.timestamp).toISOString(),
@@ -789,11 +746,9 @@ function mapAdminRun(run: BackendAdminRun): AdminRunInfo {
   }
 }
 
-export async function fetchAdminProjects(source?: DataSource): Promise<AdminProjectMonitor[]> {
-  const response = await fetch(buildApiUrl('/api/admin/projects', source))
-  if (!response.ok) {
-    throw new Error('Failed to fetch admin project monitor data')
-  }
+export async function fetchAdminProjects(): Promise<AdminProjectMonitor[]> {
+  const response = await fetch(buildApiUrl('/api/admin/projects'))
+  if (!response.ok) throw new Error('Failed to fetch admin project monitor data')
 
   const projects: BackendAdminProject[] = await response.json()
   return projects.map((project) => ({

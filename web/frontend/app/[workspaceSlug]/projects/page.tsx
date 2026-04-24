@@ -1,27 +1,31 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useDataSource } from '@/components/DataSourceProvider'
 import { DashboardLayout } from '@/components/DashboardLayout'
 import { ProjectsTable } from '@/components/ProjectsTable'
 import { ProjectSummary, fetchAllProjects } from '@/lib/api-client'
 import { Folder } from 'lucide-react'
 import { StartRunModal } from '@/components/StartRunModal'
+import { useWorkspace } from '@/components/WorkspaceProvider'
 
 export default function ProjectsPage() {
+    const { currentWorkspace, loading: workspaceLoading } = useWorkspace()
     const [projects, setProjects] = useState<ProjectSummary[]>([])
     const [loading, setLoading] = useState(true)
-    const { source } = useDataSource()
 
     useEffect(() => {
+        if (workspaceLoading) return
         let cancelled = false
 
         const loadProjects = async () => {
             setLoading(true)
             try {
-                const data = await fetchAllProjects(source)
+                const data = await fetchAllProjects()
                 if (!cancelled) {
-                    setProjects(data)
+                    const filtered = currentWorkspace
+                        ? data.filter(p => p.workspaceSlug === currentWorkspace.slug)
+                        : data
+                    setProjects(filtered)
                 }
             } catch (error) {
                 if (!cancelled) {
@@ -39,7 +43,7 @@ export default function ProjectsPage() {
         return () => {
             cancelled = true
         }
-    }, [source])
+    }, [currentWorkspace, workspaceLoading])
 
     return (
         <DashboardLayout>
@@ -55,11 +59,11 @@ export default function ProjectsPage() {
                                 All registered EcoCode projects
                             </p>
                         </div>
-                        <StartRunModal 
-                            projects={projects} 
+                        <StartRunModal
+                            projects={projects}
                             onProjectCreated={() => {
-                                fetchAllProjects(source).then(setProjects)
-                            }} 
+                                fetchAllProjects().then(setProjects)
+                            }}
                         />
                     </div>
                 </div>

@@ -3,10 +3,10 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Activity, ArrowLeft, Folder, Zap, Clock } from 'lucide-react'
-import { useDataSource } from '@/components/DataSourceProvider'
 import { DashboardLayout } from '@/components/DashboardLayout'
 import { RecentRunsTable } from '@/components/RecentRunsTable'
 import { ProjectDetail, fetchProjectRuns, fetchAllProjects, ProjectSummary } from '@/lib/api-client'
+import { useParams } from 'next/navigation'
 import { MetricCard } from '@/components/MetricCard'
 import { CarbonSettings } from '@/components/CarbonSettings'
 import { StartRunModal } from '@/components/StartRunModal'
@@ -18,22 +18,21 @@ interface ProjectPageProps {
 }
 
 export default function ProjectPage({ params }: ProjectPageProps) {
+    const routeParams = useParams()
+    const workspaceSlug = routeParams.workspaceSlug as string
     const [project, setProject] = useState<ProjectDetail | null>(null)
     const [allProjects, setAllProjects] = useState<ProjectSummary[]>([])
     const [loading, setLoading] = useState(true)
     const [paramId, setParamId] = useState<string | null>(null)
-    const { source } = useDataSource()
 
     useEffect(() => {
         const initParams = async () => {
             const { id } = await params
             setParamId(id)
-            
-            // Load all projects for the modal
-            fetchAllProjects(source).then(setAllProjects)
+            fetchAllProjects().then(setAllProjects)
         }
         initParams()
-    }, [params, source])
+    }, [params])
 
     useEffect(() => {
         if (!paramId) return
@@ -43,7 +42,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
         const loadProject = async () => {
             setLoading(true)
             try {
-                const data = await fetchProjectRuns(paramId, source)
+                const data = await fetchProjectRuns(paramId)
                 if (!cancelled) {
                     setProject(data)
                 }
@@ -63,7 +62,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
         return () => {
             cancelled = true
         }
-    }, [paramId, source])
+    }, [paramId])
 
     if (loading) {
         return (
@@ -82,7 +81,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                     <div className="text-center py-12">
                         <p className="text-muted-foreground mb-4">Project not found</p>
                         <Link
-                            href="/"
+                            href={`/${workspaceSlug}`}
                             className="inline-flex items-center gap-2 text-primary hover:text-primary/80 transition-colors"
                         >
                             <ArrowLeft className="w-4 h-4" />
@@ -101,7 +100,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
             <div className="p-4 md:p-6 lg:p-8 w-full">
                 <div className="mb-6 md:mb-8">
                     <Link
-                        href="/"
+                        href={`/${workspaceSlug}`}
                         className="inline-flex items-center gap-2 text-primary hover:text-primary/80 transition-colors mb-4"
                     >
                         <ArrowLeft className="w-4 h-4" />
@@ -118,11 +117,11 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                                 Project Dashboard
                             </p>
                         </div>
-                        <StartRunModal 
-                            projects={allProjects} 
+                        <StartRunModal
+                            projects={allProjects}
                             defaultProjectId={paramId || undefined}
                             onProjectCreated={() => {
-                                fetchAllProjects(source).then(setAllProjects)
+                                fetchAllProjects().then(setAllProjects)
                             }}
                         />
                     </div>

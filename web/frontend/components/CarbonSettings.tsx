@@ -10,7 +10,6 @@ import { Slider } from '@/components/ui/slider'
 import { Globe, MapPin, Zap, RefreshCw, Key, Save, Coins, Landmark, TrendingUp } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
 import { fetchCarbonConfig, updateCarbonConfig, refreshCarbonIntensity, fetchCarbonRegions, CarbonConfig, CarbonRegion } from '@/lib/api-client'
-import { useDataSource } from '@/components/DataSourceProvider'
 import { toast } from 'sonner'
 
 interface CarbonSettingsProps {
@@ -18,7 +17,6 @@ interface CarbonSettingsProps {
 }
 
 export function CarbonSettings({ projectId }: CarbonSettingsProps) {
-  const { source } = useDataSource()
   const [config, setConfig] = useState<CarbonConfig | null>(null)
   const [regions, setRegions] = useState<CarbonRegion[]>([])
   const [loading, setLoading] = useState(true)
@@ -38,7 +36,7 @@ export function CarbonSettings({ projectId }: CarbonSettingsProps) {
       try {
         setLoading(true)
         const [cfg, regs] = await Promise.all([
-          fetchCarbonConfig(projectId, source),
+          fetchCarbonConfig(projectId),
           fetchCarbonRegions()
         ])
         setConfig(cfg)
@@ -56,7 +54,7 @@ export function CarbonSettings({ projectId }: CarbonSettingsProps) {
       }
     }
     load()
-  }, [projectId, source])
+  }, [projectId])
 
   const handleSave = async () => {
     try {
@@ -69,7 +67,7 @@ export function CarbonSettings({ projectId }: CarbonSettingsProps) {
         manual_currency: currency,
         use_api_for_cost: useApiForCost,
         ...(apiKey && { electricity_maps_api_key: apiKey }),
-      }, source)
+      })
       setConfig(updated)
       setApiKey('')
       toast.success('Carbon settings updated')
@@ -83,7 +81,7 @@ export function CarbonSettings({ projectId }: CarbonSettingsProps) {
   const handleRefresh = async () => {
     try {
       setRefreshing(true)
-      const updated = await refreshCarbonIntensity(projectId, source)
+      const updated = await refreshCarbonIntensity(projectId)
       setConfig(updated)
       toast.success(`Intensity refreshed: ${updated.resolved_intensity_g_per_kwh} g/kWh`)
     } catch (err: any) {

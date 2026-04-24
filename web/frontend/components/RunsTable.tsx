@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { Run } from '@/lib/mock-data'
 import { format } from 'date-fns'
 import { ChevronRight, Check, Clock, X } from 'lucide-react'
+import { useWorkspace } from './WorkspaceProvider'
 import {
   Pagination,
   PaginationContent,
@@ -21,6 +22,8 @@ interface RunsTableProps {
 const ITEMS_PER_PAGE = 10
 
 export function RunsTable({ runs }: RunsTableProps) {
+  const { currentWorkspace } = useWorkspace()
+  const workspaceSlug = currentWorkspace?.slug ?? ''
   const [currentPage, setCurrentPage] = useState(1)
   const [selectedRuns, setSelectedRuns] = useState<Set<string>>(new Set())
 
@@ -163,7 +166,7 @@ export function RunsTable({ runs }: RunsTableProps) {
                     {Number(run.carbonFootprint.toFixed(2)).toLocaleString()}
                   </td>
                   <td className="text-right py-4 px-4">
-                    <Link href={`/runs/${run.id}`}>
+                    <Link href={`/${workspaceSlug}/runs/${run.id}`}>
                       <ChevronRight className="w-4 h-4 text-muted-foreground hover:text-primary transition-colors" />
                     </Link>
                   </td>

@@ -5,12 +5,15 @@ import Link from 'next/link'
 import { Run } from '@/lib/mock-data'
 import { format } from 'date-fns'
 import { ChevronRight } from 'lucide-react'
+import { useWorkspace } from './WorkspaceProvider'
 
 interface RecentRunsTableProps {
   runs: Omit<Run, 'records'>[]
 }
 
 export const RecentRunsTable = memo(function RecentRunsTable({ runs }: RecentRunsTableProps) {
+  const { currentWorkspace } = useWorkspace()
+  const workspaceSlug = currentWorkspace?.slug ?? ''
   const recentRuns = runs.slice(0, 5)
 
   return (
@@ -18,7 +21,7 @@ export const RecentRunsTable = memo(function RecentRunsTable({ runs }: RecentRun
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold text-foreground">Recent Runs</h3>
         <Link
-          href="/runs"
+          href={`/${workspaceSlug}/runs`}
           className="text-sm text-primary hover:text-primary/80 transition-colors"
         >
           View all →
@@ -96,7 +99,7 @@ export const RecentRunsTable = memo(function RecentRunsTable({ runs }: RecentRun
                   </span>
                 </td>
                 <td className="text-right py-3 px-4">
-                  <Link href={`/runs/${run.id}`}>
+                  <Link href={`/${workspaceSlug}/runs/${run.id}`}>
                     <ChevronRight className="w-4 h-4 text-muted-foreground hover:text-primary transition-colors" />
                   </Link>
                 </td>

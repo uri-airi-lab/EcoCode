@@ -1,318 +1,157 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
-import {
-  Zap,
-  Clock,
-  Activity,
-  Coins,
-} from 'lucide-react'
-import { DashboardLayout } from '@/components/DashboardLayout'
-import { MetricCard } from '@/components/MetricCard'
-import { EnergyChart } from '@/components/EnergyChart'
-import { UtilizationChart } from '@/components/UtilizationChart'
-import { ProjectsTable } from '@/components/ProjectsTable'
-import { useDataSource } from '@/components/DataSourceProvider'
-import { PowerDistributionChart } from '@/components/PowerDistributionChart'
-import { CumulativePowerChart } from '@/components/CumulativePowerChart'
-import { EnvironmentalImpact } from '@/components/EnvironmentalImpact'
-import { CarbonSettings } from '@/components/CarbonSettings'
-import { StartRunModal } from '@/components/StartRunModal'
-import { Run } from '@/lib/mock-data'
-import { fetchAllRuns, fetchRunDetail, fetchAllProjects, ProjectSummary } from '@/lib/api-client'
-import { useSSE } from '@/hooks/use-sse'
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { FolderPlus, Loader2, ArrowRight } from 'lucide-react'
 
-export default function Dashboard() {
-  const [runs, setRuns] = useState<Omit<Run, 'records'>[]>([])
-  const [projects, setProjects] = useState<ProjectSummary[]>([])
-  const [currentRun, setCurrentRun] = useState<Run | null>(null)
+interface Workspace {
+  id: number
+  name: string
+  slug: string
+  role: string
+}
+
+export default function RootPage() {
+  const router = useRouter()
   const [loading, setLoading] = useState(true)
-  const { source } = useDataSource()
-  const { latestRecord } = useSSE(source)
-
-  // Update current run with real-time SSE data
-  useEffect(() => {
-    if (!latestRecord) return
-
-    setCurrentRun((prevRun) => {
-      if (!prevRun) return null
-
-      // Check if the record already exists to avoid duplicates
-      if (prevRun.records.some((r) => r.id === latestRecord.id)) return prevRun
-
-      const updatedRecords = [...prevRun.records, latestRecord]
-      const count = updatedRecords.length
-
-      // Calculate new total and averages incrementally (O(1) instead of O(N))
-      // Conversion: Joules / 3600 = Wh
-      const newTotalEnergy =
-        prevRun.totalEnergy +
-        (latestRecord.cpu_energy +
-          latestRecord.gpu_energy +
-          latestRecord.mem_energy +
-          latestRecord.igpu_energy) / 3600.0;
-
-      const energyKwh = newTotalEnergy / 1000
-
-      // Incremental averages: (old_avg * old_count + new_val) / new_count
-      const avgCpuUsage = (prevRun.avgCpuUsage * (count - 1) + latestRecord.cpu_usage) / count
-      const avgGpuUsage = (prevRun.avgGpuUsage * (count - 1) + latestRecord.gpu_usage) / count
-      const avgMemUsage = (prevRun.avgMemUsage * (count - 1) + latestRecord.mem_usage) / count
-
-      return {
-        ...prevRun,
-        records: updatedRecords,
-        totalEnergy: newTotalEnergy,
-        carbonFootprint: energyKwh * (prevRun.carbonIntensityUsed ?? 494) * (prevRun.pueUsed ?? 1.0),
-        avgCpuUsage,
-        avgGpuUsage,
-        avgMemUsage,
-      }
-    })
-  }, [latestRecord])
+  const [creating, setCreating] = useState(false)
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
+  
+  const [name, setName] = useState('')
+  const [slug, setSlug] = useState('')
 
   useEffect(() => {
-    let cancelled = false
-
-    const fetchData = async () => {
-      setLoading(true)
-      try {
-        const projData = await fetchAllProjects(source)
-        if (cancelled) return
-        setProjects(projData)
-
-        const runsData = await fetchAllRuns(source)
-        if (cancelled) return
-        setRuns(runsData)
-
-        if (runsData.length > 0) {
-          const latestRunId = runsData[runsData.length - 1].id
-          const runData = await fetchRunDetail(latestRunId, source)
-          if (cancelled) return
-          setCurrentRun(runData)
+    fetch('/api/workspaces')
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to fetch')
+        return res.json()
+      })
+      .then((data: Workspace[]) => {
+        if (data.length > 0) {
+          // Redirect to the first available workspace
+          router.push(`/${data[0].slug}`)
         } else {
-          setCurrentRun(null)
-        }
-      } catch (error) {
-        if (!cancelled) {
-          console.error('Failed to fetch data:', error)
-          setRuns([])
-          setProjects([])
-          setCurrentRun(null)
-        }
-      } finally {
-        if (!cancelled) {
+          setWorkspaces([])
           setLoading(false)
         }
+      })
+      .catch(() => {
+        // Assume unauthenticated or error, middleware handles unauth mostly
+        router.push('/login')
+      })
+  }, [router])
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setCreating(true)
+
+    try {
+      const res = await fetch('/api/workspaces', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, slug }),
+      })
+
+      if (res.ok) {
+        router.push(`/${slug}`)
+      } else if (res.status === 409) {
+        alert('Failed to create workspace. Slug might be taken.')
+      } else {
+        const errorData = await res.json().catch(() => ({}))
+        alert(`Failed to create workspace: ${errorData.message || 'Server error'}`)
       }
+    } catch (err) {
+      alert('An error occurred')
+    } finally {
+      setCreating(false)
     }
+  }
 
-    fetchData()
-
-    return () => {
-      cancelled = true
+  // Auto-generate slug from name
+  const handleNameChange = (val: string) => {
+    setName(val)
+    if (!slug || slug === name.toLowerCase().replace(/[^a-z0-9]/g, '-')) {
+      setSlug(val.toLowerCase().replace(/[^a-z0-9]/g, '-'))
     }
-  }, [source])
+  }
 
-  // Calculate aggregate stats (memoized to avoid re-calculating on every real-time update)
-  const stats = useMemo(() => {
-    const totalEnergy = runs.reduce((sum, r) => sum + r.totalEnergy, 0)
-    const totalCoreHours = runs.reduce((sum, r) => sum + r.totalCoreHours, 0)
-    const avgCpuUsage =
-      runs.length > 0
-        ? runs.reduce((sum, r) => sum + r.avgCpuUsage, 0) / runs.length
-        : 0
-    const totalCarbonFootprint = runs.reduce((sum, r) => sum + r.carbonFootprint, 0)
-    const totalCost = runs.reduce((sum, r) => sum + (r.totalCost || 0), 0)
-    const currency = runs.find(r => r.currency)?.currency || 'USD'
-    const avgMemUsage =
-      runs.length > 0
-        ? runs.reduce((sum, r) => sum + r.avgMemUsage || 0, 0) / runs.length
-        : 0
-    const avgGpuUsage =
-      runs.length > 0
-        ? runs.reduce((sum, r) => sum + r.avgGpuUsage, 0) / runs.length
-        : 0
-
-    return {
-      totalEnergy,
-      totalCoreHours,
-      avgCpuUsage,
-      totalCarbonFootprint,
-      totalCost,
-      currency,
-      avgMemUsage,
-      avgGpuUsage
-    }
-  }, [runs])
-
-  // Calculate trends (comparing last two runs)
-  const trend = useMemo(() => {
-    if (runs.length < 2) return null
-
-    const prevRun = runs[runs.length - 2]
-    const lastRun = runs[runs.length - 1]
-
-    return {
-      energyTrend:
-        prevRun.totalEnergy === 0
-          ? lastRun.totalEnergy === 0 ? 0 : 100
-          : ((prevRun.totalEnergy - lastRun.totalEnergy) / prevRun.totalEnergy) * 100,
-      carbonTrend:
-        prevRun.carbonFootprint === 0
-          ? lastRun.carbonFootprint === 0 ? 0 : 100
-          : ((prevRun.carbonFootprint - lastRun.carbonFootprint) / prevRun.carbonFootprint) * 100,
-    }
-  }, [runs])
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-neutral-950 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
+      </div>
+    )
+  }
 
   return (
-    <DashboardLayout>
-      <div className="p-4 md:p-6 lg:p-8 w-full">
-        {/* Header */}
-        <div className="mb-6 md:mb-8">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-2">
-            <div>
-              <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold text-foreground mb-2">
-                Dashboard
-              </h1>
-              <p className="text-sm md:text-base text-muted-foreground">
-                Monitor your EcoCode runs and environmental impact
-              </p>
-            </div>
-            <StartRunModal 
-              projects={projects} 
-              onProjectCreated={() => {
-                // Refresh projects list
-                fetchAllProjects(source).then(setProjects)
-              }} 
-            />
-          </div>
-        </div>
-
-
-        {/* Project Overview */}
-        <div className="mb-8">
-          <h2 className="text-lg md:text-xl font-semibold text-foreground mb-4">
-            Project Overview
-          </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-            <MetricCard
-              icon={Zap}
-              label="Total Energy"
-              value={Number(stats.totalEnergy.toFixed(2)).toLocaleString()}
-              unit="Wh"
-              trend={
-                trend
-                  ? {
-                    value: trend.energyTrend,
-                    direction: trend.energyTrend > 0 ? 'up' : 'down',
-                  }
-                  : undefined
-              }
-              loading={loading}
-            />
-            <MetricCard
-              icon={Clock}
-              label="Total Core Hours"
-              value={(stats.totalCoreHours / 24).toFixed(2)}
-              unit="hrs"
-              loading={loading}
-            />
-            {/* <MetricCard
-              icon={Leaf}
-              label="Carbon Footprint"
-              value={Number(stats.totalCarbonFootprint.toFixed(2)).toLocaleString()}
-              unit="g CO₂"
-              trend={
-                trend
-                  ? {
-                    value: trend.carbonTrend,
-                    direction: trend.carbonTrend > 0 ? 'up' : 'down',
-                  }
-                  : undefined
-              }
-              loading={loading}
-            /> */}
-            <MetricCard
-              icon={Activity}
-              label="Avg CPU Usage"
-              value={stats.avgCpuUsage.toFixed(1)}
-              unit="%"
-              loading={loading}
-            />
-            <MetricCard
-              icon={Activity}
-              label="Avg GPU Usage"
-              value={stats.avgGpuUsage.toFixed(1)}
-              unit="%"
-              loading={loading}
-            />
-            <MetricCard
-              icon={Activity}
-              label="Avg Memory Usage"
-              value={stats.avgMemUsage.toFixed(1)}
-              unit="%"
-              loading={loading}
-            />
-            <MetricCard
-              icon={Coins}
-              label="Total Cost"
-              value={stats.totalCost.toFixed(2)}
-              unit={stats.currency}
-              loading={loading}
-              className="bg-amber-500/10 border-amber-500/20"
-            />
-          </div>
-        </div>
-
-        {/* Environmental Impact Translation
-        <div className="mb-8">
-          <h2 className="text-lg md:text-xl font-semibold text-foreground mb-4">
-            Environmental Impact Equivalents
-          </h2>
-          <EnvironmentalImpact
-            totalEnergyWh={stats.totalEnergy}
-            totalCo2G={stats.totalCarbonFootprint}
-          />
-        </div>
-
-        {/* Carbon Settings */}
-        {/* {projects.length > 0 && (
-          <div className="mb-8">
-            <h2 className="text-lg md:text-xl font-semibold text-foreground mb-4">
-              Carbon & Energy Settings
-            </h2>
-            <CarbonSettings projectId={Number(projects[0].id)} />
-          </div>
-        )} */}
-
-        {/* Charts */}
-        {currentRun && (
-          <div className="mb-8 space-y-4 md:space-y-6">
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 md:gap-6">
-              <div className="xl:col-span-2">
-                <EnergyChart data={currentRun.records} />
-              </div>
-              {currentRun.records.length > 0 && (
-                <div className="xl:col-span-1">
-                  <PowerDistributionChart 
-                    record={currentRun.records[currentRun.records.length - 1]} 
-                    prevRecord={currentRun.records.length > 1 ? currentRun.records[currentRun.records.length - 2] : undefined}
-                  />
-                </div>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
-              <CumulativePowerChart data={currentRun.records} />
-              <UtilizationChart data={currentRun.records} />
-            </div>
-          </div>
-        )}
-
-        {/* Projects Table */}
-        <ProjectsTable projects={projects} />
+    <div className="min-h-screen bg-neutral-950 flex flex-col items-center justify-center relative overflow-hidden text-white">
+      <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0 pointer-events-none">
+        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-emerald-500/10 blur-[120px]" />
       </div>
-    </DashboardLayout>
+
+      <div className="z-10 w-full max-w-md px-6">
+        <div className="flex flex-col items-center mb-8 text-center">
+          <div className="w-16 h-16 bg-neutral-900 border border-neutral-800 rounded-2xl flex items-center justify-center mb-6">
+            <FolderPlus className="w-8 h-8 text-emerald-400" />
+          </div>
+          <h1 className="text-3xl font-bold mb-2">Create your workspace</h1>
+          <p className="text-neutral-400">
+            A workspace contains all your EcoCode projects, runs, and team members.
+          </p>
+        </div>
+
+        <div className="bg-neutral-900/60 backdrop-blur-xl border border-neutral-800 rounded-3xl p-8 shadow-2xl">
+          <form onSubmit={handleCreate} className="space-y-5">
+            <div>
+              <label className="block text-sm font-medium text-neutral-300 mb-2">
+                Workspace Name
+              </label>
+              <input
+                type="text"
+                required
+                value={name}
+                onChange={(e) => handleNameChange(e.target.value)}
+                className="w-full px-4 py-3 bg-neutral-950/50 border border-neutral-800 rounded-xl text-white placeholder:text-neutral-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                placeholder="Acme Corp"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-neutral-300 mb-2">
+                Workspace URL
+              </label>
+              <div className="flex items-center">
+                <span className="px-4 py-3 bg-neutral-900 border border-neutral-800 border-r-0 rounded-l-xl text-neutral-500 text-sm">
+                  ecocode.com/
+                </span>
+                <input
+                  type="text"
+                  required
+                  value={slug}
+                  onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+                  className="w-full px-4 py-3 bg-neutral-950/50 border border-neutral-800 rounded-r-xl text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                  placeholder="acme-corp"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={creating}
+              className="w-full mt-2 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-white font-medium py-3 px-4 rounded-xl flex items-center justify-center transition-all disabled:opacity-50"
+            >
+              {creating ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                <>
+                  Create Workspace
+                  <ArrowRight className="w-5 h-5 ml-2" />
+                </>
+              )}
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
   )
 }

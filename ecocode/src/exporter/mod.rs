@@ -9,6 +9,7 @@
 //! - [`logfile`] — formatted log file
 
 pub mod csv;
+pub mod http;
 pub mod json;
 pub mod local;
 pub mod logfile;
@@ -123,6 +124,7 @@ pub enum ExporterType {
     Online,
     Prometheus,
     LogFile,
+    Http,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

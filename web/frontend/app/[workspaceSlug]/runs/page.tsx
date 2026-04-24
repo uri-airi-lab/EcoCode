@@ -2,29 +2,42 @@
 
 import { useEffect, useState } from 'react'
 import { Search } from 'lucide-react'
-import { useDataSource } from '@/components/DataSourceProvider'
 import { DashboardLayout } from '@/components/DashboardLayout'
 import { RunsTable } from '@/components/RunsTable'
 import { Run } from '@/lib/mock-data'
-import { fetchAllRuns } from '@/lib/api-client'
+import { fetchAllRuns, fetchAllProjects } from '@/lib/api-client'
+import { useWorkspace } from '@/components/WorkspaceProvider'
 
 export default function RunsPage() {
+  const { currentWorkspace, loading: workspaceLoading } = useWorkspace()
   const [runs, setRuns] = useState<Omit<Run, 'records'>[]>([])
   const [filteredRuns, setFilteredRuns] = useState<Omit<Run, 'records'>[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
-  const { source } = useDataSource()
 
   useEffect(() => {
+    if (workspaceLoading) return
     let cancelled = false
 
-    const fetchRuns = async () => {
+    const fetchData = async () => {
       setLoading(true)
       try {
-        const data = await fetchAllRuns(source)
+        const [allProjects, allRuns] = await Promise.all([
+            fetchAllProjects(),
+            fetchAllRuns()
+        ])
+
         if (!cancelled) {
-          setRuns(data)
-          setFilteredRuns(data)
+          const workspaceProjects = currentWorkspace
+            ? allProjects.filter(p => p.workspaceSlug === currentWorkspace.slug)
+            : allProjects
+          
+          const workspaceRunList = currentWorkspace
+            ? allRuns.filter(r => workspaceProjects.some(p => p.id === r.project_id.toString()))
+            : allRuns
+
+          setRuns(workspaceRunList)
+          setFilteredRuns(workspaceRunList)
         }
       } catch (error) {
         if (!cancelled) {
@@ -39,12 +52,12 @@ export default function RunsPage() {
       }
     }
 
-    fetchRuns()
+    fetchData()
 
     return () => {
       cancelled = true
     }
-  }, [source])
+  }, [currentWorkspace, workspaceLoading])
 
   const handleSearch = (query: string) => {
     setSearchQuery(query)

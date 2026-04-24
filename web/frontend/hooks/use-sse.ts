@@ -2,15 +2,15 @@
 
 import { useEffect, useState } from 'react'
 import { MetricRecord } from '@/lib/mock-data'
-import { buildApiUrl, DataSource } from '@/lib/data-source'
+import { buildApiUrl } from '@/lib/data-source'
 
-export function useSSE(source: DataSource) {
+export function useSSE() {
     const [latestRecord, setLatestRecord] = useState<MetricRecord | null>(null)
     const [error, setError] = useState<string | null>(null)
 
     useEffect(() => {
         setLatestRecord(null)
-        const eventSource = new EventSource(buildApiUrl('/api/sse', source))
+        const eventSource = new EventSource(buildApiUrl('/api/sse'))
 
         eventSource.onmessage = (event) => {
             try {
@@ -48,7 +48,6 @@ export function useSSE(source: DataSource) {
         }
 
         eventSource.onerror = () => {
-            // EventSource auto-reconnects natively; closing here would break that.
             const next = eventSource.readyState === EventSource.CLOSED
                 ? 'SSE disconnected'
                 : 'SSE reconnecting...'
@@ -62,7 +61,7 @@ export function useSSE(source: DataSource) {
         return () => {
             eventSource.close()
         }
-    }, [source])
+    }, [])
 
     return { latestRecord, error }
 }

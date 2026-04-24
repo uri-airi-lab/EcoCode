@@ -5,15 +5,21 @@ edition = "2024"
 
 [dependencies]
 axum = "0.8.8"
-axum-extra = "0.12.5"
+axum-extra = { version = "0.12.5", features = ["cookie"] }
 dotenv = "0.15.0"
 futures = "0.3.32"
 futures-util = "0.3.32"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
-sqlx = { version = "0.8.6", features = ["sqlite", "postgres", "macros", "runtime-tokio-rustls", "chrono"] }
+sqlx = { version = "0.8.6", features = ["postgres", "macros", "runtime-tokio-rustls", "chrono"] }
 tokio = {version = "1.49.0", features = ["full"] }
 tokio-stream = { version = "0.1.18", features = ["sync"] }
 tower-http = { version = "0.6.2", features = ["cors"] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 chrono = "0.4"
+argon2 = "0.5.3"
+jsonwebtoken = "9.3.0"
+rand = "0.8.5"
+uuid = { version = "1.10.0", features = ["v4", "serde"] }
+hex = "0.4"
+sha2 = "0.10"
