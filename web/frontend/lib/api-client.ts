@@ -1,8 +1,26 @@
+/**
+ * API client for the EcoCode web backend.
+ *
+ * Provides typed fetch wrappers that:
+ * - Include credentials (session cookies) on every request.
+ * - Convert backend JSON (energy in Joules, timestamps as ISO strings) to the
+ *   frontend's domain types (energy in Wh, timestamps as Unix ms).
+ * - Aggregate per-run summaries and averages for charts and tables.
+ *
+ * Energy unit conversions applied here:
+ *   Database stores energy in Joules.
+ *   Frontend displays in Watt-hours:  Wh = J / 3600
+ *
+ * Water consumption estimate: 1.8 L/kWh (global data-centre average).
+ * Carbon fallback: 494 gCO2/kWh (IEA 2025 world average) when no project config is set.
+ */
+
 import { Run, MetricRecord } from './mock-data'
 import { buildApiUrl } from './data-source'
 
 // --- Internal Mappings ---
 
+/** Water consumption factor used to estimate mL consumed per Wh of energy. */
 const WATER_FACTOR = 1.8 // L/kWh
 
 interface BackendProject {
@@ -130,16 +148,19 @@ interface BackendAdminProject {
   latest_run: BackendAdminRun | null
 }
 
+/** Parses an ISO timestamp string into a Unix millisecond value, or null if absent/invalid. */
 function parseTimestamp(value?: string | null): number | null {
   if (!value) return null
   const timestamp = new Date(value).getTime()
   return Number.isNaN(timestamp) ? null : timestamp
 }
 
+/** Normalises the backend run status to one of the three frontend-known values. */
 function normalizeRunStatus(status?: BackendRun['status']): Run['status'] {
   return status === 'running' || status === 'failed' ? status : 'finished'
 }
 
+/** Maps a backend record point (Joules, ISO timestamp) to the frontend MetricRecord type. */
 function mapRecord(r: BackendRecordPoint): MetricRecord {
   return {
     id: r.id.toString(),
@@ -200,6 +221,7 @@ interface RunTotalsSnapshot {
   currency: string | null
 }
 
+/** Computes mean CPU, GPU, and memory utilization across all records in a run. */
 function calculateAverages(records: MetricRecord[]) {
   if (records.length === 0) {
     return { avgCpuUsage: 0, avgGpuUsage: 0, avgMemUsage: 0 }
@@ -211,6 +233,11 @@ function calculateAverages(records: MetricRecord[]) {
   }
 }
 
+/**
+ * Derives run duration in seconds.
+ * Prefers the `started_at` / `ended_at` timestamps from the run metadata.
+ * Falls back to the span of record timestamps if run timestamps are absent.
+ */
 function calculateDurationSeconds(
   records: MetricRecord[],
   startedAt?: string | null,
@@ -230,9 +257,14 @@ function calculateDurationSeconds(
   return records.length === 1 ? 60 : 0
 }
 
-// World average fallback (IEA 2025) when no config is set
+/** Fallback carbon intensity (gCO2/kWh) when no project configuration is available. */
 const WORLD_AVERAGE_INTENSITY_G_PER_KWH = 494
 
+/**
+ * Converts Joule-based energy totals from the backend summary into Wh and
+ * derives CO2 and cost figures. Falls back to the world average intensity if
+ * the project has not been configured with a specific value.
+ */
 function calculateEnergyTotals(summary: BackendRunSummary | null) {
   // DB stores energy in Joules; convert to Wh for display (1 Wh = 3600 J)
   const totalCpuEnergy = (summary?.total_cpu_energy ?? 0) / 3600
@@ -259,6 +291,7 @@ function calculateEnergyTotals(summary: BackendRunSummary | null) {
   }
 }
 
+/** Thin wrapper around `fetch` that always sends session cookies. */
 async function apiFetch(url: string, init?: RequestInit) {
   return fetch(url, {
     ...init,

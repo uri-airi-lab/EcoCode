@@ -3,8 +3,8 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import { Users, Mail, Shield, UserPlus, Loader2, Trash2, Calendar } from 'lucide-react'
-import { DashboardLayout } from '@/components/DashboardLayout'
-import { useWorkspace } from '@/components/WorkspaceProvider'
+import { DashboardLayout } from '@/components/layout/DashboardLayout'
+import { useWorkspace } from '@/components/layout/WorkspaceProvider'
 
 interface Member {
   user_id: number
@@ -91,6 +91,25 @@ export default function MembersSettingsPage() {
     }
   }
 
+  const handleRoleChange = async (userId: number, newRole: string) => {
+    try {
+      const res = await fetch(`/api/workspaces/${workspaceSlug}/members/${userId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: newRole }),
+      })
+
+      if (res.ok) {
+        fetchMembers()
+      } else {
+        const err = await res.text()
+        alert(err || 'Failed to update member role')
+      }
+    } catch (err) {
+      alert('An error occurred')
+    }
+  }
+
   return (
     <DashboardLayout>
       <div className="p-4 md:p-8 max-w-5xl mx-auto w-full">
@@ -149,14 +168,29 @@ export default function MembersSettingsPage() {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${
-                          member.role === 'admin'
-                            ? 'bg-chart-4/20 text-chart-4 border border-chart-4/20'
-                            : 'bg-chart-1/20 text-chart-1 border border-chart-1/20'
-                        }`}>
-                          <Shield className="w-3 h-3 mr-1" />
-                          {member.role.charAt(0).toUpperCase() + member.role.slice(1)}
-                        </span>
+                        {isAdmin ? (
+                          <select
+                            value={member.role}
+                            onChange={(e) => handleRoleChange(member.user_id, e.target.value)}
+                            className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium border cursor-pointer transition-colors ${
+                              member.role === 'admin'
+                                ? 'bg-chart-4/20 text-chart-4 border-chart-4/20 hover:bg-chart-4/30'
+                                : 'bg-chart-1/20 text-chart-1 border-chart-1/20 hover:bg-chart-1/30'
+                            }`}
+                          >
+                            <option value="member">Member</option>
+                            <option value="admin">Admin</option>
+                          </select>
+                        ) : (
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${
+                            member.role === 'admin'
+                              ? 'bg-chart-4/20 text-chart-4 border border-chart-4/20'
+                              : 'bg-chart-1/20 text-chart-1 border border-chart-1/20'
+                          }`}>
+                            <Shield className="w-3 h-3 mr-1" />
+                            {member.role.charAt(0).toUpperCase() + member.role.slice(1)}
+                          </span>
+                        )}
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center text-xs text-muted-foreground font-mono">

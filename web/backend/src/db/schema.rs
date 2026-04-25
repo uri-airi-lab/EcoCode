@@ -87,7 +87,7 @@ pub async fn ensure_postgres_schema(db: &PgPool) -> Result<(), Box<dyn std::erro
         "CREATE TABLE IF NOT EXISTS runs (
             id BIGSERIAL PRIMARY KEY,
             name TEXT,
-            project_id BIGINT REFERENCES projects(id),
+            project_id BIGINT REFERENCES projects(id) ON DELETE CASCADE,
             collaborator_name TEXT,
             status TEXT NOT NULL DEFAULT 'finished',
             started_at TEXT,
@@ -100,7 +100,7 @@ pub async fn ensure_postgres_schema(db: &PgPool) -> Result<(), Box<dyn std::erro
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS records (
             id BIGSERIAL PRIMARY KEY,
-            run_id BIGINT REFERENCES runs(id),
+            run_id BIGINT REFERENCES runs(id) ON DELETE CASCADE,
             pid BIGINT,
             timestamp TIMESTAMPTZ,
             cpu_usage DOUBLE PRECISION,
@@ -143,7 +143,7 @@ pub async fn ensure_postgres_schema(db: &PgPool) -> Result<(), Box<dyn std::erro
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS runsummary (
             id BIGSERIAL PRIMARY KEY,
-            run_id BIGINT REFERENCES runs(id),
+            run_id BIGINT REFERENCES runs(id) ON DELETE CASCADE,
             total_cpu_energy DOUBLE PRECISION,
             total_gpu_energy DOUBLE PRECISION,
             total_mem_energy DOUBLE PRECISION,
@@ -196,6 +196,7 @@ pub async fn ensure_postgres_schema(db: &PgPool) -> Result<(), Box<dyn std::erro
 
     backfill_postgres_project_collaborators(db).await?;
     sync_postgres_project_shortcuts(db).await?;
+    migrate_cascade_constraints(db).await?;
 
     Ok(())
 }
@@ -280,6 +281,99 @@ async fn sync_postgres_project_shortcuts(db: &PgPool) -> Result<(), Box<dyn std:
     )
     .execute(db)
     .await?;
+
+    Ok(())
+}
+
+/// Migrates existing foreign key constraints to add ON DELETE CASCADE.
+/// This is safe to run multiple times - it will only update if needed.
+async fn migrate_cascade_constraints(db: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    // Check if we need to migrate by looking for constraints without CASCADE
+    let needs_migration = sqlx::query(
+        "SELECT COUNT(*) as count
+         FROM information_schema.table_constraints tc
+         JOIN information_schema.referential_constraints rc ON tc.constraint_name = rc.constraint_name
+         WHERE tc.constraint_type = 'FOREIGN KEY'
+         AND tc.table_name IN ('runs', 'records', 'runsummary')
+         AND rc.delete_rule = 'NO ACTION'"
+    )
+    .fetch_one(db)
+    .await?;
+
+    use sqlx::Row;
+    let count: i64 = needs_migration.get("count");
+    
+    if count == 0 {
+        // Already migrated
+        return Ok(());
+    }
+
+    println!("Migrating foreign key constraints to add CASCADE...");
+
+    // Drop and recreate constraints with CASCADE
+    // Note: We need to handle this carefully to avoid breaking existing data
+    
+    // 1. Fix records.run_id constraint
+    sqlx::query(
+        "DO $$ 
+         BEGIN
+             IF EXISTS (
+                 SELECT 1 FROM information_schema.table_constraints 
+                 WHERE constraint_name = 'records_run_id_fkey' 
+                 AND table_name = 'records'
+             ) THEN
+                 ALTER TABLE records DROP CONSTRAINT records_run_id_fkey;
+             END IF;
+             
+             ALTER TABLE records 
+             ADD CONSTRAINT records_run_id_fkey 
+             FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE;
+         END $$;"
+    )
+    .execute(db)
+    .await?;
+
+    // 2. Fix runsummary.run_id constraint
+    sqlx::query(
+        "DO $$ 
+         BEGIN
+             IF EXISTS (
+                 SELECT 1 FROM information_schema.table_constraints 
+                 WHERE constraint_name = 'runsummary_run_id_fkey' 
+                 AND table_name = 'runsummary'
+             ) THEN
+                 ALTER TABLE runsummary DROP CONSTRAINT runsummary_run_id_fkey;
+             END IF;
+             
+             ALTER TABLE runsummary 
+             ADD CONSTRAINT runsummary_run_id_fkey 
+             FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE;
+         END $$;"
+    )
+    .execute(db)
+    .await?;
+
+    // 3. Fix runs.project_id constraint
+    sqlx::query(
+        "DO $$ 
+         BEGIN
+             IF EXISTS (
+                 SELECT 1 FROM information_schema.table_constraints 
+                 WHERE constraint_name = 'runs_project_id_fkey' 
+                 AND table_name = 'runs'
+             ) THEN
+                 ALTER TABLE runs DROP CONSTRAINT runs_project_id_fkey;
+             END IF;
+             
+             ALTER TABLE runs 
+             ADD CONSTRAINT runs_project_id_fkey 
+             FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE;
+         END $$;"
+    )
+    .execute(db)
+    .await?;
+
+    println!("Foreign key constraints migrated successfully!");
 
     Ok(())
 }

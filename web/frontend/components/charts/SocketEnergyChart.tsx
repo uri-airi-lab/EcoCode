@@ -14,7 +14,7 @@ import {
 } from 'recharts'
 import { MetricRecord } from '@/lib/mock-data'
 import { format } from 'date-fns'
-import { ChartInfoTooltip } from './ChartInfoTooltip'
+import { ChartInfoTooltip } from '@/components/ChartInfoTooltip'
 import { chartColor } from '@/lib/chart-colors'
 
 const SOCKET_COLORS: Record<string, string> = {
@@ -81,7 +81,7 @@ export function SocketEnergyChart({ data }: SocketEnergyChartProps) {
       </div>
       <ResponsiveContainer width="100%" height={300}>
         <LineChart data={chartData}>
-          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.6)" />
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" strokeOpacity={0.8} />
           <XAxis
             dataKey="time"
             stroke="hsl(var(--border))"

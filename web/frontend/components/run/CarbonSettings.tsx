@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Slider } from '@/components/ui/slider'
 import { Globe, MapPin, Zap, RefreshCw, Key, Save, Coins, Landmark, TrendingUp } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
-import { fetchCarbonConfig, updateCarbonConfig, refreshCarbonIntensity, fetchCarbonRegions, CarbonConfig, CarbonRegion } from '@/lib/api-client'
+import { fetchCarbonConfig, updateCarbonConfig, refreshCarbonIntensity, fetchCarbonRegions, CarbonConfig, CarbonRegion } from '@/lib/api'
 import { toast } from 'sonner'
 
 interface CarbonSettingsProps {

@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import { Source_Sans_3, JetBrains_Mono } from 'next/font/google'
 
-import { WorkspaceProvider } from '@/components/WorkspaceProvider'
+import { WorkspaceProvider } from '@/components/layout/WorkspaceProvider'
 import { Toaster } from '@/components/ui/sonner'
 
 import './globals.css'

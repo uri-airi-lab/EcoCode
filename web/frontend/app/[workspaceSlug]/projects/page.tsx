@@ -1,12 +1,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { DashboardLayout } from '@/components/DashboardLayout'
-import { ProjectsTable } from '@/components/ProjectsTable'
-import { ProjectSummary, fetchAllProjects } from '@/lib/api-client'
+import { DashboardLayout } from '@/components/layout/DashboardLayout'
+import { ProjectsTable } from '@/components/tables/ProjectsTable'
+import { ProjectSummary, fetchAllProjects } from '@/lib/api'
 import { Folder } from 'lucide-react'
 import { StartRunModal } from '@/components/StartRunModal'
-import { useWorkspace } from '@/components/WorkspaceProvider'
+import { useWorkspace } from '@/components/layout/WorkspaceProvider'
 
 export default function ProjectsPage() {
     const { currentWorkspace, loading: workspaceLoading } = useWorkspace()
@@ -68,7 +68,18 @@ export default function ProjectsPage() {
                     </div>
                 </div>
 
-                <ProjectsTable projects={projects} />
+                <ProjectsTable 
+                    projects={projects} 
+                    loading={loading}
+                    onProjectDeleted={() => {
+                        fetchAllProjects().then(data => {
+                            const filtered = currentWorkspace
+                                ? data.filter(p => p.workspaceSlug === currentWorkspace.slug)
+                                : data
+                            setProjects(filtered)
+                        })
+                    }}
+                />
             </div>
         </DashboardLayout>
     )

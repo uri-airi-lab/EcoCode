@@ -1,12 +1,5 @@
-// ============================================================================
-// Online Exporter - HTTP API-based
-// ============================================================================
-// This exporter sends energy measurement data to the EcoCode web platform
-// via HTTP API calls. It requires an API key for authentication.
-//
-// Previously named "HttpExporter", this is now the primary "online" exporter.
-// The old database-direct exporter has been moved to online_db.rs (deprecated).
-// ============================================================================
+//! Online exporter — sends measurement records to the EcoCode web platform via REST API.
+//! Requires a workspace-scoped API key (`ecocode_...`) for authentication.
 
 use crate::exporter::{Exporter, ExporterType, ProjectInfo, Record, SystemInfo, CarbonConfig};
 use async_trait::async_trait;

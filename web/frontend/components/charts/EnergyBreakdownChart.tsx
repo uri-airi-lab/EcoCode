@@ -12,7 +12,7 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import { Run } from '@/lib/mock-data'
-import { ChartInfoTooltip } from './ChartInfoTooltip'
+import { ChartInfoTooltip } from '@/components/ChartInfoTooltip'
 import { chartColor } from '@/lib/chart-colors'
 
 const GPU_COLORS = [1, 2, 3, 4, 5, 6].map(n => chartColor(n as 1 | 2 | 3 | 4 | 5 | 6))
@@ -81,7 +81,7 @@ export function EnergyBreakdownChart({ run }: EnergyBreakdownChartProps) {
           layout="vertical"
           margin={{ top: 5, right: 30, left: 40, bottom: 5 }}
         >
-          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.6)" horizontal={false} />
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" strokeOpacity={0.8} horizontal={false} />
           <XAxis type="number" stroke="hsl(var(--border))" tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} />
           <YAxis
             dataKey="name"

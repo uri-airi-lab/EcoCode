@@ -1,122 +1,48 @@
+//! Authentication module — user registration, login, JWT sessions, and API key management.
+//!
+//! ## Authentication methods
+//! - **JWT cookie**: A 30-day `auth_token` HttpOnly cookie issued on login/register.
+//!   Validated via `Authorization: Bearer <token>` or the `auth_token` cookie.
+//! - **API key**: Workspace-scoped tokens prefixed with `ecocode_`, hashed with SHA-256
+//!   before storage. Intended for the CLI `online` exporter.
+
+mod jwt;
+mod middleware;
+mod password;
+
+pub use middleware::AuthUser;
+pub(crate) use password::hash_api_key;
+
 use axum::{
-    extract::{FromRequestParts, State, Path, FromRef},
-    http::{request::Parts, StatusCode, header},
+    extract::{Path, State},
+    http::StatusCode,
     response::IntoResponse,
-    routing::{post, delete},
+    routing::{delete, post},
     Json, Router,
 };
 use axum_extra::extract::cookie::{Cookie, CookieJar};
-use jsonwebtoken::{encode, decode, Header, Validation, EncodingKey, DecodingKey};
-use serde::{Deserialize, Serialize};
 use argon2::{
-    password_hash::{
-        rand_core::OsRng,
-        PasswordHash, PasswordHasher, PasswordVerifier, SaltString
-    },
-    Argon2
+    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    Argon2,
 };
 use rand::{distributions::Alphanumeric, Rng};
-use chrono::{Utc, Duration};
+use serde::{Deserialize, Serialize};
 use sqlx::Row;
 
-use crate::state::AppState;
 use crate::error::ApiError;
+use crate::state::AppState;
+use jwt::generate_jwt;
+use password::{hash_api_key as hash_key, is_production};
 
+/// Mounts all authentication routes under `/api/auth`.
 pub(crate) fn auth_routes() -> Router<AppState> {
     Router::new()
         .route("/register", post(register))
         .route("/login", post(login))
         .route("/logout", post(logout))
+        .route("/change-password", post(change_password))
         .route("/api-keys", post(create_api_key).get(list_api_keys))
         .route("/api-keys/{id}", delete(delete_api_key))
-}
-
-fn get_jwt_secret() -> String {
-    std::env::var("JWT_SECRET").unwrap_or_else(|_| "SUPER_SECRET_CHANGE_ME_IN_PROD".to_string())
-}
-
-fn is_production() -> bool {
-    std::env::var("PRODUCTION").as_deref() == Ok("true")
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct Claims {
-    sub: i64,
-    exp: usize,
-}
-
-pub struct AuthUser {
-    pub user_id: i64,
-    /// Set when authenticated via a workspace-scoped API key; None for JWT auth.
-    pub workspace_id: Option<i64>,
-}
-
-impl<S> FromRequestParts<S> for AuthUser
-where
-    S: Send + Sync,
-    AppState: axum::extract::FromRef<S>,
-{
-    type Rejection = ApiError;
-
-    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        let app_state = AppState::from_ref(state);
-
-        if let Some(auth_header) = parts.headers.get(header::AUTHORIZATION) {
-            if let Ok(auth_str) = auth_header.to_str() {
-                if auth_str.starts_with("Bearer ") {
-                    let token_or_key = &auth_str[7..];
-
-                    if token_or_key.starts_with("ecocode_") {
-                        let key_hash = hash_api_key(token_or_key);
-                        let row = sqlx::query(
-                            "SELECT user_id, workspace_id FROM api_keys WHERE key_hash = $1",
-                        )
-                        .bind(&key_hash)
-                        .fetch_optional(&app_state.pool)
-                        .await
-                        .map_err(ApiError::internal)?;
-
-                        if let Some(r) = row {
-                            return Ok(AuthUser {
-                                user_id: r.get("user_id"),
-                                workspace_id: r.try_get("workspace_id").ok().flatten(),
-                            });
-                        }
-                    } else {
-                        let secret = get_jwt_secret();
-                        let decoding_key = DecodingKey::from_secret(secret.as_bytes());
-                        if let Ok(token_data) = decode::<Claims>(token_or_key, &decoding_key, &Validation::default()) {
-                            return Ok(AuthUser {
-                                user_id: token_data.claims.sub,
-                                workspace_id: None,
-                            });
-                        }
-                    }
-                }
-            }
-        }
-
-        let jar = CookieJar::from_headers(&parts.headers);
-        if let Some(cookie) = jar.get("auth_token") {
-            let secret = get_jwt_secret();
-            let decoding_key = DecodingKey::from_secret(secret.as_bytes());
-            if let Ok(token_data) = decode::<Claims>(cookie.value(), &decoding_key, &Validation::default()) {
-                return Ok(AuthUser {
-                    user_id: token_data.claims.sub,
-                    workspace_id: None,
-                });
-            }
-        }
-
-        Err(ApiError::new(StatusCode::UNAUTHORIZED, "Unauthorized"))
-    }
-}
-
-pub(crate) fn hash_api_key(key: &str) -> String {
-    use sha2::{Sha256, Digest};
-    let mut hasher = Sha256::new();
-    hasher.update(key.as_bytes());
-    hex::encode(hasher.finalize())
 }
 
 #[derive(Deserialize)]
@@ -159,15 +85,7 @@ async fn register(
 
     let user_id: i64 = res.get("id");
     let token = generate_jwt(user_id)?;
-
-    let cookie = Cookie::build(("auth_token", token.clone()))
-        .path("/")
-        .http_only(true)
-        .secure(is_production())
-        .same_site(axum_extra::extract::cookie::SameSite::Lax)
-        .build();
-
-    let jar = CookieJar::new().add(cookie);
+    let jar = build_auth_cookie(token.clone());
     Ok((StatusCode::CREATED, jar, Json(AuthResponse { token, user_id })))
 }
 
@@ -175,13 +93,11 @@ async fn login(
     State(state): State<AppState>,
     Json(payload): Json<AuthPayload>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let row = sqlx::query(
-        "SELECT id, password_hash FROM users WHERE email = $1",
-    )
-    .bind(&payload.email)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(ApiError::internal)?;
+    let row = sqlx::query("SELECT id, password_hash FROM users WHERE email = $1")
+        .bind(&payload.email)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(ApiError::internal)?;
 
     let (user_id, hash) = match row {
         Some(r) => (r.get::<i64, _>("id"), r.get::<String, _>("password_hash")),
@@ -198,15 +114,7 @@ async fn login(
     }
 
     let token = generate_jwt(user_id)?;
-
-    let cookie = Cookie::build(("auth_token", token.clone()))
-        .path("/")
-        .http_only(true)
-        .secure(is_production())
-        .same_site(axum_extra::extract::cookie::SameSite::Lax)
-        .build();
-
-    let jar = CookieJar::new().add(cookie);
+    let jar = build_auth_cookie(token.clone());
     Ok((StatusCode::OK, jar, Json(AuthResponse { token, user_id })))
 }
 
@@ -218,20 +126,56 @@ async fn logout() -> impl IntoResponse {
     (StatusCode::OK, jar)
 }
 
-fn generate_jwt(user_id: i64) -> Result<String, ApiError> {
-    let expiration = Utc::now()
-        .checked_add_signed(Duration::days(30))
-        .expect("valid timestamp")
-        .timestamp();
+#[derive(Deserialize)]
+struct ChangePasswordPayload {
+    current_password: String,
+    new_password: String,
+}
 
-    let claims = Claims {
-        sub: user_id,
-        exp: expiration as usize,
-    };
+async fn change_password(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Json(payload): Json<ChangePasswordPayload>,
+) -> Result<impl IntoResponse, ApiError> {
+    if payload.new_password.len() < 8 {
+        return Err(ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "New password must be at least 8 characters",
+        ));
+    }
 
-    let secret = get_jwt_secret();
-    encode(&Header::default(), &claims, &EncodingKey::from_secret(secret.as_bytes()))
-        .map_err(|e| ApiError::internal(e))
+    let row = sqlx::query("SELECT password_hash FROM users WHERE id = $1")
+        .bind(auth_user.user_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(ApiError::internal)?
+        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "User not found"))?;
+
+    let current_hash: String = row.get("password_hash");
+    let parsed_hash = PasswordHash::new(&current_hash)
+        .map_err(|_| ApiError::internal("Invalid hash format in DB"))?;
+
+    if Argon2::default()
+        .verify_password(payload.current_password.as_bytes(), &parsed_hash)
+        .is_err()
+    {
+        return Err(ApiError::new(StatusCode::UNAUTHORIZED, "Current password is incorrect"));
+    }
+
+    let salt = SaltString::generate(&mut OsRng);
+    let new_hash = Argon2::default()
+        .hash_password(payload.new_password.as_bytes(), &salt)
+        .map_err(|e| ApiError::internal(e))?
+        .to_string();
+
+    sqlx::query("UPDATE users SET password_hash = $1 WHERE id = $2")
+        .bind(&new_hash)
+        .bind(auth_user.user_id)
+        .execute(&state.pool)
+        .await
+        .map_err(ApiError::internal)?;
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[derive(Deserialize)]
@@ -260,7 +204,7 @@ async fn create_api_key(
         .map(char::from)
         .collect();
     let api_key = format!("ecocode_{}", raw_key);
-    let key_hash = hash_api_key(&api_key);
+    let key_hash = hash_key(&api_key);
 
     let row = sqlx::query(
         "INSERT INTO api_keys (user_id, name, key_hash, workspace_id) VALUES ($1, $2, $3, $4) RETURNING id, workspace_id, created_at::text",
@@ -322,4 +266,14 @@ async fn delete_api_key(
         .map_err(ApiError::internal)?;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+fn build_auth_cookie(token: String) -> CookieJar {
+    let cookie = Cookie::build(("auth_token", token))
+        .path("/")
+        .http_only(true)
+        .secure(is_production())
+        .same_site(axum_extra::extract::cookie::SameSite::Lax)
+        .build();
+    CookieJar::new().add(cookie)
 }

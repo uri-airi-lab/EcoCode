@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { Key, Plus, Trash2, Copy, Check, Loader2 } from 'lucide-react'
-import { DashboardLayout } from '@/components/DashboardLayout'
-import { useWorkspace } from '@/components/WorkspaceProvider'
+import { DashboardLayout } from '@/components/layout/DashboardLayout'
+import { useWorkspace } from '@/components/layout/WorkspaceProvider'
 
 interface ApiKey {
   id: number

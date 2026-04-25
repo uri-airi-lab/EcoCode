@@ -1,3 +1,9 @@
+//! Run API handlers — list, retrieve, and delete monitoring runs and their records.
+//!
+//! Record points include nested GPU and socket details. The `merge_record_points`
+//! helper assembles flat database rows into the nested `RecordPoint` structures
+//! expected by the frontend.
+
 use axum::{extract::{Path, Query, State}, http::StatusCode, Json, response::IntoResponse};
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -100,6 +106,51 @@ pub async fn get_run_summary(
         Some(summary) => Ok((StatusCode::OK, Json(summary)).into_response()),
         None => Err(ApiError::new(StatusCode::NOT_FOUND, "Run not found")),
     }
+}
+
+/// Handles DELETE requests to delete a run.
+pub async fn delete_run(
+    auth_user: auth::AuthUser,
+    Path(run_id): Path<i64>,
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, ApiError> {
+    // Check if user has access to this run's project workspace
+    let workspace_check = sqlx::query(
+        "SELECT p.workspace_id, wm.role 
+         FROM runs r
+         JOIN projects p ON r.project_id = p.id
+         JOIN workspace_members wm ON p.workspace_id = wm.workspace_id
+         WHERE r.id = $1 AND wm.user_id = $2",
+    )
+    .bind(run_id)
+    .bind(auth_user.user_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(ApiError::internal)?;
+
+    match workspace_check {
+        None => return Err(ApiError::new(StatusCode::NOT_FOUND, "Run not found or access denied")),
+        Some(row) => {
+            use sqlx::Row;
+            let role: String = row.get("role");
+            if role != "admin" {
+                return Err(ApiError::new(StatusCode::FORBIDDEN, "Only workspace admins can delete runs"));
+            }
+        }
+    }
+
+    // Delete the run (CASCADE will handle records)
+    let result = sqlx::query("DELETE FROM runs WHERE id = $1")
+        .bind(run_id)
+        .execute(&state.pool)
+        .await
+        .map_err(ApiError::internal)?;
+
+    if result.rows_affected() == 0 {
+        return Err(ApiError::new(StatusCode::NOT_FOUND, "Run not found"));
+    }
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Helper to merge flat database rows into nested `RecordPoint` structs.

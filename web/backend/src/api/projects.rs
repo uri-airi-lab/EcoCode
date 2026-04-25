@@ -1,4 +1,11 @@
-use axum::{extract::State, http::StatusCode, Json, response::IntoResponse};
+//! Project API handlers — CRUD operations for monitoring projects.
+//!
+//! Projects belong to workspaces. Only workspace members can list or create projects;
+//! only workspace admins can delete them. On creation, the provided address (if any)
+//! is geocoded so that a real-time carbon intensity can later be fetched via the
+//! Electricity Maps API.
+
+use axum::{extract::{State, Path}, http::StatusCode, Json, response::IntoResponse};
 use crate::error::ApiError;
 use crate::models::project::{Project, CreateProjectPayload};
 use crate::state::AppState;
@@ -103,4 +110,48 @@ pub async fn post_projects(
     let workspace_slug: String = slug_row.get("slug");
 
     Ok((StatusCode::CREATED, Json(Project { id, name, workspace_slug })))
+}
+
+/// Handles DELETE requests to delete a project.
+pub async fn delete_project(
+    auth_user: auth::AuthUser,
+    Path(project_id): Path<i64>,
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, ApiError> {
+    // Check if user has access to this project's workspace
+    let workspace_check = sqlx::query(
+        "SELECT p.workspace_id, wm.role 
+         FROM projects p
+         JOIN workspace_members wm ON p.workspace_id = wm.workspace_id
+         WHERE p.id = $1 AND wm.user_id = $2",
+    )
+    .bind(project_id)
+    .bind(auth_user.user_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(ApiError::internal)?;
+
+    match workspace_check {
+        None => return Err(ApiError::new(StatusCode::NOT_FOUND, "Project not found or access denied")),
+        Some(row) => {
+            use sqlx::Row;
+            let role: String = row.get("role");
+            if role != "admin" {
+                return Err(ApiError::new(StatusCode::FORBIDDEN, "Only workspace admins can delete projects"));
+            }
+        }
+    }
+
+    // Delete the project (CASCADE will handle runs and records)
+    let result = sqlx::query("DELETE FROM projects WHERE id = $1")
+        .bind(project_id)
+        .execute(&state.pool)
+        .await
+        .map_err(ApiError::internal)?;
+
+    if result.rows_affected() == 0 {
+        return Err(ApiError::new(StatusCode::NOT_FOUND, "Project not found"));
+    }
+
+    Ok(StatusCode::NO_CONTENT)
 }

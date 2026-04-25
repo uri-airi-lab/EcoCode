@@ -1,3 +1,10 @@
+//! Database queries for runs and run summaries.
+//!
+//! Run queries join `run_system_info` (LEFT JOIN) and `workspace_members` to enforce
+//! access control at the SQL level — users can only fetch runs they are authorised to see.
+//! `calculate_run_summary_db` is invoked by the ingest completion endpoint to aggregate
+//! all records into a single summary row with CO2 and cost figures.
+
 use sqlx::PgPool;
 use crate::error::ApiError;
 use crate::models::run::{Run, RunSummary};

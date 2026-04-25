@@ -4,17 +4,17 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Zap } from 'lucide-react'
-import { DashboardLayout } from '@/components/DashboardLayout'
-import { EnergyChart } from '@/components/EnergyChart'
-import { UtilizationChart } from '@/components/UtilizationChart'
-import { EnergyBreakdownChart } from '@/components/EnergyBreakdownChart'
-import { SocketEnergyChart } from '@/components/SocketEnergyChart'
-import { RunSystemInfo } from '@/components/RunSystemInfo'
-import { PowerDistributionChart } from '@/components/PowerDistributionChart'
-import { CumulativePowerChart } from '@/components/CumulativePowerChart'
-import { EnvironmentalImpact } from '@/components/EnvironmentalImpact'
+import { DashboardLayout } from '@/components/layout/DashboardLayout'
+import { EnergyChart } from '@/components/charts/EnergyChart'
+import { UtilizationChart } from '@/components/charts/UtilizationChart'
+import { EnergyBreakdownChart } from '@/components/charts/EnergyBreakdownChart'
+import { SocketEnergyChart } from '@/components/charts/SocketEnergyChart'
+import { RunSystemInfo } from '@/components/run/RunSystemInfo'
+import { PowerDistributionChart } from '@/components/charts/PowerDistributionChart'
+import { CumulativePowerChart } from '@/components/charts/CumulativePowerChart'
+import { EnvironmentalImpact } from '@/components/run/EnvironmentalImpact'
 import { Run } from '@/lib/mock-data'
-import { fetchRunDetail } from '@/lib/api-client'
+import { fetchRunDetail } from '@/lib/api'
 import { useSSE } from '@/hooks/use-sse'
 import { format } from 'date-fns'
 
@@ -184,40 +184,42 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
           </div>
         </div>
 
-        {/* System Info Grid */}
-        <div className="mb-8">
-          <RunSystemInfo run={run} />
-        </div>
+        {/* Two Column Layout for System Info and Environmental Impact */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+          {/* Left Column - System Info */}
+          <div>
+            <RunSystemInfo run={run} />
+          </div>
 
-        {/* Environmental Impact Translation */}
-        <div className="mb-8">
-          <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
-            Environmental Equivalents
-          </h2>
-          <EnvironmentalImpact 
-            totalEnergyWh={run.totalEnergy} 
-            totalCo2G={run.carbonFootprint}
-            carbonIntensity={run.carbonIntensityUsed}
-            totalCost={run.totalCost}
-            currency={run.currency}
-          />
+          {/* Right Column - Environmental Impact + Power Distribution */}
+          <div className="space-y-6">
+            <div className="chart-container">
+              <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+                Environmental Equivalents
+              </h2>
+              <EnvironmentalImpact 
+                totalEnergyWh={run.totalEnergy} 
+                totalCo2G={run.carbonFootprint}
+                carbonIntensity={run.carbonIntensityUsed}
+                totalCost={run.totalCost}
+                currency={run.currency}
+              />
+            </div>
+
+            {/* Live Power Distribution */}
+            {run.records.length > 0 && (
+              <PowerDistributionChart 
+                record={run.records[run.records.length - 1]} 
+                prevRecord={run.records.length > 1 ? run.records[run.records.length - 2] : undefined}
+              />
+            )}
+          </div>
         </div>
 
         {/* Charts Grid */}
         <div className="mb-8 space-y-4 md:space-y-6">
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 md:gap-6">
-            <div className="xl:col-span-2">
-              <EnergyChart data={run.records} />
-            </div>
-            {run.records.length > 0 && (
-              <div className="xl:col-span-1">
-                <PowerDistributionChart 
-                  record={run.records[run.records.length - 1]} 
-                  prevRecord={run.records.length > 1 ? run.records[run.records.length - 2] : undefined}
-                />
-              </div>
-            )}
-          </div>
+          {/* Energy Chart - Full Width */}
+          <EnergyChart data={run.records} />
           
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
             <CumulativePowerChart data={run.records} />
@@ -226,31 +228,9 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
         </div>
 
         {/* Details Grid */}
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-8">
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
           <EnergyBreakdownChart run={run} />
           <SocketEnergyChart data={run.records} />
-        </div>
-
-        {/* Summary Card */}
-        <div className="grid grid-cols-1 gap-4 md:gap-6">
-          <div className="chart-container">
-            <div className="flex items-start gap-4">
-              <div className="p-2 rounded bg-muted/50">
-                <Zap className="w-5 h-5 text-primary" />
-              </div>
-              <div className="flex-1">
-                <p className="text-sm text-muted-foreground mb-1">
-                  Total Energy Consumption
-                </p>
-                <div className="flex items-baseline gap-2">
-                  <p className="text-3xl font-bold text-foreground">
-                    {Number(run.totalEnergy.toFixed(2)).toLocaleString()}
-                  </p>
-                  <span className="text-sm text-muted-foreground font-medium">Wh</span>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </DashboardLayout>

@@ -1,3 +1,13 @@
+//! Carbon configuration API handlers.
+//!
+//! Provides endpoints to read and update a project's carbon footprint settings:
+//! - Static intensity lookup (50+ country codes via IEA 2025 data).
+//! - Real-time intensity via the Electricity Maps API (requires an API key and geocoded location).
+//! - PUE (Power Usage Effectiveness) factor and optional energy cost per kWh.
+//!
+//! On each PUT or refresh, the resolved intensity is stored so the CLI can read it
+//! when calculating CO2 during a monitoring run.
+
 use axum::{extract::{Path, State}, http::StatusCode, Json, response::IntoResponse};
 use crate::error::ApiError;
 use crate::models::carbon::{CarbonConfigUpdate, CarbonConfigResponse, CarbonConfigRow, CarbonRegion};

@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { Run } from '@/lib/mock-data'
 import { format } from 'date-fns'
 import { ChevronRight } from 'lucide-react'
-import { useWorkspace } from './WorkspaceProvider'
+import { useWorkspace } from '@/components/layout/WorkspaceProvider'
 
 interface RecentRunsTableProps {
   runs: Omit<Run, 'records'>[]

@@ -51,6 +51,8 @@ pub fn get_all_gpu_devices<'a>(
     Ok(devices)
 }
 
+/// Returns the total energy consumption counter for a single GPU device in millijoules (mJ).
+/// The counter is monotonically increasing and resets only on driver reload or GPU reset.
 pub fn get_gpu_energy(device: &Device) -> Result<f64, Box<dyn std::error::Error>> {
     let energy_milij = device.total_energy_consumption()?; // in milliJ
     Ok(energy_milij as f64)
@@ -61,6 +63,17 @@ pub fn get_all_gpu_energies(devices: &[Device]) -> Result<Vec<f64>, Box<dyn std:
     devices.iter().map(|d| get_gpu_energy(d)).collect() // in milliJ
 }
 
+/// Computes the energy (Joules) and utilization (%) consumed by a specific PID
+/// on a single GPU between two energy snapshots.
+///
+/// Returns `(energy_j, util_pct, next_timestamp)`:
+/// - `energy_j`       — process-attributed energy in Joules for this interval
+/// - `util_pct`       — average SM utilization (0–100) across all NVML samples for this PID
+/// - `next_timestamp` — latest NVML sample timestamp, to be used as the baseline for the next call
+///
+/// Process utilization is obtained by calling `process_utilization_stats(timestamp)` which
+/// returns all samples since the given timestamp. The process's fraction of total GPU energy
+/// is derived from its share of SM utilization.
 pub fn get_gpu_energy_by_pid(
     device: &Device,
     pid: u32,
@@ -85,11 +98,16 @@ pub fn get_gpu_energy_by_pid(
 
     let pid_samples: Vec<_> = stats.iter().filter(|s| s.pid == pid).collect();
 
+    // SM and memory controller are weighted equally (50/50) because NVML does not
+    // expose per-component power; this is a better approximation than SM-only for
+    // memory-bandwidth-bound workloads (e.g. transformer inference).
     let process_util = if pid_samples.is_empty() {
         0.0
     } else {
-        let sum: u64 = pid_samples.iter().map(|s| s.sm_util as u64).sum();
-        (sum as f64 / pid_samples.len() as f64) / 100.0
+        let n = pid_samples.len() as f64;
+        let sm_avg = pid_samples.iter().map(|s| s.sm_util as f64).sum::<f64>() / n;
+        let mem_avg = pid_samples.iter().map(|s| s.mem_util as f64).sum::<f64>() / n;
+        (sm_avg + mem_avg) / 2.0 / 100.0
     };
 
     // NVML's total_energy_consumption is a monotonically-increasing u64 mJ counter

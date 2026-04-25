@@ -1,3 +1,10 @@
+//! JSON exporter — serialises measurement records to a JSON array file.
+//!
+//! Records are streamed as the monitoring loop runs: the array is opened on the
+//! first record and closed when `export()` is called at the end of the run.
+//! Each element is a fully serialised [`Record`], including optional per-GPU and
+//! per-socket sub-arrays.
+
 use serde_json;
 use std::error::Error;
 use std::fs::File;
@@ -6,9 +13,11 @@ use std::io::{BufWriter, Write};
 use crate::exporter::{Exporter, ExporterType, ProjectInfo, Record};
 use async_trait::async_trait;
 
+/// Writes records to a JSON file as a streaming array (`[{...},{...},...]`).
 pub struct JsonExporter {
     pub file_path: String,
     pub writer: BufWriter<File>,
+    /// Tracks whether the opening `[` bracket has been written yet.
     pub first_record: bool,
 }
 

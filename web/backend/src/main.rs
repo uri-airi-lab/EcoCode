@@ -1,6 +1,17 @@
+//! EcoCode web backend — Axum-based REST API and SSE server.
+//!
+//! Responsibilities:
+//! - Initialise and migrate the PostgreSQL schema on startup.
+//! - Expose REST endpoints for authentication, workspaces, projects, runs,
+//!   measurement records, carbon configuration, and data ingestion from the CLI.
+//! - Stream live record updates to connected browser clients over Server-Sent Events.
+//!
+//! Listens on `0.0.0.0:3001`. CORS origin is configured via the `CORS_ORIGIN`
+//! environment variable (defaults to `http://localhost:3000`).
+
 use axum::{
     Router,
-    routing::{get, post},
+    routing::{get, post, delete},
     http::Method,
     http::header::{CONTENT_TYPE, AUTHORIZATION},
 };
@@ -57,8 +68,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nest("/api/auth", auth::auth_routes())
         .nest("/api/workspaces", workspaces::workspaces_routes())
         .route("/api/projects", get(api::projects::get_projects).post(api::projects::post_projects))
+        .route("/api/projects/{project_id}", delete(api::projects::delete_project))
         .route("/api/project/{project_id}/runs", get(api::runs::get_runs))
-        .route("/api/run/{run_id}", get(api::runs::get_run))
+        .route("/api/run/{run_id}", get(api::runs::get_run).delete(api::runs::delete_run))
         .route("/api/run/{run_id}/record_points", get(api::runs::get_record_points))
         .route("/api/run/{run_id}/summary", get(api::runs::get_run_summary))
         .route("/api/run/{run_id}/gpu_records", get(api::runs::get_gpu_records))

@@ -2,10 +2,10 @@
 
 import React, { memo, useState } from 'react'
 import Link from 'next/link'
-import { ProjectSummary } from '@/lib/api-client'
+import { ProjectSummary } from '@/lib/api'
 import { format } from 'date-fns'
-import { ChevronRight, Folder } from 'lucide-react'
-import { useWorkspace } from './WorkspaceProvider'
+import { ChevronRight, Folder, Trash2 } from 'lucide-react'
+import { useWorkspace } from '@/components/layout/WorkspaceProvider'
 import {
   Pagination,
   PaginationContent,
@@ -17,19 +17,48 @@ import {
 
 interface ProjectsTableProps {
     projects: ProjectSummary[]
+    loading?: boolean
+    onProjectDeleted?: () => void
 }
 
 const ITEMS_PER_PAGE = 5
 
-export const ProjectsTable = memo(function ProjectsTable({ projects }: ProjectsTableProps) {
+export const ProjectsTable = memo(function ProjectsTable({ projects, loading = false, onProjectDeleted }: ProjectsTableProps) {
     const { currentWorkspace } = useWorkspace()
     const workspaceSlug = currentWorkspace?.slug ?? ''
     const [currentPage, setCurrentPage] = useState(1)
+    const [deletingId, setDeletingId] = useState<number | null>(null)
     
     const totalPages = Math.ceil(projects.length / ITEMS_PER_PAGE)
     const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
     const endIndex = startIndex + ITEMS_PER_PAGE
     const currentProjects = projects.slice(startIndex, endIndex)
+
+    const handleDelete = async (projectId: number, projectName: string) => {
+        if (!confirm(`Are you sure you want to delete project "${projectName}"? This will also delete all associated runs and records. This action cannot be undone.`)) {
+            return
+        }
+
+        setDeletingId(projectId)
+        try {
+            const res = await fetch(`/api/projects/${projectId}`, {
+                method: 'DELETE',
+                credentials: 'include'
+            })
+
+            if (res.ok) {
+                onProjectDeleted?.()
+            } else {
+                const error = await res.text()
+                alert(`Failed to delete project: ${error}`)
+            }
+        } catch (error) {
+            console.error('Failed to delete project:', error)
+            alert('Failed to delete project. Please try again.')
+        } finally {
+            setDeletingId(null)
+        }
+    }
 
     return (
         <div className="chart-container">
@@ -66,7 +95,16 @@ export const ProjectsTable = memo(function ProjectsTable({ projects }: ProjectsT
                         </tr>
                     </thead>
                     <tbody>
-                        {projects.length === 0 ? (
+                        {loading ? (
+                            <tr>
+                                <td colSpan={5} className="py-12 text-center">
+                                    <div className="flex flex-col items-center gap-3">
+                                        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+                                        <p className="text-sm text-muted-foreground">Loading projects...</p>
+                                    </div>
+                                </td>
+                            </tr>
+                        ) : projects.length === 0 ? (
                             <tr>
                                 <td colSpan={5} className="py-8 text-center text-muted-foreground">
                                     No projects found.
@@ -75,7 +113,8 @@ export const ProjectsTable = memo(function ProjectsTable({ projects }: ProjectsT
                         ) : currentProjects.map((project) => (
                             <tr
                                 key={project.id}
-                                className="border-b border-border hover:bg-muted/30 transition-colors"
+                                onClick={() => window.location.href = `/${workspaceSlug}/projects/${project.id}`}
+                                className="border-b border-border hover:bg-muted/30 transition-colors cursor-pointer"
                             >
                                 <td className="py-3 px-4">
                                     <p className="font-medium text-foreground">{project.name}</p>
@@ -89,10 +128,24 @@ export const ProjectsTable = memo(function ProjectsTable({ projects }: ProjectsT
                                 <td className="text-right py-3 px-4 text-muted-foreground">
                                     {project.lastRunTimestamp ? format(new Date(project.lastRunTimestamp), 'MMM d, yyyy') : '-'}
                                 </td>
-                                <td className="text-right py-3 px-4">
-                                    <Link href={`/${workspaceSlug}/projects/${project.id}`}>
-                                        <ChevronRight className="w-4 h-4 text-muted-foreground hover:text-primary transition-colors" />
-                                    </Link>
+                                <td className="text-right py-3 px-4" onClick={(e) => e.stopPropagation()}>
+                                    <div className="flex items-center justify-end gap-2">
+                                        <button
+                                            onClick={() => handleDelete(project.id, project.name)}
+                                            disabled={deletingId === project.id}
+                                            className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-colors disabled:opacity-50"
+                                            title="Delete project"
+                                        >
+                                            {deletingId === project.id ? (
+                                                <div className="w-4 h-4 border-2 border-destructive border-t-transparent rounded-full animate-spin" />
+                                            ) : (
+                                                <Trash2 className="w-4 h-4" />
+                                            )}
+                                        </button>
+                                        <Link href={`/${workspaceSlug}/projects/${project.id}`}>
+                                            <ChevronRight className="w-4 h-4 text-muted-foreground hover:text-primary transition-colors" />
+                                        </Link>
+                                    </div>
                                 </td>
                             </tr>
                         ))}

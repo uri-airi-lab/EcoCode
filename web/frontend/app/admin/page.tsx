@@ -4,9 +4,9 @@ import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { Activity, ArrowUpRight, Folder, History, PlayCircle, Users, Zap } from 'lucide-react'
 
-import { DashboardLayout } from '@/components/DashboardLayout'
+import { DashboardLayout } from '@/components/layout/DashboardLayout'
 import { MetricCard } from '@/components/MetricCard'
-import { AdminProjectMonitor, ProjectSummary, fetchAdminProjects, fetchAllProjects } from '@/lib/api-client'
+import { AdminProjectMonitor, ProjectSummary, fetchAdminProjects, fetchAllProjects } from '@/lib/api'
 
 const POLL_INTERVAL_MS = 5000
 

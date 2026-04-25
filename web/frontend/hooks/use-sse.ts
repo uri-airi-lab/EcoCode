@@ -1,5 +1,22 @@
 'use client'
 
+/**
+ * useSSE — subscribes to the backend Server-Sent Events stream (`/api/sse`).
+ *
+ * The backend broadcasts a serialised `RecordPoint` JSON string whenever a new
+ * measurement record is ingested. This hook parses each message and exposes the
+ * latest record so that live-monitoring views can update charts in real-time without
+ * polling.
+ *
+ * Returns:
+ * - `latestRecord` — the most recently received measurement record, or null.
+ * - `error`        — a human-readable connection state string when the SSE stream
+ *                    is disconnected or reconnecting.
+ *
+ * The EventSource is created on mount and closed on unmount, preventing stale
+ * subscriptions when the component is removed from the tree.
+ */
+
 import { useEffect, useState } from 'react'
 import { MetricRecord } from '@/lib/mock-data'
 import { buildAbsoluteApiUrl } from '@/lib/data-source'

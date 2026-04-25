@@ -13,7 +13,7 @@ import {
 } from 'recharts'
 import { MetricRecord } from '@/lib/mock-data'
 import { format } from 'date-fns'
-import { ChartInfoTooltip } from './ChartInfoTooltip'
+import { ChartInfoTooltip } from '@/components/ChartInfoTooltip'
 import { chartColor } from '@/lib/chart-colors'
 
 const PX_PER_POINT = 12
@@ -96,7 +96,7 @@ export function CumulativePowerChart({ runs: runsProp, data }: CumulativePowerCh
       </div>
       <div ref={scrollRef} className="overflow-x-auto">
         <AreaChart width={chartWidth} height={300} data={chartData}>
-          <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
+          <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} strokeOpacity={0.8} />
           <XAxis
             dataKey="index"
             type="number"

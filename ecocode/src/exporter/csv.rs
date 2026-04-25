@@ -1,12 +1,21 @@
+//! CSV exporter — writes measurement records to a comma-separated values file.
+//!
+//! A header row is written on the first record, with extra columns appended for
+//! each detected GPU (e.g. `GPU0%`, `GPU0(W)`, `GPU1%`, `GPU1(W)`, …).
+//! The file is flushed after every record so partial output is preserved if the
+//! process terminates unexpectedly.
+
 use std::fs::File;
 
 use crate::exporter::{Exporter, ExporterType, ProjectInfo, Record};
 use async_trait::async_trait;
 use csv::Writer;
 
+/// Writes records to a CSV file, with one row per measurement interval.
 pub struct CsvExporter {
     file_path: String,
     writer: Writer<File>,
+    /// Whether the header row has been written yet.
     pub first_record: bool,
 }
 

@@ -10,7 +10,7 @@ import {
   Legend
 } from 'recharts'
 import { MetricRecord } from '@/lib/mock-data'
-import { ChartInfoTooltip } from './ChartInfoTooltip'
+import { ChartInfoTooltip } from '@/components/ChartInfoTooltip'
 import { chartColor } from '@/lib/chart-colors'
 
 interface PowerDistributionChartProps {
@@ -26,7 +26,7 @@ export function PowerDistributionChart({ record, prevRecord }: PowerDistribution
   // Show a loading indicator until the second record arrives (~one interval).
   if (!prevRecord) {
     return (
-      <div className="chart-container flex flex-col h-full items-center justify-center min-h-[300px]">
+      <div className="chart-container flex flex-col items-center justify-center min-h-[300px]">
         <h3 className="text-lg font-semibold text-foreground mb-2">Live Power Distribution</h3>
         <p className="text-sm text-muted-foreground">Waiting for second sample…</p>
       </div>
@@ -48,14 +48,14 @@ export function PowerDistributionChart({ record, prevRecord }: PowerDistribution
   const totalWatts = data.reduce((sum, item) => sum + item.value, 0)
 
   return (
-    <div className="chart-container flex flex-col h-full">
+    <div className="chart-container flex flex-col">
       <div className="flex flex-row items-center gap-2 mb-4">
         <h3 className="text-lg font-semibold text-foreground">
           Live Power Distribution
         </h3>
         <ChartInfoTooltip content="Shows the current power draw split between your components (CPU, GPU, RAM) at the latest recorded point in time." />
       </div>
-      <div className="flex-1 relative min-h-[250px]">
+      <div className="relative h-[300px]">
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie

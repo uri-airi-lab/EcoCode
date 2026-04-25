@@ -1,8 +1,17 @@
+//! Terminal exporter — prints measurement records to stdout as a live table.
+//!
+//! `export_line` is called on every tick to append the latest record row.
+//! `export` is called once at the end to print the complete run summary.
+//! Per-GPU and per-socket breakdowns are indented below each row.
+
 use crate::exporter::{Exporter, ExporterType, ProjectInfo, Record};
 use async_trait::async_trait;
 
+/// Streams records to stdout, printing a header row on the first record and
+/// appending one row per measurement interval.
 pub struct TerminalExporter {
     records: Vec<Record>,
+    /// Whether the column header has been printed yet.
     pub first_record: bool,
 }
 

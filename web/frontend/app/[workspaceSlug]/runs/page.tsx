@@ -2,11 +2,11 @@
 
 import { useEffect, useState } from 'react'
 import { Search } from 'lucide-react'
-import { DashboardLayout } from '@/components/DashboardLayout'
-import { RunsTable } from '@/components/RunsTable'
+import { DashboardLayout } from '@/components/layout/DashboardLayout'
+import { RunsTable } from '@/components/tables/RunsTable'
 import { Run } from '@/lib/mock-data'
-import { fetchAllRuns, fetchAllProjects } from '@/lib/api-client'
-import { useWorkspace } from '@/components/WorkspaceProvider'
+import { fetchAllRuns, fetchAllProjects } from '@/lib/api'
+import { useWorkspace } from '@/components/layout/WorkspaceProvider'
 
 export default function RunsPage() {
   const { currentWorkspace, loading: workspaceLoading } = useWorkspace()
@@ -132,8 +132,31 @@ export default function RunsPage() {
         </div>
 
         {/* Runs Table */}
-        {filteredRuns.length > 0 ? (
-          <RunsTable runs={filteredRuns} />
+        {loading ? (
+          <div className="chart-container flex items-center justify-center py-12">
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+              <p className="text-sm text-muted-foreground">Loading runs...</p>
+            </div>
+          </div>
+        ) : filteredRuns.length > 0 ? (
+          <RunsTable 
+            runs={filteredRuns}
+            onRunDeleted={async () => {
+              const [allProjects, allRuns] = await Promise.all([
+                fetchAllProjects(),
+                fetchAllRuns()
+              ])
+              const workspaceProjects = currentWorkspace
+                ? allProjects.filter(p => p.workspaceSlug === currentWorkspace.slug)
+                : allProjects
+              const workspaceRunList = currentWorkspace
+                ? allRuns.filter(r => workspaceProjects.some(p => p.id === r.projectId))
+                : allRuns
+              setRuns(workspaceRunList)
+              setFilteredRuns(workspaceRunList)
+            }}
+          />
         ) : (
           <div className="chart-container text-center py-12">
             <p className="text-muted-foreground">

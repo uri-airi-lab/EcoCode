@@ -4,8 +4,8 @@ import Link from 'next/link'
 import { useState } from 'react'
 import { Run } from '@/lib/mock-data'
 import { format } from 'date-fns'
-import { ChevronRight, Check, Clock, X } from 'lucide-react'
-import { useWorkspace } from './WorkspaceProvider'
+import { ChevronRight, Check, Clock, X, Trash2 } from 'lucide-react'
+import { useWorkspace } from '@/components/layout/WorkspaceProvider'
 import {
   Pagination,
   PaginationContent,
@@ -17,15 +17,17 @@ import {
 
 interface RunsTableProps {
   runs: Omit<Run, 'records'>[]
+  onRunDeleted?: () => void
 }
 
 const ITEMS_PER_PAGE = 10
 
-export function RunsTable({ runs }: RunsTableProps) {
+export function RunsTable({ runs, onRunDeleted }: RunsTableProps) {
   const { currentWorkspace } = useWorkspace()
   const workspaceSlug = currentWorkspace?.slug ?? ''
   const [currentPage, setCurrentPage] = useState(1)
   const [selectedRuns, setSelectedRuns] = useState<Set<string>>(new Set())
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const totalPages = Math.ceil(runs.length / ITEMS_PER_PAGE)
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
@@ -47,6 +49,32 @@ export function RunsTable({ runs }: RunsTableProps) {
       setSelectedRuns(new Set())
     } else {
       setSelectedRuns(new Set(runs.map((r) => r.id)))
+    }
+  }
+
+  const handleDelete = async (runId: string, runName: string) => {
+    if (!confirm(`Are you sure you want to delete run "${runName}"? This will also delete all associated records. This action cannot be undone.`)) {
+      return
+    }
+
+    setDeletingId(runId)
+    try {
+      const res = await fetch(`/api/run/${runId}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      })
+
+      if (res.ok) {
+        onRunDeleted?.()
+      } else {
+        const error = await res.text()
+        alert(`Failed to delete run: ${error}`)
+      }
+    } catch (error) {
+      console.error('Failed to delete run:', error)
+      alert('Failed to delete run. Please try again.')
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -126,10 +154,11 @@ export function RunsTable({ runs }: RunsTableProps) {
               return (
                 <tr
                   key={run.id}
-                  className={`border-b border-border transition-colors ${isSelected ? 'bg-primary/5' : 'hover:bg-muted/30'
+                  onClick={() => window.location.href = `/${workspaceSlug}/runs/${run.id}`}
+                  className={`border-b border-border transition-colors cursor-pointer ${isSelected ? 'bg-primary/5' : 'hover:bg-muted/30'
                     }`}
                 >
-                  <td className="py-4 px-4">
+                  <td className="py-4 px-4" onClick={(e) => e.stopPropagation()}>
                     <input
                       type="checkbox"
                       checked={isSelected}
@@ -165,10 +194,24 @@ export function RunsTable({ runs }: RunsTableProps) {
                   <td className="text-right py-4 px-4 text-foreground font-medium font-mono">
                     {Number(run.carbonFootprint.toFixed(2)).toLocaleString()}
                   </td>
-                  <td className="text-right py-4 px-4">
-                    <Link href={`/${workspaceSlug}/runs/${run.id}`}>
-                      <ChevronRight className="w-4 h-4 text-muted-foreground hover:text-primary transition-colors" />
-                    </Link>
+                  <td className="text-right py-4 px-4" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => handleDelete(run.id, run.name)}
+                        disabled={deletingId === run.id}
+                        className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-colors disabled:opacity-50"
+                        title="Delete run"
+                      >
+                        {deletingId === run.id ? (
+                          <div className="w-4 h-4 border-2 border-destructive border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <Trash2 className="w-4 h-4" />
+                        )}
+                      </button>
+                      <Link href={`/${workspaceSlug}/runs/${run.id}`}>
+                        <ChevronRight className="w-4 h-4 text-muted-foreground hover:text-primary transition-colors" />
+                      </Link>
+                    </div>
                   </td>
                 </tr>
               )

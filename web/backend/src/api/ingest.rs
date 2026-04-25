@@ -1,3 +1,15 @@
+//! Data ingestion API — endpoints called by the EcoCode CLI (`online` exporter).
+//!
+//! The CLI authenticates via a workspace-scoped API key in the `Authorization: Bearer` header.
+//! The ingestion flow is:
+//! 1. `POST /api/ingest/run`             — create a run record (status = running).
+//! 2. `POST /api/ingest/run/{id}/record` — append one measurement record per interval.
+//! 3. `POST /api/ingest/run/{id}/system-info` — save hardware specs (once per run).
+//! 4. `POST /api/ingest/run/{id}/complete`    — finalise the run and trigger summary calculation.
+//!
+//! All record insertions are transactional; GPU and socket breakdowns are inserted
+//! in the same transaction as the parent record.
+
 use axum::{extract::{Path, State}, http::StatusCode, Json, response::IntoResponse};
 use serde_json::json;
 

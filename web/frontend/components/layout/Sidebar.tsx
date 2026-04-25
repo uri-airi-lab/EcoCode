@@ -10,11 +10,10 @@ import {
   LayoutDashboard,
   Users,
   ChevronDown,
-  LogOut,
-  Plus
+  Plus,
+  User
 } from 'lucide-react'
 import { useWorkspace } from './WorkspaceProvider'
-import { toast } from 'sonner'
 
 export function Sidebar() {
   const pathname = usePathname()
@@ -22,23 +21,6 @@ export function Sidebar() {
   const { workspaces, currentWorkspace, dropdownOpen, setDropdownOpen } = useWorkspace()
 
   const workspaceSlug = currentWorkspace?.slug ?? pathname.split('/').filter(Boolean)[0] ?? ''
-
-  const handleLogout = async () => {
-    try {
-      const res = await fetch('/api/auth/logout', { 
-        method: 'POST',
-        credentials: 'include'
-      })
-      if (res.ok) {
-        toast.success('Logged out successfully')
-        router.push('/login')
-      } else {
-        toast.error('Failed to logout')
-      }
-    } catch (error) {
-      toast.error('An error occurred during logout')
-    }
-  }
 
   const navItems = [
     { href: `/${workspaceSlug}`, label: 'Dashboard', icon: LayoutDashboard, exact: true },
@@ -126,13 +108,18 @@ export function Sidebar() {
 
         <div className="flex-1" />
 
-        <button
-          onClick={handleLogout}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-neutral-400 hover:text-destructive hover:bg-destructive/10 transition-all duration-200 border border-transparent mt-4"
+        {/* Account Link at Bottom */}
+        <Link
+          href={`/${workspaceSlug}/settings/account`}
+          className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-all duration-200 mt-4 ${
+            pathname.startsWith(`/${workspaceSlug}/settings/account`)
+              ? 'border-l-2 border-primary bg-primary/10 text-primary font-medium'
+              : 'border-l-2 border-transparent text-muted-foreground hover:bg-muted hover:text-foreground'
+          }`}
         >
-          <LogOut className="w-4 h-4" />
-          <span className="text-sm">Logout</span>
-        </button>
+          <User className={`w-4 h-4 ${pathname.startsWith(`/${workspaceSlug}/settings/account`) ? 'text-primary' : ''}`} />
+          <span className="text-sm">Account</span>
+        </Link>
       </nav>
 
       {/* Footer */}

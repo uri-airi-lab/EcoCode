@@ -7,20 +7,20 @@ import {
   Activity,
   Coins,
 } from 'lucide-react'
-import { DashboardLayout } from '@/components/DashboardLayout'
+import { DashboardLayout } from '@/components/layout/DashboardLayout'
 import { MetricCard } from '@/components/MetricCard'
-import { EnergyChart } from '@/components/EnergyChart'
-import { UtilizationChart } from '@/components/UtilizationChart'
-import { ProjectsTable } from '@/components/ProjectsTable'
-import { PowerDistributionChart } from '@/components/PowerDistributionChart'
-import { CumulativePowerChart } from '@/components/CumulativePowerChart'
-import { EnvironmentalImpact } from '@/components/EnvironmentalImpact'
-import { CarbonSettings } from '@/components/CarbonSettings'
+import { EnergyChart } from '@/components/charts/EnergyChart'
+import { UtilizationChart } from '@/components/charts/UtilizationChart'
+import { ProjectsTable } from '@/components/tables/ProjectsTable'
+import { PowerDistributionChart } from '@/components/charts/PowerDistributionChart'
+import { CumulativePowerChart } from '@/components/charts/CumulativePowerChart'
+import { EnvironmentalImpact } from '@/components/run/EnvironmentalImpact'
+import { CarbonSettings } from '@/components/run/CarbonSettings'
 import { StartRunModal } from '@/components/StartRunModal'
 import { Run } from '@/lib/mock-data'
-import { fetchAllRuns, fetchRunDetail, fetchAllProjects, fetchAllRunsWithRecords, ProjectSummary } from '@/lib/api-client'
+import { fetchAllRuns, fetchRunDetail, fetchAllProjects, fetchAllRunsWithRecords, ProjectSummary } from '@/lib/api'
 import { useSSE } from '@/hooks/use-sse'
-import { useWorkspace } from '@/components/WorkspaceProvider'
+import { useWorkspace } from '@/components/layout/WorkspaceProvider'
 
 export default function Dashboard() {
   const { currentWorkspace, loading: workspaceLoading } = useWorkspace()
@@ -307,7 +307,16 @@ export default function Dashboard() {
         )} */}
 
         {/* Charts */}
-        {(allRunsRecords.length > 0 || currentRun) && (
+        {loading ? (
+          <div className="mb-8">
+            <div className="chart-container flex items-center justify-center py-12">
+              <div className="flex flex-col items-center gap-3">
+                <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+                <p className="text-sm text-muted-foreground">Loading dashboard data...</p>
+              </div>
+            </div>
+          </div>
+        ) : (allRunsRecords.length > 0 || currentRun) ? (
           <div className="mb-8 space-y-4 md:space-y-6">
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 md:gap-6">
               <div className="xl:col-span-2">
@@ -328,10 +337,10 @@ export default function Dashboard() {
               <UtilizationChart runs={allRunsRecords.length > 0 ? allRunsRecords : (currentRun ? [{ runId: currentRun.id, runName: currentRun.name, records: currentRun.records }] : [])} />
             </div>
           </div>
-        )}
+        ) : null}
 
         {/* Projects Table */}
-        <ProjectsTable projects={projects} />
+        <ProjectsTable projects={projects} loading={loading} />
       </div>
     </DashboardLayout>
   )

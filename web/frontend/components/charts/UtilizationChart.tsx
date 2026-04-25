@@ -13,7 +13,7 @@ import {
 } from 'recharts'
 import { MetricRecord } from '@/lib/mock-data'
 import { format } from 'date-fns'
-import { ChartInfoTooltip } from './ChartInfoTooltip'
+import { ChartInfoTooltip } from '@/components/ChartInfoTooltip'
 import { chartColor } from '@/lib/chart-colors'
 
 const GPU_COLORS = [1, 2, 3, 4, 5, 6].map(n => chartColor(n as 1 | 2 | 3 | 4 | 5 | 6))
@@ -122,7 +122,7 @@ export function UtilizationChart({ runs: runsProp, data }: UtilizationChartProps
               <stop offset="95%" stopColor={chartColor(3)} stopOpacity={0} />
             </linearGradient>
           </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
+          <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} strokeOpacity={0.8} />
           <XAxis
             dataKey="index"
             type="number"

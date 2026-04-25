@@ -1,3 +1,12 @@
+//! RAPL (Running Average Power Limit) sensor reader.
+//!
+//! Reads per-socket, per-domain energy counters exposed by the Linux kernel at
+//! `/sys/class/powercap/intel-rapl/`. Supported domains: `cpu` (core), `dram`,
+//! and `igpu` (uncore / integrated graphics).
+//!
+//! Energy values are read in microjoules (uJ) directly from sysfs and converted
+//! to Joules before being attributed to the monitored process.
+
 use crate::sensor::RAPL_PATH;
 use regex::Regex;
 use std::error::Error;
@@ -5,66 +14,92 @@ use std::fs::{File, read_dir};
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::Path;
 
-// --- TODO: Make it modular ---
+/// An open file handle for a single RAPL energy counter, kept open across samples
+/// to avoid repeated `open()` syscalls on every tick.
 #[derive(Debug)]
 pub struct RaplFile {
+    /// CPU socket index (0-based). Multi-socket systems have one entry per socket.
     pub socket: i16,
-    pub domain: String, // cpu, dram, igpu
+    /// Power domain: `"cpu"`, `"dram"`, or `"igpu"`.
+    pub domain: String,
+    /// Buffered reader positioned at the `energy_uj` sysfs file.
     pub file: BufReader<File>,
-    pub max_energy: f64, // in microjoules, used to detect counter resets
+    /// Counter ceiling read from `max_energy_range_uj`, used to detect wrap-around.
+    pub max_energy: f64,
 }
+
+/// A snapshot of a RAPL energy counter at one point in time (in microjoules).
 #[derive(Debug)]
 pub struct RaplEnergy {
     pub socket: i16,
-    pub domain: String, // cpu, dram, igpu
+    /// Power domain: `"cpu"`, `"dram"`, or `"igpu"`.
+    pub domain: String,
+    /// Absolute energy counter value in microjoules at this sample.
     pub energy: f64,
-    pub max_energy: f64, // in microjoules, used to detect counter resets
+    /// Counter ceiling from `max_energy_range_uj`; used for wrap-around correction.
+    pub max_energy: f64,
 }
 
+/// Per-domain energy consumed (in Joules) between two consecutive samples,
+/// already weighted by the process's resource-usage fraction.
 #[derive(Debug)]
 pub struct RaplEnergyDelta {
     pub socket: i16,
-    pub domain: String, // cpu, dram, igpu
+    /// Power domain: `"cpu"`, `"dram"`, or `"igpu"`.
+    pub domain: String,
+    /// Energy attributed to the monitored process (Joules).
     pub delta_energy: f64,
 }
 
-// Get energy in microjoules from a rapl file
+/// Reads the current energy counter value (microjoules) from an open sysfs file.
+/// The file is seeked back to position 0 before every read because the kernel
+/// updates it in-place rather than appending new data.
 pub fn get_energy(rapl_file: &mut BufReader<File>) -> Result<f64, Box<dyn Error>> {
-    // Parse the energy consumption from the file (in microjoules)
-
     rapl_file.seek(SeekFrom::Start(0))?;
-
     let mut buffer = String::new();
     rapl_file.read_line(&mut buffer)?;
-
     let energy_consumed = buffer.trim().parse::<f64>()?;
+    Ok(energy_consumed)
+}
 
-    Ok(energy_consumed) //energy in microjoules
-} //FIXME: Counter reset handle
-
+/// Reads the hardware counter ceiling from `max_energy_range_uj`.
+/// Used to detect and correct wrap-around between consecutive samples.
 fn get_max_energy(path: &Path) -> Result<f64, Box<dyn Error>> {
     Ok(std::fs::read_to_string(path)?.trim().parse::<f64>()?)
 }
 
+/// Reads the current energy counter from every open RAPL file handle.
+/// Returns one [`RaplEnergy`] per (socket, domain) pair, in the same order as
+/// the input `rapl_readers` slice.
 pub fn get_all_energies(
     rapl_readers: &mut Vec<RaplFile>,
 ) -> Result<Vec<RaplEnergy>, Box<dyn Error>> {
     let mut rapl_energies = Vec::new();
     for reader in rapl_readers {
-        let energy = get_energy(&mut reader.file)?; //energy in microjoules
+        let energy = get_energy(&mut reader.file)?;
         let rapl_energy = RaplEnergy {
             socket: reader.socket,
             domain: reader.domain.clone(),
-            energy: energy,
+            energy,
             max_energy: reader.max_energy,
-            // TODO: use this to detect counter resets
         };
         rapl_energies.push(rapl_energy);
     }
     Ok(rapl_energies)
 }
 
-// TODO: Make it concurrant for faster processing
+/// Computes the energy (in Joules) attributed to a specific process for each
+/// RAPL domain between two consecutive snapshots.
+///
+/// Attribution is proportional: each domain's raw delta energy is multiplied by
+/// the process's fractional share of the relevant resource:
+/// - `cpu` domain  → weighted by `cpu_usage / 100`
+/// - `dram` domain → weighted by `mem_usage / 100`
+/// - `igpu` domain → weighted by `igpu_usage / 100` (proxied from CPU usage;
+///   no per-process iGPU sensor exists in Linux)
+///
+/// Counter wrap-around is handled: if `energy_2 < energy_1`, the hardware
+/// counter has rolled over and we add `max_energy` to reconstruct the true delta.
 pub fn delta_cpu_energy_per_pid_j(
     energies_1: &[RaplEnergy],
     energies_2: &[RaplEnergy],
@@ -73,7 +108,6 @@ pub fn delta_cpu_energy_per_pid_j(
     mem_usage: f64,
     igpu_usage: f64,
 ) -> Vec<RaplEnergyDelta> {
-    //Check the lengths
     if energies_1.len() != energies_2.len() {
         panic!("energy vectors must have the same length");
     };
@@ -115,7 +149,21 @@ pub fn delta_cpu_energy_per_pid_j(
     delta_energy
 }
 
-// TODO: Make it concurrant for faster search
+/// Scans the RAPL sysfs hierarchy and opens a buffered file handle for every
+/// discovered energy counter.
+///
+/// Directory layout expected:
+/// ```text
+/// /sys/class/powercap/intel-rapl/
+///   intel-rapl:0/          ← socket 0
+///     intel-rapl:0:0/      ← sub-domain (core / dram / uncore)
+///     intel-rapl:0:1/
+///   intel-rapl:1/          ← socket 1 (multi-socket systems)
+///     ...
+/// ```
+/// Domain names are normalised: `"core"` → `"cpu"`, `"uncore"` → `"igpu"`.
+/// The returned vector is sorted alphabetically by domain so that paired calls
+/// to [`get_all_energies`] always produce entries in a consistent order.
 pub fn scan_rapl_files() -> Result<Vec<RaplFile>, Box<dyn Error>> {
     let mut rapl_files = Vec::new();
 

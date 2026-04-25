@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { FolderPlus, Loader2, ArrowRight } from 'lucide-react'
-import { useWorkspace } from '@/components/WorkspaceProvider'
+import { useWorkspace } from '@/components/layout/WorkspaceProvider'
 
 export default function RootPage() {
   const router = useRouter()
