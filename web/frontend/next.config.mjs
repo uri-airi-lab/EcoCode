@@ -10,7 +10,11 @@ const nextConfig = {
         destination: 'http://localhost:3001/api/:path*',
       },
     ]
-  }
+  },
+  // Disable response buffering for SSE to work properly
+  experimental: {
+    proxyTimeout: 300_000, // 5 minutes for long-lived SSE connections
+  },
 }
 
 export default nextConfig

@@ -14,7 +14,13 @@ export function buildApiUrl(path: string): string {
 }
 
 export function buildAbsoluteApiUrl(path: string): string {
-  // For SSE or streams that shouldn't be buffered by Next.js proxy
+  // For SSE connections, always use relative URLs in the browser to go through Next.js proxy
+  // This ensures proper CORS handling and network accessibility
+  if (typeof window !== 'undefined') {
+    return path
+  }
+  
+  // Server-side: use absolute URL if available
   if (API_BASE_URL) {
     return new URL(path, API_BASE_URL).toString()
   }

@@ -51,7 +51,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Ensure all tables and columns exist
     db::schema::ensure_postgres_schema(&pool).await?;
 
-    let (tx, _) = broadcast::channel::<String>(100);
+    let (tx, _) = broadcast::channel::<String>(1000);
     let state = AppState {
         pool,
         tx: tx.clone(),

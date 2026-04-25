@@ -27,9 +27,12 @@ export function useSSE() {
 
     useEffect(() => {
         setLatestRecord(null)
-        const eventSource = new EventSource(buildAbsoluteApiUrl('/api/sse'))
+        const sseUrl = buildAbsoluteApiUrl('/api/sse')
+        console.log('[SSE] Connecting to:', sseUrl)
+        const eventSource = new EventSource(sseUrl)
 
         eventSource.onmessage = (event) => {
+            console.log('[SSE] Received message:', event.data)
             try {
                 const record = JSON.parse(event.data)
 
@@ -64,7 +67,8 @@ export function useSSE() {
             }
         }
 
-        eventSource.onerror = () => {
+        eventSource.onerror = (err) => {
+            console.error('[SSE] Error:', err, 'ReadyState:', eventSource.readyState)
             const next = eventSource.readyState === EventSource.CLOSED
                 ? 'SSE disconnected'
                 : 'SSE reconnecting...'
@@ -72,6 +76,7 @@ export function useSSE() {
         }
 
         eventSource.onopen = () => {
+            console.log('[SSE] Connection opened')
             setError(null)
         }
 

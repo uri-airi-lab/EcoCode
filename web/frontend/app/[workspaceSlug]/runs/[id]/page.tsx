@@ -40,7 +40,19 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
 
   // Update current run with real-time SSE data
   useEffect(() => {
-    if (!latestRecord || !run || latestRecord.run_id !== paramId) return
+    if (!latestRecord || !run || latestRecord.run_id !== paramId) {
+      if (latestRecord) {
+        console.log('[RunDetail] SSE record received but filtered:', {
+          hasRun: !!run,
+          recordRunId: latestRecord.run_id,
+          paramId,
+          match: latestRecord.run_id === paramId
+        })
+      }
+      return
+    }
+
+    console.log('[RunDetail] Processing SSE record:', latestRecord.id)
 
     setRun((prevRun) => {
       if (!prevRun) return null
