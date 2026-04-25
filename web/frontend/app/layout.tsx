@@ -1,12 +1,22 @@
 import type { Metadata, Viewport } from 'next'
-import { Inter } from 'next/font/google'
+import { Source_Sans_3, JetBrains_Mono } from 'next/font/google'
 
 import { WorkspaceProvider } from '@/components/WorkspaceProvider'
 import { Toaster } from '@/components/ui/sonner'
 
 import './globals.css'
 
-const inter = Inter({ subsets: ['latin'] })
+const sourceSans = Source_Sans_3({
+  subsets: ['latin'],
+  variable: '--font-source-sans',
+  display: 'swap',
+})
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ['latin'],
+  variable: '--font-jetbrains-mono',
+  display: 'swap',
+})
 
 export const metadata: Metadata = {
   title: 'EcoCode Dashboard',
@@ -29,7 +39,7 @@ export default function RootLayout({
     <html lang="en" className="dark" suppressHydrationWarning>
       <body
         suppressHydrationWarning
-        className={`${inter.className} font-sans antialiased bg-background text-foreground`}
+        className={`${sourceSans.variable} ${jetbrainsMono.variable} font-sans antialiased bg-background text-foreground`}
       >
         <WorkspaceProvider>
           {children}

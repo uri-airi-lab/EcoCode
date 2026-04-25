@@ -11,6 +11,7 @@ import {
 } from 'recharts'
 import { MetricRecord } from '@/lib/mock-data'
 import { ChartInfoTooltip } from './ChartInfoTooltip'
+import { chartColor } from '@/lib/chart-colors'
 
 interface PowerDistributionChartProps {
   record: MetricRecord
@@ -38,10 +39,10 @@ export function PowerDistributionChart({ record, prevRecord }: PowerDistribution
   }, [record, prevRecord])
 
   const data = [
-    { name: 'CPU', value: (record.cpu_energy ?? 0) / deltaS, color: 'hsl(158 94% 45%)' },
-    { name: 'GPU', value: (record.gpu_energy ?? 0) / deltaS, color: 'hsl(199 89% 48%)' },
-    { name: 'Memory', value: (record.mem_energy ?? 0) / deltaS, color: 'hsl(20 89% 55%)' },
-    { name: 'iGPU', value: (record.igpu_energy ?? 0) / deltaS, color: 'hsl(49 89% 52%)' },
+    { name: 'CPU', value: (record.cpu_energy ?? 0) / deltaS, color: chartColor(1) },
+    { name: 'GPU', value: (record.gpu_energy ?? 0) / deltaS, color: chartColor(2) },
+    { name: 'Memory', value: (record.mem_energy ?? 0) / deltaS, color: chartColor(3) },
+    { name: 'iGPU', value: (record.igpu_energy ?? 0) / deltaS, color: chartColor(4) },
   ].filter(item => item.value > 0)
 
   const totalWatts = data.reduce((sum, item) => sum + item.value, 0)
@@ -73,10 +74,11 @@ export function PowerDistributionChart({ record, prevRecord }: PowerDistribution
             </Pie>
             <Tooltip
               contentStyle={{
-                backgroundColor: 'hsl(0 0% 6%)',
-                border: '1px solid hsl(0 0% 12%)',
+                backgroundColor: 'hsl(var(--card))',
+                border: '1px solid hsl(var(--border))',
                 borderRadius: '4px',
                 fontSize: '12px',
+                color: 'hsl(var(--foreground))',
               }}
               formatter={(value: number) => [`${value.toFixed(2)} W`, '']}
             />

@@ -18,7 +18,7 @@ import { EnvironmentalImpact } from '@/components/EnvironmentalImpact'
 import { CarbonSettings } from '@/components/CarbonSettings'
 import { StartRunModal } from '@/components/StartRunModal'
 import { Run } from '@/lib/mock-data'
-import { fetchAllRuns, fetchRunDetail, fetchAllProjects, ProjectSummary } from '@/lib/api-client'
+import { fetchAllRuns, fetchRunDetail, fetchAllProjects, fetchAllRunsWithRecords, ProjectSummary } from '@/lib/api-client'
 import { useSSE } from '@/hooks/use-sse'
 import { useWorkspace } from '@/components/WorkspaceProvider'
 
@@ -27,6 +27,7 @@ export default function Dashboard() {
   const [runs, setRuns] = useState<Omit<Run, 'records'>[]>([])
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [currentRun, setCurrentRun] = useState<Run | null>(null)
+  const [allRunsRecords, setAllRunsRecords] = useState<{ runId: string; runName: string; records: MetricRecord[] }[]>([])
   const [loading, setLoading] = useState(true)
   const { latestRecord } = useSSE()
 
@@ -86,13 +87,23 @@ export default function Dashboard() {
             : projData
         setProjects(filteredProjects)
 
-        const runsData = await fetchAllRuns()
+        const filteredProjectIds = filteredProjects.map(p => p.id)
+
+        const [runsData, allWithRecords] = await Promise.all([
+          fetchAllRuns(),
+          fetchAllRunsWithRecords(filteredProjectIds.length > 0 ? filteredProjectIds : undefined),
+        ])
         if (cancelled) return
         
         const filteredRuns = currentWorkspace
             ? runsData.filter(r => filteredProjects.some(p => p.id === r.projectId))
             : runsData
         setRuns(filteredRuns)
+
+        const filteredWithRecords = currentWorkspace
+          ? allWithRecords.filter(r => filteredRuns.some(fr => fr.id === r.runId))
+          : allWithRecords
+        setAllRunsRecords(filteredWithRecords)
 
         if (filteredRuns.length > 0) {
           const latestRunId = filteredRuns[0].id
@@ -108,6 +119,7 @@ export default function Dashboard() {
           setRuns([])
           setProjects([])
           setCurrentRun(null)
+          setAllRunsRecords([])
         }
       } finally {
         if (!cancelled) {
@@ -295,13 +307,13 @@ export default function Dashboard() {
         )} */}
 
         {/* Charts */}
-        {currentRun && (
+        {(allRunsRecords.length > 0 || currentRun) && (
           <div className="mb-8 space-y-4 md:space-y-6">
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 md:gap-6">
               <div className="xl:col-span-2">
-                <EnergyChart data={currentRun.records} />
+                <EnergyChart runs={allRunsRecords.length > 0 ? allRunsRecords : (currentRun ? [{ runId: currentRun.id, runName: currentRun.name, records: currentRun.records }] : [])} />
               </div>
-              {currentRun.records.length > 0 && (
+              {currentRun && currentRun.records.length > 0 && (
                 <div className="xl:col-span-1">
                   <PowerDistributionChart 
                     record={currentRun.records[currentRun.records.length - 1]} 
@@ -312,8 +324,8 @@ export default function Dashboard() {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
-              <CumulativePowerChart data={currentRun.records} />
-              <UtilizationChart data={currentRun.records} />
+              <CumulativePowerChart runs={allRunsRecords.length > 0 ? allRunsRecords : (currentRun ? [{ runId: currentRun.id, runName: currentRun.name, records: currentRun.records }] : [])} />
+              <UtilizationChart runs={allRunsRecords.length > 0 ? allRunsRecords : (currentRun ? [{ runId: currentRun.id, runName: currentRun.name, records: currentRun.records }] : [])} />
             </div>
           </div>
         )}

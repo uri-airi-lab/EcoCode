@@ -32,22 +32,22 @@ export const RecentRunsTable = memo(function RecentRunsTable({ runs }: RecentRun
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border">
-              <th className="text-left py-3 px-4 text-muted-foreground font-medium">
+              <th className="text-left py-3 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px]">
                 Run Name
               </th>
-                            <th className="text-left py-3 px-4 text-muted-foreground font-medium">
+                            <th className="text-left py-3 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px]">
                 Run Time-Stamp
               </th>
-                            <th className="text-left py-3 px-4 text-muted-foreground font-medium">
+                            <th className="text-left py-3 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px]">
                 Run Owner
               </th>
-              <th className="text-right py-3 px-4 text-muted-foreground font-medium">
+              <th className="text-right py-3 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px]">
                 Energy (Wh)
               </th>
-              <th className="text-right py-3 px-4 text-muted-foreground font-medium">
+              <th className="text-right py-3 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px]">
                 CO₂ (g)
               </th>
-              <th className="text-center py-3 px-4 text-muted-foreground font-medium">
+              <th className="text-center py-3 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px]">
                 Status
               </th>
               <th className="text-right py-3 px-4" />
@@ -80,19 +80,19 @@ export const RecentRunsTable = memo(function RecentRunsTable({ runs }: RecentRun
                       By {run.collaboratorName ?? 'Unassigned'}
                     </p>
                 </td>
-                <td className="text-right py-3 px-4 text-foreground font-medium">
+                <td className="text-right py-3 px-4 text-foreground font-medium font-mono">
                   {Number(run.totalEnergy.toFixed(2)).toLocaleString()}
                 </td>
-                <td className="text-right py-3 px-4 text-foreground font-medium">
+                <td className="text-right py-3 px-4 text-foreground font-medium font-mono">
                   {Number(run.carbonFootprint.toFixed(2)).toLocaleString()}
                 </td>
                 <td className="text-center py-3 px-4">
                   <span
-                    className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${run.status === 'finished'
-                      ? 'bg-emerald-500/20 text-emerald-300'
+                    className={`inline-block px-3 py-1 rounded text-xs font-medium ${run.status === 'finished'
+                      ? 'bg-primary/15 text-primary'
                       : run.status === 'running'
-                        ? 'bg-blue-500/20 text-blue-300'
-                        : 'bg-red-500/20 text-red-300'
+                        ? 'bg-chart-1/20 text-chart-1'
+                        : 'bg-destructive/15 text-destructive'
                       }`}
                   >
                     {run.status}

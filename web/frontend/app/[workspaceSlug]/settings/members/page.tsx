@@ -96,7 +96,7 @@ export default function MembersSettingsPage() {
       <div className="p-4 md:p-8 max-w-5xl mx-auto w-full">
         <div className="mb-8">
           <h1 className="text-2xl md:text-3xl font-bold text-foreground mb-2 flex items-center">
-            <Users className="w-8 h-8 mr-3 text-emerald-500" />
+            <Users className="w-8 h-8 mr-3 text-primary" />
             Workspace Members
           </h1>
           <p className="text-muted-foreground">
@@ -105,70 +105,70 @@ export default function MembersSettingsPage() {
         </div>
 
         {/* Members List */}
-        <div className="bg-neutral-900/40 border border-neutral-800 rounded-2xl overflow-hidden mb-8">
-          <div className="p-6 border-b border-neutral-800">
+        <div className="bg-card border border-border rounded-md overflow-hidden mb-8">
+          <div className="p-6 border-b border-border">
             <h2 className="text-lg font-semibold text-foreground flex items-center">
-              <Users className="w-5 h-5 mr-2 text-neutral-400" />
+              <Users className="w-5 h-5 mr-2 text-muted-foreground" />
               Active Members
             </h2>
           </div>
-          
+
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-neutral-950/30">
-                  <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-neutral-500 border-b border-neutral-800">Email</th>
-                  <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-neutral-500 border-b border-neutral-800">Role</th>
-                  <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-neutral-500 border-b border-neutral-800">Joined</th>
-                  <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-neutral-500 border-b border-neutral-800 text-right">Actions</th>
+                <tr className="bg-muted/30">
+                  <th className="px-6 py-4 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b border-border">Email</th>
+                  <th className="px-6 py-4 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b border-border">Role</th>
+                  <th className="px-6 py-4 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b border-border">Joined</th>
+                  <th className="px-6 py-4 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground border-b border-border text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-neutral-800">
+              <tbody className="divide-y divide-border">
                 {loadingMembers ? (
                   <tr>
-                    <td colSpan={4} className="px-6 py-12 text-center text-neutral-500">
+                    <td colSpan={4} className="px-6 py-12 text-center text-muted-foreground">
                       <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
                       Loading members...
                     </td>
                   </tr>
                 ) : members.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-6 py-12 text-center text-neutral-500">
+                    <td colSpan={4} className="px-6 py-12 text-center text-muted-foreground">
                       No members found.
                     </td>
                   </tr>
                 ) : (
                   members.map((member) => (
-                    <tr key={member.user_id} className="hover:bg-neutral-800/20 transition-colors">
+                    <tr key={member.user_id} className="hover:bg-muted/30 transition-colors">
                       <td className="px-6 py-4">
                         <div className="flex items-center">
-                          <div className="w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center mr-3 text-emerald-500">
+                          <div className="w-8 h-8 rounded-md bg-primary/15 flex items-center justify-center mr-3 text-primary">
                             <Mail className="w-4 h-4" />
                           </div>
-                          <span className="text-sm font-medium text-white">{member.email}</span>
+                          <span className="text-sm font-medium text-foreground">{member.email}</span>
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          member.role === 'admin' 
-                            ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20' 
-                            : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${
+                          member.role === 'admin'
+                            ? 'bg-chart-4/20 text-chart-4 border border-chart-4/20'
+                            : 'bg-chart-1/20 text-chart-1 border border-chart-1/20'
                         }`}>
                           <Shield className="w-3 h-3 mr-1" />
                           {member.role.charAt(0).toUpperCase() + member.role.slice(1)}
                         </span>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="flex items-center text-xs text-neutral-400">
+                        <div className="flex items-center text-xs text-muted-foreground font-mono">
                           <Calendar className="w-3.5 h-3.5 mr-1.5" />
                           {new Date(member.joined_at).toLocaleDateString()}
                         </div>
                       </td>
                       <td className="px-6 py-4 text-right">
                         {isAdmin && (
-                          <button 
+                          <button
                             onClick={() => handleRemove(member.user_id)}
-                            className="p-2 text-neutral-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                            className="p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors"
                             title="Remove member"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -184,50 +184,54 @@ export default function MembersSettingsPage() {
         </div>
 
         {isAdmin && (
-          <div className="bg-neutral-900/40 border border-neutral-800 rounded-2xl p-6 sm:p-8">
+          <div className="bg-card border border-border rounded-md p-6 sm:p-8">
             <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center">
-              <UserPlus className="w-5 h-5 mr-2 text-neutral-400" />
+              <UserPlus className="w-5 h-5 mr-2 text-muted-foreground" />
               Invite a Member
             </h2>
-            
+
             <form onSubmit={handleInvite} className="space-y-4 max-w-lg">
               {message.text && (
-                <div className={`px-4 py-3 rounded-xl text-sm border ${message.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>
+                <div className={`px-4 py-3 rounded-md text-sm border ${
+                  message.type === 'success'
+                    ? 'bg-primary/10 border-primary/20 text-primary'
+                    : 'bg-destructive/10 border-destructive/20 text-destructive'
+                }`}>
                   {message.text}
                 </div>
               )}
 
               <div>
-                <label className="block text-sm font-medium text-neutral-300 mb-2">
+                <label className="block text-sm font-medium text-foreground mb-2">
                   User Email Address
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <Mail className="h-5 w-5 text-neutral-500" />
+                    <Mail className="h-5 w-5 text-muted-foreground" />
                   </div>
                   <input
                     type="email"
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2.5 bg-neutral-950/50 border border-neutral-800 rounded-xl text-white placeholder:text-neutral-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                    className="w-full pl-10 pr-4 py-2.5 bg-background border border-border rounded-md text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all"
                     placeholder="colleague@example.com"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-neutral-300 mb-2">
+                <label className="block text-sm font-medium text-foreground mb-2">
                   Role
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <Shield className="h-5 w-5 text-neutral-500" />
+                    <Shield className="h-5 w-5 text-muted-foreground" />
                   </div>
                   <select
                     value={role}
                     onChange={(e) => setRole(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2.5 bg-neutral-950/50 border border-neutral-800 rounded-xl text-white appearance-none focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                    className="w-full pl-10 pr-4 py-2.5 bg-background border border-border rounded-md text-foreground appearance-none focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all"
                   >
                     <option value="member">Member (Can view and create runs)</option>
                     <option value="admin">Admin (Can manage settings and invite)</option>
@@ -238,7 +242,7 @@ export default function MembersSettingsPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="bg-emerald-500 hover:bg-emerald-600 text-neutral-950 font-medium py-2.5 px-6 rounded-xl transition-colors disabled:opacity-50 flex items-center mt-2"
+                className="bg-primary hover:brightness-110 text-primary-foreground font-medium py-2.5 px-6 rounded-md transition-all disabled:opacity-50 flex items-center mt-2"
               >
                 {loading ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : null}
                 Send Invitation
@@ -250,4 +254,3 @@ export default function MembersSettingsPage() {
     </DashboardLayout>
   )
 }
-

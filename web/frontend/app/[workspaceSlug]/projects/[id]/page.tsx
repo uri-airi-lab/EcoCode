@@ -120,6 +120,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                         <StartRunModal
                             projects={allProjects}
                             defaultProjectId={paramId || undefined}
+                            existingOnly
                             onProjectCreated={() => {
                                 fetchAllProjects().then(setAllProjects)
                             }}

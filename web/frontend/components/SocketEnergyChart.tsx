@@ -15,11 +15,12 @@ import {
 import { MetricRecord } from '@/lib/mock-data'
 import { format } from 'date-fns'
 import { ChartInfoTooltip } from './ChartInfoTooltip'
+import { chartColor } from '@/lib/chart-colors'
 
 const SOCKET_COLORS: Record<string, string> = {
-  cpu: 'hsl(158 94% 45%)',    // Neon Green
-  dram: 'hsl(20 89% 55%)',    // Orange
-  igpu: 'hsl(49 89% 52%)',    // Gold
+  cpu:  chartColor(1),  // cyan
+  dram: chartColor(3),  // green
+  igpu: chartColor(4),  // purple
 }
 
 const SOCKET_LINE_STYLES = [
@@ -80,25 +81,26 @@ export function SocketEnergyChart({ data }: SocketEnergyChartProps) {
       </div>
       <ResponsiveContainer width="100%" height={300}>
         <LineChart data={chartData}>
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.6)" />
           <XAxis
             dataKey="time"
-            stroke="rgba(255,255,255,0.4)"
-            style={{ fontSize: '12px' }}
+            stroke="hsl(var(--border))"
+            tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
           />
           <YAxis
-            stroke="rgba(255,255,255,0.4)"
-            style={{ fontSize: '12px' }}
+            stroke="hsl(var(--border))"
+            tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
             label={{ value: 'Watts', angle: -90, position: 'insideLeft' }}
           />
           <Tooltip
             contentStyle={{
-              backgroundColor: 'hsl(0 0% 6%)',
-              border: '1px solid hsl(0 0% 12%)',
+              backgroundColor: 'hsl(var(--card))',
+              border: '1px solid hsl(var(--border))',
               borderRadius: '4px',
               fontSize: '12px',
+              color: 'hsl(var(--foreground))',
             }}
-            cursor={{ stroke: 'hsl(0 0% 20%)' }}
+            cursor={{ stroke: 'hsl(var(--muted-foreground))' }}
           />
           <Legend wrapperStyle={{ fontSize: '12px' }} />
           {socketKeys.map((key) => {
@@ -106,7 +108,7 @@ export function SocketEnergyChart({ data }: SocketEnergyChartProps) {
             const parts = key.split('_')
             const socketNum = parseInt(parts[0].replace('s', ''))
             const domain = parts.slice(1).join('_')
-            const color = SOCKET_COLORS[domain] ?? 'hsl(0 0% 60%)'
+            const color = SOCKET_COLORS[domain] ?? 'hsl(var(--muted-foreground))'
             const dashArray = SOCKET_LINE_STYLES[socketNum % SOCKET_LINE_STYLES.length]
 
             return (
@@ -127,8 +129,8 @@ export function SocketEnergyChart({ data }: SocketEnergyChartProps) {
           <Brush
             dataKey="time"
             height={30}
-            stroke="rgba(255,255,255,0.2)"
-            fill="rgba(0,0,0,0.5)"
+            stroke="hsl(var(--border))"
+            fill="hsl(var(--card))"
             travellerWidth={10}
           />
         </LineChart>

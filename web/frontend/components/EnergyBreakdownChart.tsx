@@ -13,17 +13,9 @@ import {
 } from 'recharts'
 import { Run } from '@/lib/mock-data'
 import { ChartInfoTooltip } from './ChartInfoTooltip'
+import { chartColor } from '@/lib/chart-colors'
 
-const GPU_COLORS = [
-  'hsl(199 89% 48%)',   // Blue
-  'hsl(280 65% 60%)',   // Purple
-  'hsl(49 89% 52%)',    // Gold
-  'hsl(340 82% 52%)',   // Pink
-  'hsl(20 89% 55%)',    // Orange
-  'hsl(180 80% 45%)',   // Teal
-  'hsl(60 80% 50%)',    // Lime
-  'hsl(158 94% 45%)',   // Neon Green (moved to end)
-]
+const GPU_COLORS = [1, 2, 3, 4, 5, 6].map(n => chartColor(n as 1 | 2 | 3 | 4 | 5 | 6))
 
 interface EnergyBreakdownChartProps {
   run: Run
@@ -89,20 +81,21 @@ export function EnergyBreakdownChart({ run }: EnergyBreakdownChartProps) {
           layout="vertical"
           margin={{ top: 5, right: 30, left: 40, bottom: 5 }}
         >
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" horizontal={false} />
-          <XAxis type="number" stroke="rgba(255,255,255,0.4)" style={{ fontSize: '12px' }} />
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.6)" horizontal={false} />
+          <XAxis type="number" stroke="hsl(var(--border))" tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} />
           <YAxis
             dataKey="name"
             type="category"
-            stroke="rgba(255,255,255,0.4)"
-            style={{ fontSize: '12px' }}
+            stroke="hsl(var(--border))"
+            tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
           />
           <Tooltip
             contentStyle={{
-              backgroundColor: 'hsl(0 0% 6%)',
-              border: '1px solid hsl(0 0% 12%)',
+              backgroundColor: 'hsl(var(--card))',
+              border: '1px solid hsl(var(--border))',
               borderRadius: '4px',
               fontSize: '12px',
+              color: 'hsl(var(--foreground))',
             }}
             formatter={(value: number) => [`${value} Wh`, '']}
           />
@@ -110,7 +103,7 @@ export function EnergyBreakdownChart({ run }: EnergyBreakdownChartProps) {
           <Bar
             dataKey="cpu"
             stackId="a"
-            fill="hsl(158 94% 45%)"
+            fill={chartColor(1)}
             name="CPU"
             isAnimationActive={false}
           />
@@ -129,7 +122,7 @@ export function EnergyBreakdownChart({ run }: EnergyBreakdownChartProps) {
             <Bar
               dataKey="gpu"
               stackId="a"
-              fill="hsl(199 89% 48%)"
+              fill={chartColor(2)}
               name="GPU"
               isAnimationActive={false}
             />
@@ -137,14 +130,14 @@ export function EnergyBreakdownChart({ run }: EnergyBreakdownChartProps) {
           <Bar
             dataKey="mem"
             stackId="a"
-            fill="hsl(20 89% 55%)"
+            fill={chartColor(3)}
             name="Memory"
             isAnimationActive={false}
           />
           <Bar
             dataKey="igpu"
             stackId="a"
-            fill="hsl(49 89% 52%)"
+            fill={chartColor(4)}
             name="iGPU"
             isAnimationActive={false}
           />

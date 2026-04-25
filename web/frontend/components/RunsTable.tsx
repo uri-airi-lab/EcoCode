@@ -55,7 +55,7 @@ export function RunsTable({ runs }: RunsTableProps) {
   ) => {
     switch (status) {
       case 'finished':
-        return <Check className="w-4 h-4 text-emerald-400" />
+        return <Check className="w-4 h-4 text-primary" />
       case 'running':
         return <Clock className="w-4 h-4 text-blue-400 animate-spin" />
       case 'failed':
@@ -99,22 +99,22 @@ export function RunsTable({ runs }: RunsTableProps) {
                   className="w-4 h-4 rounded border-border bg-secondary cursor-pointer"
                 />
               </th>
-              <th className="text-left py-4 px-4 text-muted-foreground font-medium">
+              <th className="text-left py-4 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px]">
                 Run Name
               </th>
-              <th className="text-center py-4 px-4 text-muted-foreground font-medium">
+              <th className="text-center py-4 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px]">
                 Status
               </th>
-              <th className="text-right py-4 px-4 text-muted-foreground font-medium">
+              <th className="text-right py-4 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px]">
                 Duration
               </th>
-              <th className="text-right py-4 px-4 text-muted-foreground font-medium">
+              <th className="text-right py-4 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px]">
                 Energy (Wh)
               </th>
-              <th className="text-right py-4 px-4 text-muted-foreground font-medium">
+              <th className="text-right py-4 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px]">
                 Avg CPU
               </th>
-              <th className="text-right py-4 px-4 text-muted-foreground font-medium">
+              <th className="text-right py-4 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px]">
                 CO₂ (g)
               </th>
               <th className="text-right py-4 px-4" />
@@ -153,16 +153,16 @@ export function RunsTable({ runs }: RunsTableProps) {
                       {getStatusIcon(run.status)}
                     </div>
                   </td>
-                  <td className="text-right py-4 px-4 text-foreground font-medium">
+                  <td className="text-right py-4 px-4 text-foreground font-medium font-mono">
                     {Math.round(run.duration / 60)}m
                   </td>
-                  <td className="text-right py-4 px-4 text-foreground font-medium">
+                  <td className="text-right py-4 px-4 text-foreground font-medium font-mono">
                     {Number(run.totalEnergy.toFixed(2)).toLocaleString()}
                   </td>
-                  <td className="text-right py-4 px-4 text-foreground font-medium">
+                  <td className="text-right py-4 px-4 text-foreground font-medium font-mono">
                     {run.avgCpuUsage.toFixed(1)}%
                   </td>
-                  <td className="text-right py-4 px-4 text-foreground font-medium">
+                  <td className="text-right py-4 px-4 text-foreground font-medium font-mono">
                     {Number(run.carbonFootprint.toFixed(2)).toLocaleString()}
                   </td>
                   <td className="text-right py-4 px-4">

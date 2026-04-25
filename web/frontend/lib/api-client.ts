@@ -612,6 +612,60 @@ export async function fetchAllRuns(): Promise<RunSummary[]> {
 }
 
 /**
+ * Fetch all runs with their record points, sorted oldest-first.
+ * Returns an array of { runId, runName, records } so callers can stitch them.
+ */
+export async function fetchAllRunsWithRecords(
+  projectIds?: string[]
+): Promise<{ runId: string; runName: string; records: MetricRecord[] }[]> {
+  const projectsRes = await apiFetch(buildApiUrl('/api/projects'))
+  if (!projectsRes.ok) return []
+  const projects: BackendProject[] = await projectsRes.json()
+
+  const filtered = projectIds
+    ? projects.filter((p) => projectIds.includes(p.id.toString()))
+    : projects
+
+  const results: { runId: string; runName: string; records: MetricRecord[] }[] = []
+
+  await Promise.all(
+    filtered.map(async (project) => {
+      const runsRes = await apiFetch(buildApiUrl(`/api/project/${project.id}/runs`))
+      if (!runsRes.ok) return
+      const backendRuns: BackendRun[] = await runsRes.json()
+
+      await Promise.all(
+        backendRuns.map(async (backendRun) => {
+          const recordsRes = await apiFetch(
+            buildApiUrl(`/api/run/${backendRun.id}/record_points`)
+          )
+          const backendRecords: BackendRecordPoint[] = recordsRes.ok
+            ? await recordsRes.json()
+            : []
+          const records = backendRecords
+            .map(mapRecord)
+            .sort((a, b) => a.timestamp - b.timestamp)
+          results.push({
+            runId: backendRun.id.toString(),
+            runName: backendRun.name,
+            records,
+          })
+        })
+      )
+    })
+  )
+
+  // Sort runs oldest-first by their first record timestamp
+  results.sort((a, b) => {
+    const aTs = a.records[0]?.timestamp ?? 0
+    const bTs = b.records[0]?.timestamp ?? 0
+    return aTs - bTs
+  })
+
+  return results
+}
+
+/**
  * Fetch a specific run with record points
  */
 export async function fetchRunDetail(id: string): Promise<RunDetail> {

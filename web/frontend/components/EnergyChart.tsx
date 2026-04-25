@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import {
   LineChart,
   Line,
@@ -9,83 +9,113 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
-  ResponsiveContainer,
-  Brush,
+  ReferenceLine,
 } from 'recharts'
 import { MetricRecord } from '@/lib/mock-data'
 import { format } from 'date-fns'
 import { ChartInfoTooltip } from './ChartInfoTooltip'
+import { chartColor } from '@/lib/chart-colors'
 
-const GPU_COLORS = [
-  'hsl(199 89% 48%)',   // Blue
-  'hsl(280 65% 60%)',   // Purple
-  'hsl(49 89% 52%)',    // Gold
-  'hsl(340 82% 52%)',   // Pink
-  'hsl(20 89% 55%)',    // Orange
-  'hsl(180 80% 45%)',   // Teal
-  'hsl(60 80% 50%)',    // Lime
-  'hsl(158 94% 45%)',   // Neon Green
-]
+const GPU_COLORS = [1, 2, 3, 4, 5, 6].map(n => chartColor(n as 1 | 2 | 3 | 4 | 5 | 6))
 
-interface EnergyChartProps {
-  data: MetricRecord[]
+const PX_PER_POINT = 12
+const MIN_WIDTH = 600
+
+interface RunData {
+  runId: string
+  runName: string
+  records: MetricRecord[]
 }
 
-export function EnergyChart({ data }: EnergyChartProps) {
-  // Detect max number of GPUs across all records
+interface EnergyChartProps {
+  runs?: RunData[]
+  data?: MetricRecord[]
+}
+
+// Custom label rendered inside the ReferenceLine
+function SeparatorLabel({ viewBox, runName }: { viewBox?: { x?: number; y?: number; height?: number }; runName: string }) {
+  const x = (viewBox?.x ?? 0) + 6
+  const y = (viewBox?.y ?? 0) + 14
+  return (
+    <g>
+      <text x={x} y={y} fill="hsl(var(--muted-foreground))" fontSize={10} fontWeight={500}>
+        {runName}
+      </text>
+    </g>
+  )
+}
+
+export function EnergyChart({ runs: runsProp, data }: EnergyChartProps) {
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  // Normalize: accept either runs[] (multi-run dashboard) or data[] (single-run detail)
+  const runs: RunData[] = runsProp ?? (data ? [{ runId: 'single', runName: '', records: data }] : [])
+
   const gpuCount = useMemo(() => {
     let maxIdx = -1
-    for (const record of data) {
-      for (const g of record.gpu_details ?? []) {
-        if (g.device_index > maxIdx) maxIdx = g.device_index
+    for (const run of runs) {
+      for (const record of run.records) {
+        for (const g of record.gpu_details ?? []) {
+          if (g.device_index > maxIdx) maxIdx = g.device_index
+        }
       }
     }
     return maxIdx + 1
-  }, [data])
+  }, [runs])
 
-  const chartData = useMemo(() => {
-    // Skip the first record: it captures the process startup burst (CUDA init,
-    // library loading) before the backend warm-up pass fully settles.
-    // The backend already discards the main spike; this is a safety-net so any
-    // remaining transient doesn't distort the chart scale.
-    const records = data.length > 1 ? data.slice(1) : data
+  // Build flat chart data; track separator indices (index of first point of each new run after the first)
+  const { chartData, separatorIndices } = useMemo(() => {
+    const data: Record<string, string | number | null>[] = []
+    // { index: number, runName: string } — index is the first point of the *next* run
+    const seps: { index: number; runName: string }[] = []
 
-    return records.map((record, index) => {
-      // Calculate time delta in seconds from previous record.
-      // KEY FIX: for the first *displayed* record (index=0 after slice), use
-      // data[0] (the skipped warmup record) as prev so deltaS reflects the
-      // real measurement interval (e.g. 5 s) instead of the 1 s fallback.
-      // Without this, energy_J / 1s = inflated Watts spike on the first point.
-      const prev = index > 0
-        ? records[index - 1]
-        : (data.length > 1 ? data[0] : null)
-      const deltaMs = prev
-        ? new Date(record.timestamp).getTime() - new Date(prev.timestamp).getTime()
-        : 1000
-      const deltaS = (deltaMs / 1000) || 1
+    runs.forEach((run, runIdx) => {
+      const records = run.records.length > 1 ? run.records.slice(1) : run.records
 
-      const point: Record<string, string | number> = {
-        time: format(new Date(record.timestamp), 'HH:mm:ss'),
-        cpu: Number(((record.cpu_energy ?? 0) / deltaS).toFixed(2)),
-        gpu: Number(((record.gpu_energy ?? 0) / deltaS).toFixed(2)),
-        mem: Number(((record.mem_energy ?? 0) / deltaS).toFixed(2)),
-        igpu: Number(((record.igpu_energy ?? 0) / deltaS).toFixed(2)),
-        total: Number((((record.cpu_energy ?? 0) + (record.gpu_energy ?? 0) + (record.mem_energy ?? 0) + (record.igpu_energy ?? 0)) / deltaS).toFixed(2)),
+      if (runIdx > 0 && data.length > 0) {
+        // Record the index where this run starts
+        seps.push({ index: data.length, runName: run.runName })
       }
 
-      // Initialize all GPU keys to 0
-      for (let i = 0; i < gpuCount; i++) {
-        point[`gpu${i}`] = 0
-      }
+      records.forEach((record, index) => {
+        const prev = index > 0
+          ? records[index - 1]
+          : (run.records.length > 1 ? run.records[0] : null)
+        const deltaMs = prev ? record.timestamp - prev.timestamp : 1000
+        const deltaS = (deltaMs / 1000) || 1
 
-      // Add per-GPU fields
-      for (const g of record.gpu_details ?? []) {
-        point[`gpu${g.device_index}`] = Number(((g.gpu_energy ?? 0) / deltaS).toFixed(2))
-      }
+        const point: Record<string, string | number | null> = {
+          time: format(new Date(record.timestamp), 'HH:mm:ss'),
+          index: data.length,
+          cpu: Number(((record.cpu_energy ?? 0) / deltaS).toFixed(2)),
+          gpu: Number(((record.gpu_energy ?? 0) / deltaS).toFixed(2)),
+          mem: Number(((record.mem_energy ?? 0) / deltaS).toFixed(2)),
+          igpu: Number(((record.igpu_energy ?? 0) / deltaS).toFixed(2)),
+          total: Number((
+            ((record.cpu_energy ?? 0) + (record.gpu_energy ?? 0) +
+              (record.mem_energy ?? 0) + (record.igpu_energy ?? 0)) / deltaS
+          ).toFixed(2)),
+        }
 
-      return point
+        for (let i = 0; i < gpuCount; i++) point[`gpu${i}`] = 0
+        for (const g of record.gpu_details ?? []) {
+          point[`gpu${g.device_index}`] = Number(((g.gpu_energy ?? 0) / deltaS).toFixed(2))
+        }
+
+        data.push(point)
+      })
     })
-  }, [data, gpuCount])
+
+    return { chartData: data, separatorIndices: seps }
+  }, [runs, gpuCount])
+
+  const chartWidth = Math.max(MIN_WIDTH, chartData.length * PX_PER_POINT)
+
+  // Resolve border color for CartesianGrid
+  const borderColor = typeof window !== 'undefined'
+    ? getComputedStyle(document.documentElement).getPropertyValue('--border').trim()
+    : '0 0% 24%'
+  const gridStroke = `hsla(${borderColor}, 0.6)`
 
   return (
     <div className="chart-container">
@@ -93,95 +123,66 @@ export function EnergyChart({ data }: EnergyChartProps) {
         <h3 className="text-lg font-semibold text-foreground">
           Energy Consumption Over Time
         </h3>
-        <ChartInfoTooltip content="Shows a timeline of the raw power (Watts) being drawn by your hardware components second by second." />
+        <ChartInfoTooltip content="Shows a timeline of the raw power (Watts) being drawn by your hardware components. All runs are shown in sequence with vertical separators between them." />
       </div>
-      <ResponsiveContainer width="100%" height={300}>
-        <LineChart data={chartData}>
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+      <div ref={scrollRef} className="overflow-x-auto">
+        <LineChart width={chartWidth} height={320} data={chartData}>
+          <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
           <XAxis
-            dataKey="time"
-            stroke="rgba(255,255,255,0.4)"
-            style={{ fontSize: '12px' }}
+            dataKey="index"
+            type="number"
+            domain={[0, chartData.length - 1]}
+            tickFormatter={(i) => {
+              const d = chartData[i]
+              return d ? String(d.time) : ''
+            }}
+            stroke="hsl(var(--border))"
+            tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+            interval={Math.max(0, Math.floor(chartData.length / 16) - 1)}
           />
           <YAxis
-            stroke="rgba(255,255,255,0.4)"
-            style={{ fontSize: '12px' }}
+            stroke="hsl(var(--border))"
+            tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
             label={{ value: 'Watts', angle: -90, position: 'insideLeft' }}
           />
           <Tooltip
+            labelFormatter={(i) => {
+              const d = chartData[Number(i)]
+              return d ? String(d.time) : String(i)
+            }}
             contentStyle={{
-              backgroundColor: 'hsl(0 0% 6%)',
-              border: '1px solid hsl(0 0% 12%)',
+              backgroundColor: 'hsl(var(--card))',
+              border: '1px solid hsl(var(--border))',
               borderRadius: '4px',
               fontSize: '12px',
+              color: 'hsl(var(--foreground))',
             }}
             itemStyle={{ padding: '2px 0' }}
-            cursor={{ stroke: 'hsl(0 0% 20%)' }}
+            cursor={{ stroke: 'hsl(var(--muted-foreground))' }}
           />
-          <Line
-            type="monotone"
-            dataKey="cpu"
-            stroke="hsl(158 94% 45%)"
-            strokeWidth={2}
-            dot={false}
-            name="CPU Power (W)"
-            isAnimationActive={false}
-            connectNulls={true}
-          />
-          <Line
-            type="monotone"
-            dataKey="gpu"
-            stroke="hsl(199 89% 48%)"
-            strokeWidth={2}
-            dot={false}
-            name="GPU Power (W) (Total)"
-            isAnimationActive={false}
-            connectNulls={true}
-          />
-          {gpuCount > 1 && Array.from({ length: gpuCount }, (_, i) => (
-            <Line
-              key={`gpu${i}`}
-              type="monotone"
-              dataKey={`gpu${i}`}
-              stroke={GPU_COLORS[i % GPU_COLORS.length]}
-              strokeWidth={1}
-              strokeDasharray="4 2"
-              dot={false}
-              name={`GPU ${i}`}
-              isAnimationActive={false}
-              connectNulls={true}
+          <Legend />
+
+          {/* Run boundary separators */}
+          {separatorIndices.map(({ index, runName }) => (
+            <ReferenceLine
+              key={`sep-${index}`}
+              x={index}
+              stroke="hsl(var(--muted-foreground))"
+              strokeWidth={2}
+              strokeDasharray="6 3"
+              label={<SeparatorLabel runName={runName} />}
             />
           ))}
-          <Line
-            type="monotone"
-            dataKey="mem"
-            stroke="hsl(20 89% 55%)"
-            strokeWidth={2}
-            dot={false}
-            name="Memory Power (W)"
-            isAnimationActive={false}
-            connectNulls={true}
-          />
-          <Line
-            type="monotone"
-            dataKey="igpu"
-            stroke="hsl(49 89% 52%)"
-            strokeWidth={2}
-            dot={false}
-            name="iGPU Power (W)"
-            isAnimationActive={false}
-            connectNulls={true}
-          />
-          <Brush
-            dataKey="time"
-            height={30}
-            stroke="rgba(255,255,255,0.2)"
-            fill="rgba(0,0,0,0.5)"
-            travellerWidth={10}
-          />
+
+          <Line type="monotone" dataKey="cpu" stroke={chartColor(1)} strokeWidth={2} dot={false} name="CPU Power (W)" isAnimationActive={false} connectNulls />
+          <Line type="monotone" dataKey="gpu" stroke={chartColor(2)} strokeWidth={2} dot={false} name="GPU Power (W) (Total)" isAnimationActive={false} connectNulls />
+          {gpuCount > 1 && Array.from({ length: gpuCount }, (_, i) => (
+            <Line key={`gpu${i}`} type="monotone" dataKey={`gpu${i}`} stroke={GPU_COLORS[i % GPU_COLORS.length]} strokeWidth={1} strokeDasharray="4 2" dot={false} name={`GPU ${i}`} isAnimationActive={false} connectNulls />
+          ))}
+          <Line type="monotone" dataKey="mem" stroke={chartColor(3)} strokeWidth={2} dot={false} name="Memory Power (W)" isAnimationActive={false} connectNulls />
+          <Line type="monotone" dataKey="igpu" stroke={chartColor(4)} strokeWidth={2} dot={false} name="iGPU Power (W)" isAnimationActive={false} connectNulls />
         </LineChart>
-      </ResponsiveContainer>
+      </div>
     </div>
   )
 }
-

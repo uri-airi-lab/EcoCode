@@ -21,15 +21,16 @@ import { ProjectSummary, createProject, fetchCarbonConfig } from '@/lib/api-clie
 import { useWorkspace } from '@/components/WorkspaceProvider'
 import { toast } from 'sonner'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
 
 interface StartRunModalProps {
   projects: ProjectSummary[]
   onProjectCreated?: () => void
   defaultProjectId?: string
+  /** When true, only the "Existing Project" tab is shown (no "New Project" option) */
+  existingOnly?: boolean
 }
 
-export function StartRunModal({ projects, onProjectCreated, defaultProjectId }: StartRunModalProps) {
+export function StartRunModal({ projects, onProjectCreated, defaultProjectId, existingOnly = false }: StartRunModalProps) {
   const { currentWorkspace } = useWorkspace()
   const [open, setOpen] = useState(false)
   const [mode, setMode] = useState<'existing' | 'new'>('existing')
@@ -43,7 +44,7 @@ export function StartRunModal({ projects, onProjectCreated, defaultProjectId }: 
   const [useApiIntensity, setUseApiIntensity] = useState(false)
   
   // Advanced Options
-  const [outputFormat, setOutputFormat] = useState('terminal')
+  const [outputFormat, setOutputFormat] = useState('online')
   const [outputFile, setOutputFile] = useState('')
   const [interval, setInterval] = useState('1.0')
   const [collaborator, setCollaborator] = useState('')
@@ -223,16 +224,18 @@ export function StartRunModal({ projects, onProjectCreated, defaultProjectId }: 
         </DialogHeader>
 
         <Tabs value={mode} onValueChange={(v) => setMode(v as any)} className="w-full mt-4">
-          <TabsList className="grid w-full grid-cols-2 bg-white/5 p-1 rounded-xl">
-            <TabsTrigger value="existing" className="rounded-lg data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-              <Folder className="w-4 h-4 mr-2" />
-              Existing Project
-            </TabsTrigger>
-            <TabsTrigger value="new" className="rounded-lg data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-              <Plus className="w-4 h-4 mr-2" />
-              New Project
-            </TabsTrigger>
-          </TabsList>
+          {!existingOnly && (
+            <TabsList className="grid w-full grid-cols-2 bg-white/5 p-1 rounded-xl">
+              <TabsTrigger value="existing" className="rounded-lg data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                <Folder className="w-4 h-4 mr-2" />
+                Existing Project
+              </TabsTrigger>
+              <TabsTrigger value="new" className="rounded-lg data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                <Plus className="w-4 h-4 mr-2" />
+                New Project
+              </TabsTrigger>
+            </TabsList>
+          )}
 
           <TabsContent value="existing" className="space-y-4 mt-6">
             <div className="space-y-2">
@@ -383,16 +386,15 @@ export function StartRunModal({ projects, onProjectCreated, defaultProjectId }: 
           </TabsContent>
         </Tabs>
 
-        {/* Advanced Options Accordion */}
-        <Accordion type="single" collapsible className="w-full mt-4">
-            <AccordionItem value="advanced" className="border-none">
-                <AccordionTrigger className="hover:no-underline py-3 px-4 rounded-xl bg-white/5 border border-white/10">
-                    <div className="flex items-center gap-2 text-sm font-bold">
-                        <Settings2 className="w-4 h-4 text-primary" />
-                        Execution Parameters
-                    </div>
-                </AccordionTrigger>
-                <AccordionContent className="pt-4 px-4 space-y-6 bg-white/5 border-x border-b border-white/10 rounded-b-xl -mt-2 pb-6">
+        {/* Advanced Options - always expanded */}
+        <div className="w-full mt-4 border border-white/10 rounded-xl overflow-hidden">
+            <div className="py-3 px-4 bg-white/5 border-b border-white/10">
+                <div className="flex items-center gap-2 text-sm font-bold">
+                    <Settings2 className="w-4 h-4 text-primary" />
+                    Execution Parameters
+                </div>
+            </div>
+            <div className="pt-4 px-4 space-y-6 pb-6">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-2">
                             <Label className="flex items-center gap-2 text-xs font-bold text-muted-foreground uppercase tracking-widest">
@@ -497,9 +499,8 @@ export function StartRunModal({ projects, onProjectCreated, defaultProjectId }: 
                             </div>
                         </div>
                     )}
-                </AccordionContent>
-            </AccordionItem>
-        </Accordion>
+            </div>
+        </div>
 
         <div className="mt-6 p-4 rounded-2xl bg-white/5 border border-white/10 relative group overflow-hidden">
             <div className="absolute top-0 right-0 p-2">

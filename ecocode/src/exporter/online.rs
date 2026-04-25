@@ -1,363 +1,138 @@
-// Exporter for the online EcoCode platform — pushes run data to a
-// PostgreSQL / TimeScaleDB instance specified by DATABASE_URL.
+// ============================================================================
+// Online Exporter - HTTP API-based
+// ============================================================================
+// This exporter sends energy measurement data to the EcoCode web platform
+// via HTTP API calls. It requires an API key for authentication.
+//
+// Previously named "HttpExporter", this is now the primary "online" exporter.
+// The old database-direct exporter has been moved to online_db.rs (deprecated).
+// ============================================================================
 
-use sqlx::{Row, postgres::PgPool};
-
-use dotenv::dotenv;
-use std::{env, io};
-
-use crate::carbon::{calculate_co2_g, static_intensity};
-use crate::exporter::{Exporter, ExporterType, ProjectInfo, Record};
+use crate::exporter::{Exporter, ExporterType, ProjectInfo, Record, SystemInfo, CarbonConfig};
 use async_trait::async_trait;
+use reqwest::{Client, header};
+use serde::{Deserialize, Serialize};
+use std::env;
+use std::fs;
+use std::path::PathBuf;
 
 pub struct OnlineExporter {
-    db: PgPool,
+    client: Client,
+    base_url: String,
+    api_key: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct EcoCodeConfig {
+    api_key: Option<String>,
+    api_url: Option<String>,
 }
 
 impl OnlineExporter {
-    pub async fn new() -> Result<OnlineExporter, Box<dyn std::error::Error>> {
-        dotenv().ok();
-        let db_url = Self::resolve_db_url();
-        let db = PgPool::connect(&db_url).await?;
-        Self::initialize_schema(&db).await?;
-        Ok(OnlineExporter { db })
+    /// Get the path to the EcoCode config file (~/.ecocode/config.json)
+    pub fn config_path() -> Result<PathBuf, Box<dyn std::error::Error>> {
+        let home = env::var("HOME")
+            .or_else(|_| env::var("USERPROFILE"))
+            .map_err(|_| "Could not determine home directory")?;
+        let config_dir = PathBuf::from(home).join(".ecocode");
+        fs::create_dir_all(&config_dir)?;
+        Ok(config_dir.join("config.json"))
     }
 
-    fn resolve_db_url() -> String {
-        if let Ok(db_url) = env::var("ECOCODE_ONLINE_DB_URL") {
-            return db_url;
-        }
-        env::var("DATABASE_URL").expect("DATABASE_URL or ECOCODE_ONLINE_DB_URL must be set")
-    }
-
-    async fn initialize_schema(db: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS projects (
-                id BIGSERIAL PRIMARY KEY,
-                name TEXT UNIQUE,
-                collaborator_name TEXT
-            )",
-        )
-        .execute(db)
-        .await?;
-
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS project_collaborators (
-                project_id BIGINT NOT NULL,
-                collaborator_name TEXT NOT NULL,
-                PRIMARY KEY (project_id, collaborator_name),
-                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-            )",
-        )
-        .execute(db)
-        .await?;
-
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS runs (
-                id BIGSERIAL PRIMARY KEY,
-                name TEXT,
-                project_id BIGINT REFERENCES projects(id),
-                collaborator_name TEXT,
-                status TEXT NOT NULL DEFAULT 'finished',
-                started_at TEXT,
-                ended_at TEXT,
-                command TEXT
-            )",
-        )
-        .execute(db)
-        .await?;
-
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS records (
-                id BIGSERIAL PRIMARY KEY,
-                run_id BIGINT REFERENCES runs(id),
-                pid BIGINT,
-                timestamp TIMESTAMPTZ,
-                cpu_usage DOUBLE PRECISION,
-                cpu_energy DOUBLE PRECISION,
-                gpu_usage DOUBLE PRECISION,
-                gpu_energy DOUBLE PRECISION,
-                mem_usage DOUBLE PRECISION,
-                mem_energy DOUBLE PRECISION,
-                igpu_usage DOUBLE PRECISION,
-                igpu_energy DOUBLE PRECISION
-            )",
-        )
-        .execute(db)
-        .await?;
-
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS gpu_records (
-                id BIGSERIAL PRIMARY KEY,
-                record_id BIGINT NOT NULL REFERENCES records(id) ON DELETE CASCADE,
-                device_index INTEGER NOT NULL,
-                gpu_usage DOUBLE PRECISION,
-                gpu_energy DOUBLE PRECISION
-            )",
-        )
-        .execute(db)
-        .await?;
-
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS socket_records (
-                id BIGSERIAL PRIMARY KEY,
-                record_id BIGINT NOT NULL REFERENCES records(id) ON DELETE CASCADE,
-                socket INTEGER NOT NULL,
-                domain TEXT NOT NULL,
-                energy DOUBLE PRECISION
-            )",
-        )
-        .execute(db)
-        .await?;
-
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS runsummary (
-                id BIGSERIAL PRIMARY KEY,
-                run_id BIGINT REFERENCES runs(id),
-                total_cpu_energy DOUBLE PRECISION,
-                total_gpu_energy DOUBLE PRECISION,
-                total_mem_energy DOUBLE PRECISION,
-                total_igpu_energy DOUBLE PRECISION
-            )",
-        )
-        .execute(db)
-        .await?;
-
-        // Forward-compatibility: add columns that may be missing on older deployments.
-        Self::ensure_column(
-            db,
-            "projects",
-            "collaborator_name",
-            "ALTER TABLE projects ADD COLUMN collaborator_name TEXT",
-        )
-        .await?;
-
-        Self::ensure_column(
-            db,
-            "runs",
-            "collaborator_name",
-            "ALTER TABLE runs ADD COLUMN collaborator_name TEXT",
-        )
-        .await?;
-
-        Self::ensure_column(
-            db,
-            "runs",
-            "status",
-            "ALTER TABLE runs ADD COLUMN status TEXT NOT NULL DEFAULT 'finished'",
-        )
-        .await?;
-
-        Self::ensure_column(
-            db,
-            "runs",
-            "started_at",
-            "ALTER TABLE runs ADD COLUMN started_at TEXT",
-        )
-        .await?;
-
-        Self::ensure_column(
-            db,
-            "runs",
-            "ended_at",
-            "ALTER TABLE runs ADD COLUMN ended_at TEXT",
-        )
-        .await?;
-        
-        Self::ensure_column(
-            db,
-            "runs",
-            "command",
-            "ALTER TABLE runs ADD COLUMN IF NOT EXISTS command TEXT",
-        )
-        .await?;
-
-        // Carbon fields for projects
-        Self::ensure_column(db, "projects", "country_code", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS country_code TEXT NOT NULL DEFAULT 'WORLD'").await?;
-        Self::ensure_column(db, "projects", "address", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS address TEXT").await?;
-        Self::ensure_column(db, "projects", "latitude", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION").await?;
-        Self::ensure_column(db, "projects", "longitude", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION").await?;
-        Self::ensure_column(db, "projects", "electricity_maps_api_key", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS electricity_maps_api_key TEXT").await?;
-        Self::ensure_column(db, "projects", "resolved_intensity_g_per_kwh", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS resolved_intensity_g_per_kwh DOUBLE PRECISION NOT NULL DEFAULT 494.0").await?;
-        Self::ensure_column(db, "projects", "intensity_source", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS intensity_source TEXT NOT NULL DEFAULT 'static_WORLD'").await?;
-        Self::ensure_column(db, "projects", "intensity_fetched_at", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS intensity_fetched_at TEXT").await?;
-        Self::ensure_column(db, "projects", "pue_factor", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS pue_factor DOUBLE PRECISION NOT NULL DEFAULT 1.0").await?;
-        Self::ensure_column(db, "projects", "manual_cost_per_kwh", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS manual_cost_per_kwh DOUBLE PRECISION").await?;
-        Self::ensure_column(db, "projects", "manual_currency", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS manual_currency TEXT").await?;
-        Self::ensure_column(db, "projects", "use_api_for_cost", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS use_api_for_cost BOOLEAN NOT NULL DEFAULT FALSE").await?;
-
-        Self::ensure_column(
-            db,
-            "runsummary",
-            "total_co2_g",
-            "ALTER TABLE runsummary ADD COLUMN total_co2_g DOUBLE PRECISION",
-        )
-        .await?;
-        Self::ensure_column(
-            db,
-            "runsummary",
-            "carbon_intensity_used",
-            "ALTER TABLE runsummary ADD COLUMN carbon_intensity_used DOUBLE PRECISION",
-        )
-        .await?;
-        Self::ensure_column(
-            db,
-            "runsummary",
-            "total_cost",
-            "ALTER TABLE runsummary ADD COLUMN total_cost DOUBLE PRECISION",
-        )
-        .await?;
-        Self::ensure_column(
-            db,
-            "runsummary",
-            "currency_used",
-            "ALTER TABLE runsummary ADD COLUMN currency_used TEXT",
-        )
-        .await?;
-
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS run_system_info (
-                run_id BIGINT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
-                cpu_name TEXT,
-                cpu_cores INTEGER,
-                ram_gb DOUBLE PRECISION,
-                gpu_count INTEGER,
-                gpu_names TEXT
-            )",
-        )
-        .execute(db)
-        .await?;
-
-        Self::backfill_project_collaborators(db).await?;
-        Self::sync_all_project_shortcuts(db).await?;
-
-        Ok(())
-    }
-
-
-    async fn ensure_column(
-        db: &PgPool,
-        table: &str,
-        column: &str,
-        alter_sql: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if Self::has_column(db, table, column).await? {
-            return Ok(());
-        }
-
-        sqlx::query(alter_sql).execute(db).await?;
-        Ok(())
-    }
-
-    async fn has_column(
-        db: &PgPool,
-        table: &str,
-        column: &str,
-    ) -> Result<bool, Box<dyn std::error::Error>> {
-        let row = sqlx::query(
-            "SELECT EXISTS (
-                SELECT 1 
-                FROM information_schema.columns 
-                WHERE table_name = $1 AND column_name = $2
-            )",
-        )
-        .bind(table)
-        .bind(column)
-        .fetch_one(db)
-        .await?;
-
-        Ok(row.get(0))
-    }
-
-    async fn backfill_project_collaborators(db: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
-        sqlx::query(
-            "INSERT INTO project_collaborators (project_id, collaborator_name)
-             SELECT id, collaborator_name FROM projects
-             WHERE collaborator_name IS NOT NULL AND TRIM(collaborator_name) <> ''
-             ON CONFLICT DO NOTHING",
-        )
-        .execute(db)
-        .await?;
-
-        sqlx::query(
-            "INSERT INTO project_collaborators (project_id, collaborator_name)
-             SELECT DISTINCT project_id, collaborator_name FROM runs
-             WHERE collaborator_name IS NOT NULL AND TRIM(collaborator_name) <> ''
-             ON CONFLICT DO NOTHING",
-        )
-        .execute(db)
-        .await?;
-
-        Ok(())
-    }
-
-    async fn load_project_collaborators(
-        &self,
-        project_id: i64,
-    ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-        let collaborators = sqlx::query_scalar::<_, String>(
-            "SELECT collaborator_name FROM project_collaborators
-             WHERE project_id = $1
-             ORDER BY collaborator_name ASC",
-        )
-        .bind(project_id)
-        .fetch_all(&self.db)
-        .await?;
-
-        Ok(collaborators)
-    }
-
-    async fn add_project_collaborator(
-        &self,
-        project_id: i64,
-        collaborator_name: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        sqlx::query(
-            "INSERT INTO project_collaborators (project_id, collaborator_name)
-             VALUES ($1, $2)
-             ON CONFLICT DO NOTHING",
-        )
-        .bind(project_id)
-        .bind(collaborator_name)
-        .execute(&self.db)
-        .await?;
-        Ok(())
-    }
-
-    async fn sync_project_shortcut(
-        &self,
-        project_id: i64,
-        collaborators: &[String],
-    ) -> Result<Option<String>, Box<dyn std::error::Error>> {
-        let shortcut = if collaborators.len() == 1 {
-            Some(collaborators[0].clone())
+    /// Load configuration from ~/.ecocode/config.json
+    fn load_config() -> Result<EcoCodeConfig, Box<dyn std::error::Error>> {
+        let config_path = Self::config_path()?;
+        if config_path.exists() {
+            let content = fs::read_to_string(config_path)?;
+            let config: EcoCodeConfig = serde_json::from_str(&content)?;
+            Ok(config)
         } else {
-            None
-        };
-        sqlx::query("UPDATE projects SET collaborator_name = $1 WHERE id = $2")
-            .bind(shortcut.as_deref())
-            .bind(project_id)
-            .execute(&self.db)
-            .await?;
-        Ok(shortcut)
+            Ok(EcoCodeConfig {
+                api_key: None,
+                api_url: None,
+            })
+        }
     }
 
-    async fn sync_all_project_shortcuts(db: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
-        sqlx::query(
-            "UPDATE projects
-             SET collaborator_name = (
-                 SELECT CASE
-                     WHEN COUNT(*) = 1 THEN MAX(collaborator_name)
-                     ELSE NULL
-                 END
-                 FROM project_collaborators
-                 WHERE project_id = projects.id
-             )",
-        )
-        .execute(db)
-        .await?;
+    /// Save API key to ~/.ecocode/config.json
+    pub fn save_api_key(api_key: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let config_path = Self::config_path()?;
+        let mut config = Self::load_config().unwrap_or(EcoCodeConfig {
+            api_key: None,
+            api_url: None,
+        });
+        config.api_key = Some(api_key.to_string());
+        let content = serde_json::to_string_pretty(&config)?;
+        fs::write(config_path, content)?;
         Ok(())
     }
+
+    /// Clear stored API key from ~/.ecocode/config.json
+    pub fn clear_api_key() -> Result<(), Box<dyn std::error::Error>> {
+        let config_path = Self::config_path()?;
+        if config_path.exists() {
+            let mut config = Self::load_config()?;
+            config.api_key = None;
+            let content = serde_json::to_string_pretty(&config)?;
+            fs::write(config_path, content)?;
+        }
+        Ok(())
+    }
+
+    pub fn new(api_key_arg: Option<String>) -> Result<Self, Box<dyn std::error::Error>> {
+        // Priority order:
+        // 1. Command-line argument (--api-key)
+        // 2. Environment variable (ECOCODE_API_KEY)
+        // 3. Stored config file (~/.ecocode/config.json)
+        let config = Self::load_config().ok();
+        
+        let api_key = api_key_arg.clone()
+            .or_else(|| env::var("ECOCODE_API_KEY").ok())
+            .or_else(|| config.as_ref().and_then(|c| c.api_key.clone()))
+            .ok_or_else(|| {
+                "Error: API Key is missing.\n\
+                 Please provide it via:\n\
+                 1. Command line: --api-key <KEY>\n\
+                 2. Environment variable: ECOCODE_API_KEY\n\
+                 3. Save it once: ecocode config set-api-key <KEY>\n\
+                 \n\
+                 You can get your key in the web platform under Settings > Developer."
+            })?;
+
+        // If API key was provided via command line, offer to save it
+        if api_key_arg.is_some() && config.as_ref().and_then(|c| c.api_key.as_ref()) != Some(&api_key) {
+            println!("💡 Tip: Save your API key to avoid entering it each time:");
+            println!("   ecocode config set-api-key {}", api_key);
+        }
+
+        let base_url = env::var("ECOCODE_API_URL")
+            .or_else(|_| config.and_then(|c| c.api_url).ok_or(""))
+            .unwrap_or_else(|_| "http://localhost:3001".to_string());
+        
+        let mut headers = header::HeaderMap::new();
+        let auth_value = header::HeaderValue::from_str(&format!("Bearer {}", api_key))?;
+        headers.insert(header::AUTHORIZATION, auth_value);
+        
+        let client = Client::builder()
+            .default_headers(headers)
+            .build()?;
+            
+        Ok(OnlineExporter { client, base_url, api_key })
+    }
+}
+
+#[derive(Serialize)]
+struct CreateRunPayload {
+    project_id: i64,
+    name: String,
+    collaborator_name: Option<String>,
+    started_at: Option<String>,
+    command: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct CreateRunResponse {
+    id: i64,
 }
 
 #[async_trait(?Send)]
@@ -367,56 +142,17 @@ impl Exporter for OnlineExporter {
     }
 
     async fn add_record(&mut self, record: Record) -> Result<(), Box<dyn std::error::Error>> {
-        let record_id: i64 = sqlx::query_scalar(
-            "INSERT INTO records
-                (run_id, pid, timestamp,
-                 cpu_usage, cpu_energy,
-                 gpu_usage, gpu_energy,
-                 mem_usage, mem_energy,
-                 igpu_usage, igpu_energy)
-             VALUES ($1, $2, $3::timestamptz, $4, $5, $6, $7, $8, $9, $10, $11)
-             RETURNING id",
-        )
-        .bind(record.run_id)
-        .bind(record.pid as i64)
-        .bind(&record.timestamp)
-        .bind(record.cpu_usage)
-        .bind(record.cpu_energy)
-        .bind(record.gpu_usage)
-        .bind(record.gpu_energy)
-        .bind(record.mem_usage)
-        .bind(record.mem_energy)
-        .bind(record.igpu_usage)
-        .bind(record.igpu_energy)
-        .fetch_one(&self.db)
-        .await?;
-
-        for gm in &record.gpu_metrics {
-            sqlx::query(
-                "INSERT INTO gpu_records (record_id, device_index, gpu_usage, gpu_energy)
-                 VALUES ($1, $2, $3, $4)",
-            )
-            .bind(record_id)
-            .bind(gm.device_index as i64)
-            .bind(gm.gpu_usage)
-            .bind(gm.gpu_energy)
-            .execute(&self.db)
+        let url = format!("{}/api/ingest/run/{}/record", self.base_url, record.run_id);
+        
+        // Convert Record to the ingestion payload format expected by the backend
+        let res = self.client.post(&url)
+            .json(&record)
+            .send()
             .await?;
+            
+        if !res.status().is_success() {
+            return Err(format!("Failed to ingest record: {}", res.status()).into());
         }
-
-        for sm in &record.socket_metrics {
-            sqlx::query(
-                "INSERT INTO socket_records (record_id, socket, domain, energy)
-                 VALUES ($1, $2, $3, $4)",
-            )
-            .bind(record_id)
-            .bind(sm.socket as i64)
-            .bind(&sm.domain)
-            .bind(sm.energy)
-            .execute(&self.db)
-            .await?;
-        }
-
         Ok(())
     }
 
@@ -433,87 +169,27 @@ impl Exporter for OnlineExporter {
         project_name: &str,
         collaborator_name: Option<&str>,
     ) -> Result<ProjectInfo, Box<dyn std::error::Error>> {
-        let collaborator_name = collaborator_name
-            .map(str::trim)
-            .filter(|name| !name.is_empty());
-
-        let existing = sqlx::query("SELECT id FROM projects WHERE name = $1")
-            .bind(project_name)
-            .fetch_optional(&self.db)
-            .await?;
-
-        if let Some(row) = existing {
-            let id = row.get::<i64, _>("id");
-
-            if let Some(new_collab) = collaborator_name {
-                self.add_project_collaborator(id, new_collab).await?;
-            }
-
-            let collaborators = self.load_project_collaborators(id).await?;
-
-            let selected = if let Some(new_collab) = collaborator_name {
-                Some(new_collab.to_owned())
-            } else if collaborators.is_empty() {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    format!(
-                        "Project '{project_name}' has no saved collaborators. \
-                         Re-run with --collaborator <name>."
-                    ),
-                )
-                .into());
-            } else if collaborators.len() == 1 {
-                Some(collaborators[0].clone())
-            } else {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    format!(
-                        "Project '{project_name}' has multiple collaborators ({:?}). \
-                         Re-run with --collaborator <name>.",
-                        collaborators
-                    ),
-                )
-                .into());
-            };
-
-            self.sync_project_shortcut(id, &collaborators).await?;
-            return Ok(ProjectInfo {
-                id,
-                selected_collaborator_name: selected,
-                collaborators,
-                is_new: false,
-            });
+        // For simplicity in this first version, we'll assume the project is already created
+        // or we use the name to find it.
+        // Actually, let's fetch projects and find by name.
+        let url = format!("{}/api/projects", self.base_url);
+        let res = self.client.get(&url).send().await?;
+        
+        #[derive(Deserialize)]
+        struct Project {
+            id: i64,
+            name: String,
         }
-
-        let collaborator_name = collaborator_name.ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!(
-                    "Project '{project_name}' has no saved collaborator yet. \
-                     Re-run with --collaborator <name>."
-                ),
-            )
-        })?;
-
-        let project_id: i64 = sqlx::query_scalar(
-            "INSERT INTO projects (name, collaborator_name) VALUES ($1, $2) RETURNING id",
-        )
-        .bind(project_name)
-        .bind(collaborator_name)
-        .fetch_one(&self.db)
-        .await?;
-
-        self.add_project_collaborator(project_id, collaborator_name)
-            .await?;
-        let collaborators = self.load_project_collaborators(project_id).await?;
-        self.sync_project_shortcut(project_id, &collaborators)
-            .await?;
-
+        
+        let projects: Vec<Project> = res.json().await?;
+        let project = projects.into_iter().find(|p| p.name == project_name)
+            .ok_or_else(|| format!("Project '{}' not found in your workspaces. Please create it first in the web app.", project_name))?;
+            
         Ok(ProjectInfo {
-            id: project_id,
-            selected_collaborator_name: Some(collaborator_name.to_owned()),
-            collaborators,
-            is_new: true,
+            id: project.id,
+            selected_collaborator_name: collaborator_name.map(|s| s.to_string()),
+            collaborators: vec![],
+            is_new: false,
         })
     }
 
@@ -525,58 +201,60 @@ impl Exporter for OnlineExporter {
         started_at: Option<&str>,
         command: Option<&str>,
     ) -> Result<i64, Box<dyn std::error::Error>> {
-        let collaborator_name = collaborator_name.ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "A collaborator is required to create an online run.",
-            )
-        })?;
-        let started_at = started_at.ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "A start timestamp is required to create an online run.",
-            )
-        })?;
-
-        let run_id: i64 = sqlx::query_scalar(
-            "INSERT INTO runs (name, project_id, collaborator_name, status, started_at, command)
-             VALUES ($1, $2, $3, 'running', $4, $5)
-             RETURNING id",
-        )
-        .bind(run_name)
-        .bind(project_id)
-        .bind(collaborator_name)
-        .bind(started_at)
-        .bind(command)
-        .fetch_one(&self.db)
-        .await?;
-
-        Ok(run_id)
+        let url = format!("{}/api/ingest/run", self.base_url);
+        let payload = CreateRunPayload {
+            project_id,
+            name: run_name.to_string(),
+            collaborator_name: collaborator_name.map(|s| s.to_string()),
+            started_at: started_at.map(|s| s.to_string()),
+            command: command.map(|s| s.to_string()),
+        };
+        
+        let res = self.client.post(&url)
+            .json(&payload)
+            .send()
+            .await?;
+            
+        if !res.status().is_success() {
+            return Err(format!("Failed to create run: {}", res.status()).into());
+        }
+        
+        let data: CreateRunResponse = res.json().await?;
+        Ok(data.id)
     }
 
     async fn save_system_info(
         &mut self,
         run_id: i64,
-        info: crate::exporter::SystemInfo,
+        info: SystemInfo,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        sqlx::query(
-            "INSERT INTO run_system_info (run_id, cpu_name, cpu_cores, ram_gb, gpu_count, gpu_names)
-             VALUES ($1, $2, $3, $4, $5, $6)
-             ON CONFLICT (run_id) DO UPDATE SET
-                cpu_name = EXCLUDED.cpu_name,
-                cpu_cores = EXCLUDED.cpu_cores,
-                ram_gb = EXCLUDED.ram_gb,
-                gpu_count = EXCLUDED.gpu_count,
-                gpu_names = EXCLUDED.gpu_names",
-        )
-        .bind(run_id)
-        .bind(info.cpu_name)
-        .bind(info.cpu_cores as i32)
-        .bind(info.ram_gb)
-        .bind(info.gpu_count as i32)
-        .bind(info.gpu_names.join(", "))
-        .execute(&self.db)
-        .await?;
+        let url = format!("{}/api/ingest/run/{}/system-info", self.base_url, run_id);
+        
+        #[derive(Serialize)]
+        struct SystemInfoPayload {
+            cpu_name: String,
+            cpu_cores: i32,
+            ram_gb: f64,
+            gpu_count: i32,
+            gpu_names: String,
+        }
+        
+        let payload = SystemInfoPayload {
+            cpu_name: info.cpu_name,
+            cpu_cores: info.cpu_cores as i32,
+            ram_gb: info.ram_gb,
+            gpu_count: info.gpu_count as i32,
+            gpu_names: info.gpu_names.join(", "),
+        };
+        
+        let res = self.client.post(&url)
+            .json(&payload)
+            .send()
+            .await?;
+            
+        if !res.status().is_success() {
+            return Err(format!("Failed to save system info: {}", res.status()).into());
+        }
         Ok(())
     }
 
@@ -586,161 +264,54 @@ impl Exporter for OnlineExporter {
         status: &str,
         ended_at: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        sqlx::query("UPDATE runs SET status = $1, ended_at = $2 WHERE id = $3")
-            .bind(status)
-            .bind(ended_at)
-            .bind(run_id)
-            .execute(&self.db)
+        let url = format!("{}/api/ingest/run/{}/complete", self.base_url, run_id);
+        
+        #[derive(Serialize)]
+        struct CompletePayload {
+            status: String,
+            ended_at: Option<String>,
+        }
+        
+        let payload = CompletePayload {
+            status: status.to_string(),
+            ended_at: ended_at.map(|s| s.to_string()),
+        };
+        
+        let res = self.client.post(&url)
+            .json(&payload)
+            .send()
             .await?;
-        Ok(())
-    }
-
-    async fn update_project_config(
-        &mut self,
-        project_id: i64,
-        intensity: Option<f64>,
-        price: Option<f64>,
-        address: Option<String>,
-        use_api_for_cost: Option<bool>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(i) = intensity {
-            sqlx::query("UPDATE projects SET resolved_intensity_g_per_kwh = $1, intensity_source = 'manual' WHERE id = $2")
-                .bind(i)
-                .bind(project_id)
-                .execute(&self.db)
-                .await?;
-        }
-        if let Some(p) = price {
-            sqlx::query("UPDATE projects SET manual_cost_per_kwh = $1 WHERE id = $2")
-                .bind(p)
-                .bind(project_id)
-                .execute(&self.db)
-                .await?;
-        }
-        if let Some(addr) = address {
-            sqlx::query("UPDATE projects SET address = $1 WHERE id = $2")
-                .bind(addr)
-                .bind(project_id)
-                .execute(&self.db)
-                .await?;
-        }
-        if let Some(api_cost) = use_api_for_cost {
-            sqlx::query("UPDATE projects SET use_api_for_cost = $1 WHERE id = $2")
-                .bind(api_cost)
-                .bind(project_id)
-                .execute(&self.db)
-                .await?;
+            
+        if !res.status().is_success() {
+            return Err(format!("Failed to complete run: {}", res.status()).into());
         }
         Ok(())
     }
 
-    async fn run_summary(&mut self, run_id: i64) -> Result<(), Box<dyn std::error::Error>> {
-        let record_count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM records WHERE run_id = $1")
-                .bind(run_id)
-                .fetch_one(&self.db)
-                .await?;
-
-        sqlx::query("DELETE FROM runsummary WHERE run_id = $1")
-            .bind(run_id)
-            .execute(&self.db)
-            .await?;
-
-        if record_count == 0 {
-            return Ok(());
-        }
-
-        // Read carbon config from the project associated with this run
-        let (intensity, pue, source, cost_per_kwh, currency): (f64, f64, String, f64, String) = sqlx::query_as::<_, (f64, f64, String, Option<f64>, Option<String>)>(
-            "SELECT p.resolved_intensity_g_per_kwh, p.pue_factor, p.intensity_source, p.manual_cost_per_kwh, p.manual_currency
-             FROM projects p
-             JOIN runs r ON r.project_id = p.id
-             WHERE r.id = $1",
-        )
-        .bind(run_id)
-        .fetch_optional(&self.db)
-        .await?
-        .map(|(i, p, s, mc, curr)| (i, p, s, mc.unwrap_or(0.0), curr.unwrap_or_else(|| "USD".to_string())))
-        .unwrap_or_else(|| (static_intensity("WORLD"), 1.0, "static_WORLD".to_string(), 0.0, "USD".to_string()));
-
-        println!("Carbon footprint calculation: Intensity={:.2} g/kWh (source: {}), PUE={:.2}, Cost={:.4} {}", 
-                 intensity, source, pue, cost_per_kwh, currency);
-
-        // Insert energy totals with placeholder CO2 (updated below)
-        sqlx::query(
-            "INSERT INTO runsummary
-                (run_id, total_cpu_energy, total_gpu_energy, total_mem_energy, total_igpu_energy,
-                 total_co2_g, carbon_intensity_used, pue_used, total_cost, currency_used)
-              SELECT
-                $1,
-                COALESCE(SUM(cpu_energy),  0.0),
-                COALESCE(SUM(gpu_energy),  0.0),
-                COALESCE(SUM(mem_energy),  0.0),
-                COALESCE(SUM(igpu_energy), 0.0),
-                0.0, $2, $3, 0.0, $4
-              FROM records
-              WHERE run_id = $1",
-        )
-        .bind(run_id)
-        .bind(intensity)
-        .bind(pue)
-        .bind(&currency)
-        .execute(&self.db)
-        .await?;
-
-        // Read back totals to compute CO2
-        let (total_cpu, total_gpu, total_mem, total_igpu): (f64, f64, f64, f64) =
-            sqlx::query_as::<_, (f64, f64, f64, f64)>(
-                "SELECT total_cpu_energy, total_gpu_energy, total_mem_energy, total_igpu_energy
-                 FROM runsummary WHERE run_id = $1",
-            )
-            .bind(run_id)
-            .fetch_one(&self.db)
-            .await?;
-
-        let energy_wh = (total_cpu + total_gpu + total_mem + total_igpu) / 3600.0;
-        let co2_g = calculate_co2_g(energy_wh, intensity, pue);
-        let total_cost = (energy_wh / 1000.0) * cost_per_kwh * pue;
-
-        sqlx::query("UPDATE runsummary SET total_co2_g = $1, total_cost = $2 WHERE run_id = $3")
-            .bind(co2_g)
-            .bind(total_cost)
-            .bind(run_id)
-            .execute(&self.db)
-            .await?;
-
+    async fn run_summary(&mut self, _run_id: i64) -> Result<(), Box<dyn std::error::Error>> {
+        // Summary is calculated server-side in this exporter
         Ok(())
     }
 
     async fn get_carbon_config(
         &mut self,
         project_id: i64,
-    ) -> Result<crate::exporter::CarbonConfig, Box<dyn std::error::Error>> {
-        let row: Option<(f64, f64, String, Option<f64>, Option<String>, bool)> = sqlx::query_as(
-            "SELECT resolved_intensity_g_per_kwh, pue_factor, intensity_source, manual_cost_per_kwh, manual_currency, use_api_for_cost FROM projects WHERE id = $1"
-        )
-        .bind(project_id)
-        .fetch_optional(&self.db)
-        .await?;
-
-        if let Some((intensity, pue, source, m_cost, m_curr, use_api)) = row {
-            Ok(crate::exporter::CarbonConfig {
-                resolved_intensity_g_per_kwh: intensity,
-                pue_factor: pue,
-                intensity_source: source,
-                manual_cost_per_kwh: m_cost,
-                manual_currency: m_curr,
-                use_api_for_cost: use_api,
-            })
-        } else {
-            Ok(crate::exporter::CarbonConfig {
-                resolved_intensity_g_per_kwh: static_intensity("WORLD"),
+    ) -> Result<CarbonConfig, Box<dyn std::error::Error>> {
+        let url = format!("{}/api/project/{}/carbon-config", self.base_url, project_id);
+        let res = self.client.get(&url).send().await?;
+        
+        if !res.status().is_success() {
+            return Ok(CarbonConfig {
+                resolved_intensity_g_per_kwh: 494.0,
                 pue_factor: 1.0,
-                intensity_source: "static_WORLD".to_string(),
+                intensity_source: "static_WORLD_fallback".to_string(),
                 manual_cost_per_kwh: None,
                 manual_currency: Some("USD".to_string()),
                 use_api_for_cost: false,
-            })
+            });
         }
+        
+        let config: CarbonConfig = res.json().await?;
+        Ok(config)
     }
 }

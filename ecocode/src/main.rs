@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use nvml_wrapper::Nvml;
 use sqlx::types::chrono::Utc;
 use std::io;
@@ -27,9 +27,23 @@ use crate::sensor::rapl::{delta_cpu_energy_per_pid_j, get_all_energies};
 
 // TODO: Make it prettier dynamic with Rattatui
 // --- Command-line argument parsing ---
+
+#[derive(Subcommand, Debug)]
+enum ConfigAction {
+    /// Save API key for online exporter
+    SetApiKey {
+        /// API key to save
+        api_key: String,
+    },
+    /// Clear saved API key
+    ClearApiKey,
+    /// Show current configuration
+    Show,
+}
+
 #[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
-struct Args {
+#[command(author, version, about = "EcoCode - Monitor your code's energy consumption", long_about = None)]
+struct RunArgs {
     #[arg(short, long, default_value = "ecocode")]
     project: String,
 
@@ -77,10 +91,85 @@ struct Args {
     command: Vec<String>,
 }
 
+fn handle_config_command(action: ConfigAction) -> Result<(), Box<dyn std::error::Error>> {
+    match action {
+        ConfigAction::SetApiKey { api_key } => {
+            OnlineExporter::save_api_key(&api_key)?;
+            println!("✅ API key saved successfully to ~/.ecocode/config.json");
+            println!("You can now use the online exporter without --api-key flag");
+            Ok(())
+        }
+        ConfigAction::ClearApiKey => {
+            OnlineExporter::clear_api_key()?;
+            println!("✅ API key cleared from ~/.ecocode/config.json");
+            Ok(())
+        }
+        ConfigAction::Show => {
+            let config_path = OnlineExporter::config_path()?;
+            if config_path.exists() {
+                let content = std::fs::read_to_string(&config_path)?;
+                let config: serde_json::Value = serde_json::from_str(&content)?;
+                
+                println!("📋 EcoCode Configuration");
+                println!("Location: {}", config_path.display());
+                println!();
+                
+                if let Some(api_key) = config.get("api_key").and_then(|v| v.as_str()) {
+                    let masked = if api_key.len() > 8 {
+                        format!("{}...{}", &api_key[..4], &api_key[api_key.len()-4..])
+                    } else {
+                        "***".to_string()
+                    };
+                    println!("API Key: {}", masked);
+                } else {
+                    println!("API Key: (not set)");
+                }
+                
+                if let Some(api_url) = config.get("api_url").and_then(|v| v.as_str()) {
+                    println!("API URL: {}", api_url);
+                } else {
+                    println!("API URL: (using default)");
+                }
+            } else {
+                println!("📋 EcoCode Configuration");
+                println!("Location: {}", config_path.display());
+                println!();
+                println!("No configuration file found.");
+                println!("Use 'ecocode config set-api-key <KEY>' to save your API key.");
+            }
+            Ok(())
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args: Args = Args::parse();
+    // Check if first argument is "config" to handle config subcommand
+    let args_vec: Vec<String> = std::env::args().collect();
+    if args_vec.len() > 1 && args_vec[1] == "config" {
+        // Parse as config command
+        #[derive(Parser)]
+        #[command(name = "ecocode config")]
+        struct ConfigCli {
+            #[command(subcommand)]
+            action: ConfigAction,
+        }
+        
+        // Skip "ecocode" and keep "config" for proper parsing
+        let config_args: Vec<String> = std::iter::once("ecocode".to_string())
+            .chain(args_vec.iter().skip(2).cloned())
+            .collect();
+        
+        let config_cli = ConfigCli::parse_from(config_args);
+        return handle_config_command(config_cli.action);
+    }
+    
+    // Otherwise parse as normal run command
+    let args = RunArgs::parse();
+    return run_monitoring(args).await;
+}
 
+async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
     let output = args.output.to_lowercase();
     let project_name = args.project;
     let collaborator = match args.collaborator {
@@ -145,7 +234,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "csv" => Box::new(CsvExporter::new(require_file("csv"))?),
         "json" => Box::new(JsonExporter::new(require_file("json"))?),
         "local" => Box::new(SqliteExporter::new().await?),
-        "online" => Box::new(exporter::http::HttpExporter::new(args.api_key)?),
+        "online" => Box::new(OnlineExporter::new(args.api_key)?),
         "prometheus" => Box::new(PrometheusExporter::new()),
         "logfile" => Box::new(LogFileExporter::new(require_file("logfile"))?),
         _ => Box::new(TerminalExporter::new()),

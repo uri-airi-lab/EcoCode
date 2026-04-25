@@ -50,16 +50,16 @@ export const ProjectsTable = memo(function ProjectsTable({ projects }: ProjectsT
                 <table className="w-full text-sm">
                     <thead>
                         <tr className="border-b border-border">
-                            <th className="text-left py-3 px-4 text-muted-foreground font-medium">
+                            <th className="text-left py-3 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px]">
                                 Project Name
                             </th>
-                            <th className="text-center py-3 px-4 text-muted-foreground font-medium">
+                            <th className="text-center py-3 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px]">
                                 Total Runs
                             </th>
-                            <th className="text-right py-3 px-4 text-muted-foreground font-medium">
+                            <th className="text-right py-3 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px]">
                                 Total Energy (Wh)
                             </th>
-                            <th className="text-right py-3 px-4 text-muted-foreground font-medium">
+                            <th className="text-right py-3 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px]">
                                 Last Run
                             </th>
                             <th className="text-right py-3 px-4" />
@@ -80,10 +80,10 @@ export const ProjectsTable = memo(function ProjectsTable({ projects }: ProjectsT
                                 <td className="py-3 px-4">
                                     <p className="font-medium text-foreground">{project.name}</p>
                                 </td>
-                                <td className="text-center py-3 px-4 text-foreground font-medium">
+                                <td className="text-center py-3 px-4 text-foreground font-medium font-mono">
                                     {project.totalRuns}
                                 </td>
-                                <td className="text-right py-3 px-4 text-foreground font-medium">
+                                <td className="text-right py-3 px-4 text-foreground font-medium font-mono">
                                     {Number(project.totalEnergy.toFixed(2)).toLocaleString()}
                                 </td>
                                 <td className="text-right py-3 px-4 text-muted-foreground">

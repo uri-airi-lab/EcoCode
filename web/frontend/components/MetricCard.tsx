@@ -37,7 +37,7 @@ export function MetricCard({
   }
 
   const trendColor =
-    trend?.direction === 'down' ? 'text-emerald-400' : 'text-red-400'
+    trend?.direction === 'down' ? 'text-primary' : 'text-red-400'
   const trendSymbol = trend?.direction === 'down' ? '↓' : '↑'
 
   return (
@@ -46,7 +46,7 @@ export function MetricCard({
         <div className="flex-1">
           <p className="text-sm text-muted-foreground mb-2">{label}</p>
           <div className="flex items-baseline gap-2">
-            <h3 className="text-2xl md:text-3xl font-bold text-foreground">
+            <h3 className="text-2xl md:text-3xl font-bold font-mono text-foreground">
               {value}
             </h3>
             {unit && <span className="text-sm text-muted-foreground">{unit}</span>}
@@ -57,7 +57,7 @@ export function MetricCard({
             </p>
           )} */}
         </div>
-        <div className="ml-4 p-2 rounded bg-white/5 backdrop-blur-sm">
+        <div className="ml-4 p-2 rounded bg-primary/15">
           <Icon className="w-5 h-5 text-primary" />
         </div>
       </div>
