@@ -39,8 +39,8 @@ export function Sidebar() {
           onClick={() => setDropdownOpen(!dropdownOpen)}
         >
           <div className="flex items-center gap-3 overflow-hidden">
-            <div className="p-1.5 rounded-md bg-primary/15 flex-shrink-0">
-              <Leaf className="w-4 h-4 text-primary-foreground" />
+            <div className="p-1.5 rounded-md bg-green-500/15 flex-shrink-0">
+              <Leaf className="w-4 h-4 text-green-500" />
             </div>
             <div className="truncate">
               <h1 className="font-semibold text-sm text-foreground truncate">
@@ -126,6 +126,7 @@ export function Sidebar() {
       <div className="p-6 border-t border-border space-y-1 font-mono text-[11px] text-muted-foreground/50 uppercase tracking-wider font-medium bg-background">
         <p>EcoCode Platform v1.0</p>
         <p>Sustainable Engineering</p>
+        <p>University of Rhode Island</p>
       </div>
     </aside>
   )

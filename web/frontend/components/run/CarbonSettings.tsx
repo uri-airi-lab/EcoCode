@@ -7,8 +7,9 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Slider } from '@/components/ui/slider'
-import { Globe, MapPin, Zap, RefreshCw, Key, Save, Coins, Landmark, TrendingUp } from 'lucide-react'
+import { Globe, MapPin, Zap, RefreshCw, Key, Save, Coins, Landmark, TrendingUp, Info, ExternalLink } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { fetchCarbonConfig, updateCarbonConfig, refreshCarbonIntensity, fetchCarbonRegions, CarbonConfig, CarbonRegion } from '@/lib/api'
 import { toast } from 'sonner'
 
@@ -140,6 +141,16 @@ export function CarbonSettings({ projectId }: CarbonSettingsProps) {
               <Label htmlFor="api-key" className="text-sm font-semibold flex items-center gap-2">
                 <Key className="w-4 h-4 text-primary" />
                 Electricity Maps API Key (Optional)
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Info className="w-3.5 h-3.5 text-muted-foreground cursor-help hover:text-primary transition-colors" />
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-[260px] text-xs leading-relaxed">
+                      <p>An API key from Electricity Maps enables real-time carbon intensity data based on your location. Without it, a static regional average is used.</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </Label>
               <div className="relative">
                 <Input
@@ -152,7 +163,16 @@ export function CarbonSettings({ projectId }: CarbonSettingsProps) {
                 />
               </div>
               <p className="text-[10px] text-muted-foreground italic">
-                Required for real-time hourly intensity data.
+                Required for real-time hourly intensity data.{' '}
+                <a
+                  href="https://api-portal.electricitymaps.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-0.5 text-primary hover:text-primary/80 transition-colors not-italic font-medium"
+                >
+                  Get an API key
+                  <ExternalLink className="w-2.5 h-2.5" />
+                </a>
               </p>
             </div>
           </div>
