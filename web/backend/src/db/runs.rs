@@ -124,7 +124,8 @@ pub async fn calculate_run_summary_db(
             r.get::<Option<String>, _>("manual_currency").unwrap_or_else(|| "USD".to_string()),
         )
     } else {
-        (494.0, 1.0, "WORLD".to_string(), 0.0, "USD".to_string())
+        // IEA Emissions Factors 2025: global average = 445 gCO2/kWh
+        (445.0, 1.0, "WORLD".to_string(), 0.0, "USD".to_string())
     };
 
     sqlx::query(

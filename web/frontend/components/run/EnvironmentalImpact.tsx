@@ -13,8 +13,9 @@ interface EnvironmentalImpactProps {
 
 export function EnvironmentalImpact({ totalEnergyWh, totalCo2G, carbonIntensity, totalCost, currency }: EnvironmentalImpactProps) {
   // Use DB-stored CO2 if available, otherwise fallback to world average calculation
-  // World average: 494 gCO2/kWh
-  const co2G = totalCo2G != null ? totalCo2G : (totalEnergyWh / 1000) * 494
+  // IEA Emissions Factors 2025: global average electricity carbon intensity = 445 gCO2/kWh
+  // Source: https://www.iea.org/reports/electricity-2025/emissions
+  const co2G = totalCo2G != null ? totalCo2G : (totalEnergyWh / 1000) * 445
 
   const metrics = [
     {
@@ -26,22 +27,28 @@ export function EnvironmentalImpact({ totalEnergyWh, totalCo2G, carbonIntensity,
       color: 'text-amber-400',
     },
     {
+      // Average tree absorbs ~22 kg CO2/year across all species (range 10–40 kg/year)
+      // Source: One Tree Planted / EcoTree / ForTomorrow consensus estimate
       label: 'Trees Absorption',
       description: '1 day of absorption',
-      value: (co2G / (21000 / 365)).toFixed(2),
+      value: (co2G / (22000 / 365)).toFixed(2),
       unit: 'Trees',
       icon: TreePine,
       color: 'text-emerald-400',
     },
     {
+      // IEA global average passenger car fleet: ~170 gCO2/km (includes all ages/fuel types)
+      // Source: https://www.iea.org/reports/electricity-2025/emissions + Our World in Data transport data
       label: 'Car Distance',
       description: 'Passenger vehicle',
-      value: (co2G / 120).toFixed(2),
+      value: (co2G / 170).toFixed(2),
       unit: 'km',
       icon: Car,
       color: 'text-blue-400',
     },
     {
+      // ~8.2 gCO2 per full smartphone charge (based on ~16 Wh battery at 445 gCO2/kWh world avg + charger losses)
+      // Source: CarbonCalQlate / Ericsson LCA study
       label: 'Smartphone Charges',
       description: 'Full battery cycles',
       value: (co2G / 8.2).toFixed(1),
