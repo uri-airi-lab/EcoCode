@@ -51,7 +51,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let pool = PgPoolOptions::new()
-        .max_connections(10)
+        .max_connections(20) // Increased for Azure Container Apps
+        .min_connections(5)  // Keep some connections warm
+        .acquire_timeout(std::time::Duration::from_secs(30))
+        .idle_timeout(std::time::Duration::from_secs(600)) // 10 minutes
+        .max_lifetime(std::time::Duration::from_secs(1800)) // 30 minutes
         .connect(&db_url)
         .await?;
     info!("PostgreSQL pool initialized");
@@ -78,6 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nest("/api/workspaces", workspaces::workspaces_routes())
         .route("/api/projects", get(api::projects::get_projects).post(api::projects::post_projects))
         .route("/api/projects/{project_id}", delete(api::projects::delete_project))
+        .route("/api/runs", get(api::runs::get_all_runs_with_summaries))
         .route("/api/project/{project_id}/runs", get(api::runs::get_runs))
         .route("/api/run/{run_id}", get(api::runs::get_run).delete(api::runs::delete_run))
         .route("/api/run/{run_id}/record_points", get(api::runs::get_record_points))

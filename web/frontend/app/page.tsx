@@ -14,9 +14,11 @@ export default function RootPage() {
   const [slug, setSlug] = useState('')
 
   useEffect(() => {
-    if (!loading && workspaces.length > 0) {
-      // Redirect to the first available workspace
+    if (loading) return
+    if (workspaces.length > 0) {
       router.push(`/${workspaces[0].slug}`)
+    } else {
+      router.push('/create-workspace')
     }
   }, [loading, workspaces, router])
 

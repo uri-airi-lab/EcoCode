@@ -15,6 +15,7 @@ Cargo.lock
 **/.env
 **/.env.local
 **/.env.*.local
+**/.env.azure
 
 # Databases
 **/*.db

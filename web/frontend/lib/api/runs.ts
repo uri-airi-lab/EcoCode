@@ -18,6 +18,7 @@ import {
   calculateDurationSeconds,
   calculateEnergyTotals,
   fetchRunMetricSnapshot,
+  fetchRunTotalsSnapshot,
 } from './client'
 
 export interface RunSummary extends Omit<Run, 'records'> {}
@@ -37,9 +38,11 @@ export interface Improvement {
   igpu_energy: number
 }
 
+// Uses only the summary endpoint — no records fetch, so safe to call for many runs at once.
 export async function mapRunSummary(backendRun: BackendRun): Promise<RunSummary> {
-  const snapshot = await fetchRunMetricSnapshot(backendRun)
+  const snapshot = await fetchRunTotalsSnapshot(backendRun)
   const energyKwh = snapshot.totalEnergy / 1000
+  const duration = calculateDurationSeconds([], backendRun.started_at, backendRun.ended_at)
 
   return {
     id: backendRun.id.toString(),
@@ -54,12 +57,12 @@ export async function mapRunSummary(backendRun: BackendRun): Promise<RunSummary>
     totalMemEnergy: snapshot.totalMemEnergy,
     totalIgpuEnergy: snapshot.totalIgpuEnergy,
     totalCoreHours: energyKwh * 24,
-    avgCpuUsage: snapshot.avgCpuUsage,
-    avgGpuUsage: snapshot.avgGpuUsage,
-    avgMemUsage: snapshot.avgMemUsage,
+    avgCpuUsage: 0,
+    avgGpuUsage: 0,
+    avgMemUsage: 0,
     carbonFootprint: snapshot.totalCo2G,
     waterConsumption: energyKwh * WATER_FACTOR * 1000,
-    duration: snapshot.duration,
+    duration,
     command: backendRun.command ?? null,
     carbonIntensityUsed: snapshot.carbonIntensityUsed,
     pueUsed: snapshot.pueUsed,
@@ -107,16 +110,24 @@ export async function mapRun(backendRun: BackendRun): Promise<Run> {
   }
 }
 
-export async function fetchAllRuns(): Promise<RunSummary[]> {
+// Returns run summaries (no records). Accepts an already-fetched project id list
+// to avoid a duplicate /api/projects call when the caller already has it.
+export async function fetchAllRuns(projectIds?: number[]): Promise<RunSummary[]> {
   try {
-    const projectsRes = await apiFetch(buildApiUrl('/api/projects'))
-    if (projectsRes.status === 404) return []
-    if (!projectsRes.ok) throw new Error(`Failed to fetch projects: ${projectsRes.status}`)
-    const projects = await projectsRes.json()
+    let ids: number[]
+    if (projectIds) {
+      ids = projectIds
+    } else {
+      const projectsRes = await apiFetch(buildApiUrl('/api/projects'))
+      if (projectsRes.status === 404) return []
+      if (!projectsRes.ok) throw new Error(`Failed to fetch projects: ${projectsRes.status}`)
+      const projects = await projectsRes.json()
+      ids = projects.map((p: { id: number }) => p.id)
+    }
 
     const projectRunsArrays = await Promise.all(
-      projects.map(async (project: { id: number }) => {
-        const runsRes = await apiFetch(buildApiUrl(`/api/project/${project.id}/runs`))
+      ids.map(async (id) => {
+        const runsRes = await apiFetch(buildApiUrl(`/api/project/${id}/runs`))
         if (!runsRes.ok) return []
         const backendRuns: BackendRun[] = await runsRes.json()
         return Promise.all(backendRuns.map(mapRunSummary))
@@ -176,6 +187,79 @@ export async function fetchAllRunsWithRecords(
   })
 
   return results
+}
+
+// Fetches run metadata + summary totals without fetching any records.
+// Used for the first phase of two-phase loading on the run detail page.
+export async function fetchRunMeta(id: string): Promise<RunDetail> {
+  const [runRes, summaryRes] = await Promise.all([
+    apiFetch(buildApiUrl(`/api/run/${id}`)),
+    apiFetch(buildApiUrl(`/api/run/${id}/summary`)),
+  ])
+  if (!runRes.ok) throw new Error(`Run ${id} not found`)
+  const backendRun: BackendRun = await runRes.json()
+  const summary: BackendRunSummary | null = summaryRes.ok ? await summaryRes.json() : null
+
+  let totalCpuEnergy: number, totalGpuEnergy: number, totalMemEnergy: number, totalIgpuEnergy: number
+  if (summary) {
+    totalCpuEnergy = summary.total_cpu_energy / 3600
+    totalGpuEnergy = summary.total_gpu_energy / 3600
+    totalMemEnergy = summary.total_mem_energy / 3600
+    totalIgpuEnergy = summary.total_igpu_energy / 3600
+  } else {
+    totalCpuEnergy = 0; totalGpuEnergy = 0; totalMemEnergy = 0; totalIgpuEnergy = 0
+  }
+  const totalEnergy = totalCpuEnergy + totalGpuEnergy + totalMemEnergy + totalIgpuEnergy
+  const energyKwh = totalEnergy / 1000
+  const carbonFootprint = summary?.total_co2_g != null
+    ? summary.total_co2_g
+    : energyKwh * WORLD_AVERAGE_INTENSITY_G_PER_KWH
+  const timestamp =
+    parseTimestamp(backendRun.started_at) ??
+    parseTimestamp(backendRun.ended_at) ??
+    Date.now()
+
+  return {
+    id,
+    projectId: backendRun.project_id.toString(),
+    name: backendRun.name,
+    timestamp,
+    status: normalizeRunStatus(backendRun.status),
+    collaboratorName: backendRun.collaborator_name ?? null,
+    totalEnergy,
+    totalCpuEnergy,
+    totalGpuEnergy,
+    totalMemEnergy,
+    totalIgpuEnergy,
+    totalCoreHours: energyKwh * 24,
+    avgCpuUsage: 0,
+    avgGpuUsage: 0,
+    avgMemUsage: 0,
+    carbonFootprint,
+    waterConsumption: energyKwh * WATER_FACTOR * 1000,
+    duration: calculateDurationSeconds([], backendRun.started_at, backendRun.ended_at),
+    command: backendRun.command ?? null,
+    carbonIntensityUsed: summary?.carbon_intensity_used ?? null,
+    pueUsed: summary?.pue_used ?? null,
+    totalCost: summary?.total_cost ?? null,
+    currency: summary?.currency_used ?? null,
+    systemInfo: backendRun.cpu_name ? {
+      cpuName: backendRun.cpu_name,
+      cpuCores: backendRun.cpu_cores ?? 0,
+      ramGb: backendRun.ram_gb ?? 0,
+      gpuCount: backendRun.gpu_count ?? 0,
+      gpuNames: backendRun.gpu_names ?? '',
+    } : null,
+    records: [],
+  }
+}
+
+// Fetches up to `limit` record points for a run, sorted by timestamp.
+export async function fetchRunRecords(id: string, limit = 1000): Promise<MetricRecord[]> {
+  const res = await apiFetch(buildApiUrl(`/api/run/${id}/record_points?limit=${limit}`))
+  if (!res.ok) return []
+  const backendRecords: BackendRecordPoint[] = await res.json()
+  return backendRecords.map(mapRecord).sort((a, b) => a.timestamp - b.timestamp)
 }
 
 export async function fetchRunDetail(id: string): Promise<RunDetail> {

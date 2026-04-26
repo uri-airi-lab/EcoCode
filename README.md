@@ -153,35 +153,6 @@ ecocode config clear-api-key
 
 ---
 
-### Step 3: Run the Web Dashboard
-
-The web dashboard requires a running PostgreSQL instance. Configure it via environment variables:
-
-```bash
-# web/backend/.env
-DATABASE_URL=postgresql://user:password@localhost:5432/ecocode
-JWT_SECRET=your-secret-key
-CORS_ORIGIN=http://localhost:3000
-PRODUCTION=false
-```
-
-```bash
-# Terminal 1: Start the backend API server
-cd web/backend
-cargo run
-# Backend starts at http://localhost:3001
-
-# Terminal 2: Start the frontend
-cd web/frontend
-pnpm install   # first time only
-pnpm dev
-# Frontend starts at http://localhost:3000
-```
-
-Open **http://localhost:3000** in your browser. On first launch, create an account and a workspace, then create a project to start receiving data from the CLI.
-
----
-
 ## What Gets Monitored
 
 | Metric | Source | Granularity |

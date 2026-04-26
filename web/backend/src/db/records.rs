@@ -20,6 +20,29 @@ pub async fn fetch_record_rows(
     .map_err(ApiError::internal)
 }
 
+/// Fetches a paginated window of record rows for a specific run.
+pub async fn fetch_record_rows_paginated(
+    state: &AppState,
+    run_id: i64,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<RecordPointRow>, ApiError> {
+    sqlx::query_as::<_, RecordPointRow>(
+        "SELECT id, run_id, pid, timestamp::text AS timestamp, cpu_usage, cpu_energy,
+                gpu_usage, gpu_energy, mem_usage, mem_energy, igpu_usage, igpu_energy
+         FROM records
+         WHERE run_id = $1
+         ORDER BY timestamp ASC, id ASC
+         LIMIT $2 OFFSET $3",
+    )
+    .bind(run_id)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(ApiError::internal)
+}
+
 /// Fetches all GPU sub-records for a specific run, joined across all its top-level records.
 pub async fn fetch_gpu_records_for_run(
     state: &AppState,
@@ -38,6 +61,26 @@ pub async fn fetch_gpu_records_for_run(
     .map_err(ApiError::internal)
 }
 
+/// Fetches GPU sub-records for a specific set of record IDs (used with paginated record windows).
+pub async fn fetch_gpu_records_for_records(
+    state: &AppState,
+    record_ids: &[i64],
+) -> Result<Vec<GpuRecordPoint>, ApiError> {
+    if record_ids.is_empty() {
+        return Ok(vec![]);
+    }
+    sqlx::query_as::<_, GpuRecordPoint>(
+        "SELECT id, record_id, device_index, gpu_usage, gpu_energy
+         FROM gpu_records
+         WHERE record_id = ANY($1)
+         ORDER BY record_id ASC, device_index ASC",
+    )
+    .bind(record_ids)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(ApiError::internal)
+}
+
 /// Fetches all CPU socket sub-records for a specific run, joined across all its top-level records.
 pub async fn fetch_socket_records_for_run(
     state: &AppState,
@@ -51,6 +94,26 @@ pub async fn fetch_socket_records_for_run(
          ORDER BY sr.record_id ASC, sr.socket ASC, sr.domain ASC",
     )
     .bind(run_id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(ApiError::internal)
+}
+
+/// Fetches CPU socket sub-records for a specific set of record IDs (used with paginated record windows).
+pub async fn fetch_socket_records_for_records(
+    state: &AppState,
+    record_ids: &[i64],
+) -> Result<Vec<SocketRecordPoint>, ApiError> {
+    if record_ids.is_empty() {
+        return Ok(vec![]);
+    }
+    sqlx::query_as::<_, SocketRecordPoint>(
+        "SELECT id, record_id, socket, domain, energy
+         FROM socket_records
+         WHERE record_id = ANY($1)
+         ORDER BY record_id ASC, socket ASC, domain ASC",
+    )
+    .bind(record_ids)
     .fetch_all(&state.pool)
     .await
     .map_err(ApiError::internal)

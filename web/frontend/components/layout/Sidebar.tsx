@@ -97,7 +97,7 @@ export function Sidebar({ mobileOpen, setMobileOpen }: { mobileOpen: boolean; se
               <button
                 onClick={() => {
                   setDropdownOpen(false)
-                  router.push('/')
+                  router.push('/create-workspace')
                 }}
                 className="w-full text-left px-3 py-2 rounded-lg text-sm text-foreground hover:bg-muted flex items-center"
               >

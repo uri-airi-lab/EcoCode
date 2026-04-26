@@ -19,6 +19,16 @@ const nextConfig = {
     ]
   },
 
+  async headers() {
+    return [
+      {
+        // HTML pages must never be served from cache so chunk URLs are always fresh
+        source: '/((?!_next/static|_next/image|favicon.ico).*)',
+        headers: [{ key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' }],
+      },
+    ]
+  },
+
   // Disable response buffering for SSE to work properly
   experimental: {
     proxyTimeout: 300_000, // 5 minutes for long-lived SSE connections

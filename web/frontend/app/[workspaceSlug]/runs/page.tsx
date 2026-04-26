@@ -1,19 +1,21 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { Search } from 'lucide-react'
+import { useEffect, useState, useMemo } from 'react'
+import { Search, ChevronLeft, ChevronRight } from 'lucide-react'
 import { DashboardLayout } from '@/components/layout/DashboardLayout'
 import { RunsTable } from '@/components/tables/RunsTable'
 import { Run } from '@/lib/mock-data'
 import { fetchAllRuns, fetchAllProjects } from '@/lib/api'
 import { useWorkspace } from '@/components/layout/WorkspaceProvider'
 
+const PAGE_SIZE = 20
+
 export default function RunsPage() {
   const { currentWorkspace, loading: workspaceLoading } = useWorkspace()
   const [runs, setRuns] = useState<Omit<Run, 'records'>[]>([])
-  const [filteredRuns, setFilteredRuns] = useState<Omit<Run, 'records'>[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
+  const [page, setPage] = useState(0)
 
   useEffect(() => {
     if (workspaceLoading) return
@@ -22,81 +24,91 @@ export default function RunsPage() {
     const fetchData = async () => {
       setLoading(true)
       try {
-        const [allProjects, allRuns] = await Promise.all([
-            fetchAllProjects(),
-            fetchAllRuns()
+        // Use Promise.allSettled to handle partial failures gracefully
+        const [projectsResult, runsResult] = await Promise.allSettled([
+          fetchAllProjects(),
+          fetchAllRuns(),
         ])
 
         if (!cancelled) {
+          // Handle projects
+          const allProjects = projectsResult.status === 'fulfilled' ? projectsResult.value : []
           const workspaceProjects = currentWorkspace
             ? allProjects.filter(p => p.workspaceSlug === currentWorkspace.slug)
             : allProjects
-          
+
+          // Handle runs
+          const allRuns = runsResult.status === 'fulfilled' ? runsResult.value : []
           const workspaceRunList = currentWorkspace
             ? allRuns.filter(r => workspaceProjects.some(p => p.id === r.projectId))
             : allRuns
 
           setRuns(workspaceRunList)
-          setFilteredRuns(workspaceRunList)
+          setPage(0)
+
+          // Log any errors for debugging
+          if (projectsResult.status === 'rejected') {
+            console.warn('Failed to fetch projects:', projectsResult.reason)
+          }
+          if (runsResult.status === 'rejected') {
+            console.warn('Failed to fetch runs:', runsResult.reason)
+          }
         }
       } catch (error) {
         if (!cancelled) {
-          console.error('Failed to fetch runs:', error)
+          console.error('Failed to fetch data:', error)
           setRuns([])
-          setFilteredRuns([])
         }
       } finally {
-        if (!cancelled) {
-          setLoading(false)
-        }
+        if (!cancelled) setLoading(false)
       }
     }
 
     fetchData()
-
-    return () => {
-      cancelled = true
-    }
+    return () => { cancelled = true }
   }, [currentWorkspace, workspaceLoading])
 
-  const handleSearch = (query: string) => {
-    setSearchQuery(query)
+  const filteredRuns = useMemo(() => {
+    if (!searchQuery.trim()) return runs
 
-    if (!query.trim()) {
-      setFilteredRuns(runs)
-      return
-    }
-
-    const lowerQuery = query.toLowerCase()
-    const filtered = runs.filter((run) => {
-      // Search by run name
+    const lowerQuery = searchQuery.toLowerCase()
+    return runs.filter((run) => {
       if (run.name.toLowerCase().includes(lowerQuery)) return true
       if (run.collaboratorName?.toLowerCase().includes(lowerQuery)) return true
 
-      // Parse filters like "status:finished" or "energy < 50"
-      if (query.includes(':')) {
-        const [key, value] = query.split(':')
-        if (key.trim() === 'status' && value) {
-          return run.status === value.trim()
-        }
+      if (searchQuery.includes(':')) {
+        const [key, value] = searchQuery.split(':')
+        if (key.trim() === 'status' && value) return run.status === value.trim()
       }
 
-      // Numeric comparison for energy
-      if (query.includes('<') || query.includes('>')) {
-        const match = query.match(/energy\s*([<>])\s*(\d+)/)
+      if (searchQuery.includes('<') || searchQuery.includes('>')) {
+        const match = searchQuery.match(/energy\s*([<>])\s*(\d+)/)
         if (match) {
           const [, operator, value] = match
           const threshold = parseFloat(value)
-          return operator === '<'
-            ? run.totalEnergy < threshold
-            : run.totalEnergy > threshold
+          return operator === '<' ? run.totalEnergy < threshold : run.totalEnergy > threshold
         }
       }
 
       return false
     })
+  }, [runs, searchQuery])
 
-    setFilteredRuns(filtered)
+  // Reset to first page whenever filter changes
+  useEffect(() => { setPage(0) }, [searchQuery])
+
+  const totalPages = Math.ceil(filteredRuns.length / PAGE_SIZE)
+  const pagedRuns = filteredRuns.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+
+  const reloadRuns = async () => {
+    const [allProjects, allRuns] = await Promise.all([fetchAllProjects(), fetchAllRuns()])
+    const workspaceProjects = currentWorkspace
+      ? allProjects.filter(p => p.workspaceSlug === currentWorkspace.slug)
+      : allProjects
+    const workspaceRunList = currentWorkspace
+      ? allRuns.filter(r => workspaceProjects.some(p => p.id === r.projectId))
+      : allRuns
+    setRuns(workspaceRunList)
   }
 
   return (
@@ -120,7 +132,7 @@ export default function RunsPage() {
               type="text"
               placeholder="Search runs... (e.g., 'Training Run', 'status:finished', 'energy < 100')"
               value={searchQuery}
-              onChange={(e) => handleSearch(e.target.value)}
+              onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-12 pr-4 py-2 bg-card border border-border rounded text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary transition-all duration-200"
             />
           </div>
@@ -128,41 +140,50 @@ export default function RunsPage() {
 
         {/* Results info */}
         <div className="mb-4 text-sm text-muted-foreground">
-          Showing {filteredRuns.length} of {runs.length} runs
+          Showing {filteredRuns.length === 0 ? 0 : page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, filteredRuns.length)} of {filteredRuns.length} runs
         </div>
 
         {/* Runs Table */}
         {loading ? (
           <div className="chart-container flex items-center justify-center py-12">
             <div className="flex flex-col items-center gap-3">
-              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
               <p className="text-sm text-muted-foreground">Loading runs...</p>
             </div>
           </div>
-        ) : filteredRuns.length > 0 ? (
-          <RunsTable 
-            runs={filteredRuns}
-            onRunDeleted={async () => {
-              const [allProjects, allRuns] = await Promise.all([
-                fetchAllProjects(),
-                fetchAllRuns()
-              ])
-              const workspaceProjects = currentWorkspace
-                ? allProjects.filter(p => p.workspaceSlug === currentWorkspace.slug)
-                : allProjects
-              const workspaceRunList = currentWorkspace
-                ? allRuns.filter(r => workspaceProjects.some(p => p.id === r.projectId))
-                : allRuns
-              setRuns(workspaceRunList)
-              setFilteredRuns(workspaceRunList)
-            }}
-          />
+        ) : pagedRuns.length > 0 ? (
+          <>
+            <RunsTable runs={pagedRuns} onRunDeleted={reloadRuns} />
+
+            {/* Pagination controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between mt-4">
+                <button
+                  onClick={() => setPage(p => Math.max(0, p - 1))}
+                  disabled={page === 0}
+                  className="flex items-center gap-1 px-3 py-2 rounded border border-border text-sm text-foreground disabled:opacity-40 disabled:cursor-not-allowed hover:bg-accent transition-colors"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                  Previous
+                </button>
+                <span className="text-sm text-muted-foreground">
+                  Page {page + 1} of {totalPages}
+                </span>
+                <button
+                  onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+                  disabled={page >= totalPages - 1}
+                  className="flex items-center gap-1 px-3 py-2 rounded border border-border text-sm text-foreground disabled:opacity-40 disabled:cursor-not-allowed hover:bg-accent transition-colors"
+                >
+                  Next
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+          </>
         ) : (
           <div className="chart-container text-center py-12">
             <p className="text-muted-foreground">
-              {searchQuery
-                ? 'No runs match your search criteria'
-                : 'No runs found'}
+              {searchQuery ? 'No runs match your search criteria' : 'No runs found'}
             </p>
           </div>
         )}

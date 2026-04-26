@@ -1,0 +1,38 @@
+# EcoCode — Docker Compose
+# Backend uses Neon (cloud Postgres), so no local db service needed.
+# Env vars for backend are loaded from ./backend/.env
+
+services:
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ecocode-backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env          # loads DATABASE_URL, JWT_SECRET, CORS_ORIGIN, PRODUCTION
+    ports:
+      - "0.0.0.0:3001:3001"     # exposed on all interfaces
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # OPTION A: Local network IP (current)
+        NEXT_PUBLIC_API_URL: http://10.30.2.156:3001
+        # OPTION B: Public domain (uncomment when you have a domain)
+        # NEXT_PUBLIC_API_URL: https://yourname.duckdns.org/api
+    container_name: ecocode-frontend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      # OPTION A: Local network IP (current)
+      NEXT_PUBLIC_API_URL: http://10.30.2.156:3001
+      # OPTION B: Public domain (uncomment when you have a domain)
+      # NEXT_PUBLIC_API_URL: https://yourname.duckdns.org/api
+    ports:
+      - "0.0.0.0:3000:3000"     # exposed on all interfaces
+    depends_on:
+      - backend

@@ -18,7 +18,7 @@ import { EnvironmentalImpact } from '@/components/run/EnvironmentalImpact'
 import { CarbonSettings } from '@/components/run/CarbonSettings'
 import { StartRunModal } from '@/components/StartRunModal'
 import { Run } from '@/lib/mock-data'
-import { fetchAllRuns, fetchRunDetail, fetchAllProjects, fetchAllRunsWithRecords, ProjectSummary } from '@/lib/api'
+import { fetchAllRuns, fetchRunDetail, fetchAllProjects, ProjectSummary } from '@/lib/api'
 import { useSSE } from '@/hooks/use-sse'
 import { useWorkspace } from '@/components/layout/WorkspaceProvider'
 
@@ -78,53 +78,49 @@ export default function Dashboard() {
 
     const fetchData = async () => {
       setLoading(true)
+      let latestRunId: string | null = null
+
+      // Phase 1: load summaries — finishes fast, shows metric cards + project table.
       try {
         const projData = await fetchAllProjects()
         if (cancelled) return
-        
-        const filteredProjects = currentWorkspace 
-            ? projData.filter(p => p.workspaceSlug === currentWorkspace.slug)
-            : projData
+
+        const filteredProjects = currentWorkspace
+          ? projData.filter(p => p.workspaceSlug === currentWorkspace.slug)
+          : projData
         setProjects(filteredProjects)
 
-        const filteredProjectIds = filteredProjects.map(p => p.id)
-
-        const [runsData, allWithRecords] = await Promise.all([
-          fetchAllRuns(),
-          fetchAllRunsWithRecords(filteredProjectIds.length > 0 ? filteredProjectIds : undefined),
-        ])
+        const allProjectIds = projData.map(p => Number(p.id))
+        const runsData = await fetchAllRuns(allProjectIds)
         if (cancelled) return
-        
+
         const filteredRuns = currentWorkspace
-            ? runsData.filter(r => filteredProjects.some(p => p.id === r.projectId))
-            : runsData
+          ? runsData.filter(r => filteredProjects.some(p => p.id === r.projectId))
+          : runsData
         setRuns(filteredRuns)
 
-        const filteredWithRecords = currentWorkspace
-          ? allWithRecords.filter(r => filteredRuns.some(fr => fr.id === r.runId))
-          : allWithRecords
-        setAllRunsRecords(filteredWithRecords)
-
-        if (filteredRuns.length > 0) {
-          const latestRunId = filteredRuns[0].id
-          const runData = await fetchRunDetail(latestRunId)
-          if (cancelled) return
-          setCurrentRun(runData)
-        } else {
-          setCurrentRun(null)
-        }
+        if (filteredRuns.length > 0) latestRunId = filteredRuns[0].id
       } catch (error) {
         if (!cancelled) {
           console.error('Failed to fetch data:', error)
           setRuns([])
           setProjects([])
-          setCurrentRun(null)
-          setAllRunsRecords([])
         }
       } finally {
+        // Reveal the page now — metric cards and project table are ready.
+        if (!cancelled) setLoading(false)
+      }
+
+      // Phase 2: load records for the chart — runs after the page is already visible.
+      if (!latestRunId || cancelled) return
+      try {
+        const runData = await fetchRunDetail(latestRunId)
         if (!cancelled) {
-          setLoading(false)
+          setCurrentRun(runData)
+          setAllRunsRecords([{ runId: runData.id, runName: runData.name, records: runData.records }])
         }
+      } catch {
+        if (!cancelled) setCurrentRun(null)
       }
     }
 

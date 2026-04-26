@@ -44,9 +44,11 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         const data: Workspace[] = await res.json()
         setWorkspaces(data)
         
-        // If the user has no workspaces and is not on the root page or auth pages, redirect to root to create one
-        if (data.length === 0 && window.location.pathname !== '/' && !window.location.pathname.startsWith('/login') && !window.location.pathname.startsWith('/register')) {
-          window.location.href = '/'
+        // If the user has no workspaces, redirect to workspace creation page
+        const path = window.location.pathname
+        const isAuthOrCreate = path === '/' || path.startsWith('/login') || path.startsWith('/register') || path.startsWith('/create-workspace')
+        if (data.length === 0 && !isAuthOrCreate) {
+          window.location.href = '/create-workspace'
         }
       } else if (res.status === 401) {
         // Token might be invalid or expired (e.g., after DB reset)

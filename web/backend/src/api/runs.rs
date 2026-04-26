@@ -5,7 +5,7 @@
 //! expected by the frontend.
 
 use axum::{extract::{Path, Query, State}, http::StatusCode, Json, response::IntoResponse};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::{debug, info, warn};
 
@@ -14,11 +14,74 @@ use crate::models::record::{RecordPoint, RecordPointRow, GpuRecordPoint, SocketR
 use crate::state::AppState;
 use crate::auth;
 
+/// Optimized run summary for list views
+#[derive(Serialize)]
+pub struct RunSummaryResponse {
+    pub id: i64,
+    pub name: String,
+    pub project_id: i64,
+    pub collaborator_name: Option<String>,
+    pub status: Option<String>,
+    pub started_at: Option<String>,
+    pub ended_at: Option<String>,
+    pub command: Option<String>,
+    pub total_cpu_energy: Option<f64>,
+    pub total_gpu_energy: Option<f64>,
+    pub total_mem_energy: Option<f64>,
+    pub total_igpu_energy: Option<f64>,
+    pub total_co2_g: Option<f64>,
+    pub carbon_intensity_used: Option<f64>,
+    pub pue_used: Option<f64>,
+    pub total_cost: Option<f64>,
+    pub currency_used: Option<String>,
+}
+
 /// Query parameters for paginated endpoints.
 #[derive(Deserialize, Default)]
 pub struct PaginationQuery {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+}
+
+/// Handles GET requests to list all runs across all projects with summaries (optimized).
+pub async fn get_all_runs_with_summaries(
+    auth_user: auth::AuthUser,
+    Query(pagination): Query<PaginationQuery>,
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, ApiError> {
+    let limit = pagination.limit.unwrap_or(100).min(500);
+    let offset = pagination.offset.unwrap_or(0);
+    
+    debug!(limit, offset, user_id = auth_user.user_id, "Fetching all runs with summaries");
+    
+    let runs_with_summaries = sqlx::query_as::<_, RunSummaryResponse>(
+        "SELECT r.id, r.name, r.project_id, r.collaborator_name, r.status,
+                r.started_at, r.ended_at, r.command,
+                rs.total_cpu_energy, rs.total_gpu_energy, rs.total_mem_energy, rs.total_igpu_energy,
+                rs.total_co2_g, rs.carbon_intensity_used, rs.pue_used, rs.total_cost, rs.currency_used
+         FROM runs r
+         LEFT JOIN runsummary rs ON r.id = rs.run_id
+         JOIN projects p ON r.project_id = p.id
+         JOIN workspace_members wm ON p.workspace_id = wm.workspace_id
+         WHERE wm.user_id = $1
+         ORDER BY r.started_at DESC, r.id DESC
+         LIMIT $2 OFFSET $3",
+    )
+    .bind(auth_user.user_id)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(ApiError::internal)?;
+
+    if runs_with_summaries.is_empty() {
+        return Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            "No runs found",
+        ));
+    }
+
+    Ok((StatusCode::OK, Json(runs_with_summaries)))
 }
 
 /// Handles GET requests to list paginated runs for a specific project.
@@ -57,13 +120,17 @@ pub async fn get_run(
     }
 }
 
-/// Handles GET requests to retrieve all record points associated with a run.
-/// Merges top-level metrics with GPU and Socket metrics.
+/// Handles GET requests to retrieve record points for a run.
+/// Supports `?limit=N&offset=M` pagination (default limit 1000, max 5000).
 pub async fn get_record_points(
     Path(run_id): Path<i64>,
+    Query(pagination): Query<PaginationQuery>,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let rows = crate::db::records::fetch_record_rows(&state, run_id).await?;
+    let limit = pagination.limit.unwrap_or(1000).min(5000);
+    let offset = pagination.offset.unwrap_or(0);
+
+    let rows = crate::db::records::fetch_record_rows_paginated(&state, run_id, limit, offset).await?;
 
     if rows.is_empty() {
         return Err(ApiError::new(
@@ -72,10 +139,13 @@ pub async fn get_record_points(
         ));
     }
 
-    let gpu_records = crate::db::records::fetch_gpu_records_for_run(&state, run_id).await?;
-    let socket_records = crate::db::records::fetch_socket_records_for_run(&state, run_id).await?;
+    let record_ids: Vec<i64> = rows.iter().map(|r| r.id).collect();
+    let (gpu_records, socket_records) = tokio::join!(
+        crate::db::records::fetch_gpu_records_for_records(&state, &record_ids),
+        crate::db::records::fetch_socket_records_for_records(&state, &record_ids),
+    );
 
-    let record_points = merge_record_points(rows, gpu_records, socket_records);
+    let record_points = merge_record_points(rows, gpu_records?, socket_records?);
     Ok((StatusCode::OK, Json(record_points)))
 }
 

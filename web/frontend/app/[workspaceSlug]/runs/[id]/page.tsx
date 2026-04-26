@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Zap } from 'lucide-react'
+import { ArrowLeft } from 'lucide-react'
 import { DashboardLayout } from '@/components/layout/DashboardLayout'
 import { EnergyChart } from '@/components/charts/EnergyChart'
 import { UtilizationChart } from '@/components/charts/UtilizationChart'
@@ -13,8 +13,8 @@ import { RunSystemInfo } from '@/components/run/RunSystemInfo'
 import { PowerDistributionChart } from '@/components/charts/PowerDistributionChart'
 import { CumulativePowerChart } from '@/components/charts/CumulativePowerChart'
 import { EnvironmentalImpact } from '@/components/run/EnvironmentalImpact'
-import { Run } from '@/lib/mock-data'
-import { fetchRunDetail } from '@/lib/api'
+import { Run, MetricRecord } from '@/lib/mock-data'
+import { fetchRunMeta, fetchRunRecords } from '@/lib/api'
 import { useSSE } from '@/hooks/use-sse'
 import { format } from 'date-fns'
 
@@ -27,6 +27,7 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
   const workspaceSlug = routeParams.workspaceSlug as string
   const [run, setRun] = useState<Run | null>(null)
   const [loading, setLoading] = useState(true)
+  const [chartsLoading, setChartsLoading] = useState(true)
   const [paramId, setParamId] = useState<string | null>(null)
   const { latestRecord } = useSSE()
 
@@ -40,41 +41,21 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
 
   // Update current run with real-time SSE data
   useEffect(() => {
-    if (!latestRecord || !run || latestRecord.run_id !== paramId) {
-      if (latestRecord) {
-        console.log('[RunDetail] SSE record received but filtered:', {
-          hasRun: !!run,
-          recordRunId: latestRecord.run_id,
-          paramId,
-          match: latestRecord.run_id === paramId
-        })
-      }
-      return
-    }
-
-    console.log('[RunDetail] Processing SSE record:', latestRecord.id)
+    if (!latestRecord || !run || latestRecord.run_id !== paramId) return
 
     setRun((prevRun) => {
       if (!prevRun) return null
-
-      // Check if the record already exists to avoid duplicates
       if (prevRun.records.some((r) => r.id === latestRecord.id)) return prevRun
 
       const updatedRecords = [...prevRun.records, latestRecord]
       const count = updatedRecords.length
-
-      // Calculate new total energy incrementally (O(1))
-      // Conversion: Joules / 3600 = Wh
       const newTotalEnergy =
         prevRun.totalEnergy +
         ((latestRecord.cpu_energy ?? 0) +
           (latestRecord.gpu_energy ?? 0) +
           (latestRecord.mem_energy ?? 0) +
-          (latestRecord.igpu_energy ?? 0)) / 3600.0;
-
+          (latestRecord.igpu_energy ?? 0)) / 3600.0
       const energyKwh = newTotalEnergy / 1000
-
-      // Incremental averages
       const avgCpuUsage = (prevRun.avgCpuUsage * (count - 1) + (latestRecord.cpu_usage ?? 0)) / count
       const avgGpuUsage = (prevRun.avgGpuUsage * (count - 1) + (latestRecord.gpu_usage ?? 0)) / count
       const avgMemUsage = (prevRun.avgMemUsage * (count - 1) + (latestRecord.mem_usage ?? 0)) / count
@@ -87,40 +68,59 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
         avgCpuUsage,
         avgGpuUsage,
         avgMemUsage,
-        status: 'running', // Definitely running if we're getting live data
+        status: 'running',
       }
     })
   }, [latestRecord, paramId])
 
   useEffect(() => {
     if (!paramId) return
-
     let cancelled = false
 
     const fetchRun = async () => {
       setLoading(true)
+      setChartsLoading(true)
+
+      // Phase 1: fetch metadata + summary — no records, shows page immediately
       try {
-        const data = await fetchRunDetail(paramId)
-        if (!cancelled) {
-          setRun(data)
-        }
+        const meta = await fetchRunMeta(paramId)
+        if (cancelled) return
+        setRun(meta)
       } catch (error) {
         if (!cancelled) {
           console.error('Failed to fetch run:', error)
           setRun(null)
         }
       } finally {
-        if (!cancelled) {
-          setLoading(false)
-        }
+        if (!cancelled) setLoading(false)
+      }
+
+      if (cancelled) return
+
+      // Phase 2: fetch records for charts in the background
+      try {
+        const records = await fetchRunRecords(paramId)
+        if (cancelled) return
+        setRun((prev) => {
+          if (!prev) return null
+          const count = records.length
+          return {
+            ...prev,
+            records,
+            avgCpuUsage: count > 0 ? records.reduce((s, r) => s + r.cpu_usage, 0) / count : 0,
+            avgGpuUsage: count > 0 ? records.reduce((s, r) => s + r.gpu_usage, 0) / count : 0,
+            avgMemUsage: count > 0 ? records.reduce((s, r) => s + r.mem_usage, 0) / count : 0,
+          }
+        })
+      } catch {
+        // charts just won't show, not fatal
+      } finally {
+        if (!cancelled) setChartsLoading(false)
       }
     }
 
     fetchRun()
-
-    return () => {
-      cancelled = true
-    }
+    return () => { cancelled = true }
   }, [paramId])
 
   if (loading) {
@@ -198,30 +198,25 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
 
         {/* Two Column Layout for System Info and Environmental Impact */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          {/* Left Column - System Info */}
           <div>
             <RunSystemInfo run={run} />
           </div>
-
-          {/* Right Column - Environmental Impact + Power Distribution */}
           <div className="space-y-6">
             <div className="chart-container">
-              <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+              <h2 className="text-lg font-semibold text-foreground mb-4">
                 Environmental Equivalents
               </h2>
-              <EnvironmentalImpact 
-                totalEnergyWh={run.totalEnergy} 
+              <EnvironmentalImpact
+                totalEnergyWh={run.totalEnergy}
                 totalCo2G={run.carbonFootprint}
                 carbonIntensity={run.carbonIntensityUsed}
                 totalCost={run.totalCost}
                 currency={run.currency}
               />
             </div>
-
-            {/* Live Power Distribution */}
             {run.records.length > 0 && (
-              <PowerDistributionChart 
-                record={run.records[run.records.length - 1]} 
+              <PowerDistributionChart
+                record={run.records[run.records.length - 1]}
                 prevRecord={run.records.length > 1 ? run.records[run.records.length - 2] : undefined}
               />
             )}
@@ -229,21 +224,30 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
         </div>
 
         {/* Charts Grid */}
-        <div className="mb-8 space-y-4 md:space-y-6">
-          {/* Energy Chart - Full Width */}
-          <EnergyChart data={run.records} />
-          
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
-            <CumulativePowerChart data={run.records} />
-            <UtilizationChart data={run.records} />
+        {chartsLoading ? (
+          <div className="mb-8 chart-container flex items-center justify-center py-16">
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+              <p className="text-sm text-muted-foreground">Loading charts...</p>
+            </div>
           </div>
-        </div>
+        ) : run.records.length > 0 ? (
+          <div className="mb-8 space-y-4 md:space-y-6">
+            <EnergyChart data={run.records} />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+              <CumulativePowerChart data={run.records} />
+              <UtilizationChart data={run.records} />
+            </div>
+          </div>
+        ) : null}
 
         {/* Details Grid */}
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-          <EnergyBreakdownChart run={run} />
-          <SocketEnergyChart data={run.records} />
-        </div>
+        {!chartsLoading && run.records.length > 0 && (
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+            <EnergyBreakdownChart run={run} />
+            <SocketEnergyChart data={run.records} />
+          </div>
+        )}
       </div>
     </DashboardLayout>
   )

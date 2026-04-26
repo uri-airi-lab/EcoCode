@@ -55,6 +55,7 @@ export const RecentRunsTable = memo(function RecentRunsTable({ runs }: RecentRun
           </thead>
           <tbody>
             {recentRuns.map((run) => (
+               <Link href={`/${workspaceSlug}/runs/${run.id}`}>
               <tr
                 key={run.id}
                 className="border-b border-border hover:bg-muted/30 transition-colors"
@@ -75,8 +76,8 @@ export const RecentRunsTable = memo(function RecentRunsTable({ runs }: RecentRun
                       {format(new Date(run.timestamp), 'MMM d, HH:mm')}
                     </p> 
                 </td>
-                                <td className='py-3 px-4'>
-<p className="text-xs text-muted-foreground">
+                <td className='py-3 px-4'>
+                    <p className="text-xs text-muted-foreground">
                       By {run.collaboratorName ?? 'Unassigned'}
                     </p>
                 </td>
@@ -99,11 +100,13 @@ export const RecentRunsTable = memo(function RecentRunsTable({ runs }: RecentRun
                   </span>
                 </td>
                 <td className="text-right py-3 px-4">
-                  <Link href={`/${workspaceSlug}/runs/${run.id}`}>
+             
                     <ChevronRight className="w-4 h-4 text-muted-foreground hover:text-primary transition-colors" />
-                  </Link>
+      
                 </td>
               </tr>
+               </Link>
+
             ))}
           </tbody>
         </table>

@@ -527,38 +527,15 @@ export async function fetchAllProjects(): Promise<ProjectSummary[]> {
     if (!projectsRes.ok) throw new Error(`Failed to fetch projects: ${projectsRes.status}`)
     const projects: BackendProject[] = await projectsRes.json()
 
-    const projectSummaries = await Promise.all(
-      projects.map(async (project) => {
-        const runsRes = await apiFetch(buildApiUrl(`/api/project/${project.id}/runs`))
-
-        if (!runsRes.ok) {
-          return {
-            id: project.id.toString(),
-            name: project.name,
-            workspaceSlug: project.workspace_slug,
-            totalRuns: 0,
-            totalEnergy: 0,
-            lastRunTimestamp: 0,
-          }
-        }
-
-        const backendRuns: BackendRun[] = await runsRes.json()
-        const runSummaries = await Promise.all(backendRuns.map(fetchRunTotalsSnapshot))
-        const totalEnergy = runSummaries.reduce((sum, run) => sum + run.totalEnergy, 0)
-        const lastRunTimestamp = runSummaries.reduce((max, run) => Math.max(max, run.timestamp), 0)
-
-        return {
-          id: project.id.toString(),
-          name: project.name,
-          workspaceSlug: project.workspace_slug,
-          totalRuns: backendRuns.length,
-          totalEnergy,
-          lastRunTimestamp: lastRunTimestamp || Date.now(),
-        }
-      })
-    )
-
-    return projectSummaries
+    // Return basic project info without expensive aggregations for list view
+    return projects.map(project => ({
+      id: project.id.toString(),
+      name: project.name,
+      workspaceSlug: project.workspace_slug,
+      totalRuns: 0, // Will be loaded on-demand
+      totalEnergy: 0, // Will be loaded on-demand
+      lastRunTimestamp: Date.now(),
+    }))
   } catch (error) {
     throw error
   }
@@ -620,25 +597,52 @@ export async function fetchProjectRuns(projectId: string): Promise<ProjectDetail
 }
 
 /**
- * Fetch all runs for all projects
+ * Fetch all runs for all projects - optimized version using single API call
  */
 export async function fetchAllRuns(): Promise<RunSummary[]> {
   try {
-    const projectsRes = await apiFetch(buildApiUrl('/api/projects'))
-    if (projectsRes.status === 404) return []
-    if (!projectsRes.ok) throw new Error(`Failed to fetch projects: ${projectsRes.status}`)
-    const projects: BackendProject[] = await projectsRes.json()
-
-    const projectRunsArrays = await Promise.all(
-      projects.map(async (project) => {
-        const runsRes = await apiFetch(buildApiUrl(`/api/project/${project.id}/runs`))
-        if (!runsRes.ok) return []
-        const backendRuns: BackendRun[] = await runsRes.json()
-        return Promise.all(backendRuns.map(mapRunSummary))
-      })
-    )
-
-    return projectRunsArrays.flat().sort((a, b) => b.timestamp - a.timestamp)
+    // Use the new optimized endpoint that fetches all runs with summaries in one call
+    const runsRes = await apiFetch(buildApiUrl('/api/runs'))
+    if (runsRes.status === 404) return []
+    if (!runsRes.ok) throw new Error(`Failed to fetch runs: ${runsRes.status}`)
+    
+    const runs = await runsRes.json()
+    
+    // Transform the backend response to frontend format
+    return runs.map((run: any) => {
+      const totalCpuEnergy = (run.total_cpu_energy || 0) / 3600
+      const totalGpuEnergy = (run.total_gpu_energy || 0) / 3600
+      const totalMemEnergy = (run.total_mem_energy || 0) / 3600
+      const totalIgpuEnergy = (run.total_igpu_energy || 0) / 3600
+      const totalEnergy = totalCpuEnergy + totalGpuEnergy + totalMemEnergy + totalIgpuEnergy
+      const energyKwh = totalEnergy / 1000
+      
+      return {
+        id: run.id.toString(),
+        projectId: run.project_id.toString(),
+        name: run.name,
+        timestamp: parseTimestamp(run.started_at) ?? parseTimestamp(run.ended_at) ?? Date.now(),
+        status: normalizeRunStatus(run.status),
+        collaboratorName: run.collaborator_name ?? null,
+        totalEnergy,
+        totalCpuEnergy,
+        totalGpuEnergy,
+        totalMemEnergy,
+        totalIgpuEnergy,
+        totalCoreHours: energyKwh * 24,
+        avgCpuUsage: 0, // Not included in summary
+        avgGpuUsage: 0,
+        avgMemUsage: 0,
+        carbonFootprint: run.total_co2_g || (energyKwh * WORLD_AVERAGE_INTENSITY_G_PER_KWH),
+        waterConsumption: energyKwh * WATER_FACTOR * 1000,
+        duration: 0, // Not calculated for list view
+        command: run.command ?? null,
+        carbonIntensityUsed: run.carbon_intensity_used,
+        pueUsed: run.pue_used,
+        totalCost: run.total_cost,
+        currency: run.currency_used,
+      }
+    }).sort((a, b) => b.timestamp - a.timestamp)
   } catch (error) {
     throw error
   }
@@ -701,6 +705,55 @@ export async function fetchAllRunsWithRecords(
 /**
  * Fetch a specific run with record points
  */
+/**
+ * Fetch lightweight run summary with energy data (for tables/lists)
+ */
+export async function fetchRunSummaryWithEnergy(runId: string): Promise<RunSummary> {
+  try {
+    const [runRes, summaryRes] = await Promise.all([
+      apiFetch(buildApiUrl(`/api/run/${runId}`)),
+      apiFetch(buildApiUrl(`/api/run/${runId}/summary`)),
+    ])
+
+    if (!runRes.ok) throw new Error(`Run ${runId} not found`)
+
+    const backendRun: BackendRun = await runRes.json()
+    const summary: BackendRunSummary | null = summaryRes.ok ? await summaryRes.json() : null
+    
+    const energyTotals = calculateEnergyTotals(summary)
+    const energyKwh = energyTotals.totalEnergy / 1000
+    const timestamp = parseTimestamp(backendRun.started_at) ?? parseTimestamp(backendRun.ended_at) ?? Date.now()
+
+    return {
+      id: backendRun.id.toString(),
+      projectId: backendRun.project_id.toString(),
+      name: backendRun.name,
+      timestamp,
+      status: normalizeRunStatus(backendRun.status),
+      collaboratorName: backendRun.collaborator_name ?? null,
+      totalEnergy: energyTotals.totalEnergy,
+      totalCpuEnergy: energyTotals.totalCpuEnergy,
+      totalGpuEnergy: energyTotals.totalGpuEnergy,
+      totalMemEnergy: energyTotals.totalMemEnergy,
+      totalIgpuEnergy: energyTotals.totalIgpuEnergy,
+      totalCoreHours: energyKwh * 24,
+      avgCpuUsage: 0, // Not calculated for summary view
+      avgGpuUsage: 0,
+      avgMemUsage: 0,
+      carbonFootprint: energyTotals.totalCo2G,
+      waterConsumption: energyKwh * WATER_FACTOR * 1000,
+      duration: 0, // Not calculated for summary view
+      command: backendRun.command ?? null,
+      carbonIntensityUsed: energyTotals.carbonIntensityUsed,
+      pueUsed: energyTotals.pueUsed,
+      totalCost: energyTotals.totalCost,
+      currency: energyTotals.currency,
+    }
+  } catch (error) {
+    throw error
+  }
+}
+
 export async function fetchRunDetail(id: string): Promise<RunDetail> {
   try {
     const [runRes, summaryRes, recordsRes] = await Promise.all([

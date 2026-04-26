@@ -65,7 +65,8 @@ pub async fn ensure_postgres_schema(db: &PgPool) -> Result<(), Box<dyn std::erro
         "CREATE TABLE IF NOT EXISTS projects (
             id BIGSERIAL PRIMARY KEY,
             workspace_id BIGINT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-            name TEXT UNIQUE,
+            name TEXT,
+            UNIQUE (workspace_id, name),
             collaborator_name TEXT
         )",
     )
@@ -198,6 +199,60 @@ pub async fn ensure_postgres_schema(db: &PgPool) -> Result<(), Box<dyn std::erro
     backfill_postgres_project_collaborators(db).await?;
     sync_postgres_project_shortcuts(db).await?;
     migrate_cascade_constraints(db).await?;
+    create_performance_indexes(db).await?;
+
+    Ok(())
+}
+
+/// Creates database indexes to improve query performance
+async fn create_performance_indexes(db: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    // Index for runs queries by project_id and started_at (most common query pattern)
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_runs_project_started 
+         ON runs(project_id, started_at DESC, id DESC)"
+    )
+    .execute(db)
+    .await?;
+
+    // Index for runs by workspace access (for the optimized all-runs query)
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_runs_workspace_access 
+         ON runs(started_at DESC, id DESC)"
+    )
+    .execute(db)
+    .await?;
+
+    // Index for records by run_id and timestamp (for record point queries)
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_records_run_timestamp 
+         ON records(run_id, timestamp)"
+    )
+    .execute(db)
+    .await?;
+
+    // Index for workspace_members lookup (used in access control)
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_workspace_members_user 
+         ON workspace_members(user_id, workspace_id)"
+    )
+    .execute(db)
+    .await?;
+
+    // Index for projects by workspace
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_projects_workspace 
+         ON projects(workspace_id)"
+    )
+    .execute(db)
+    .await?;
+
+    // Index for runsummary by run_id (for summary lookups)
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_runsummary_run 
+         ON runsummary(run_id)"
+    )
+    .execute(db)
+    .await?;
 
     Ok(())
 }
