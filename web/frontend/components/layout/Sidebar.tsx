@@ -11,11 +11,12 @@ import {
   Users,
   ChevronDown,
   Plus,
-  User
+  User,
+  X
 } from 'lucide-react'
 import { useWorkspace } from './WorkspaceProvider'
 
-export function Sidebar() {
+export function Sidebar({ mobileOpen, setMobileOpen }: { mobileOpen: boolean; setMobileOpen: (open: boolean) => void }) {
   const pathname = usePathname()
   const router = useRouter()
   const { workspaces, currentWorkspace, dropdownOpen, setDropdownOpen } = useWorkspace()
@@ -30,8 +31,32 @@ export function Sidebar() {
     { href: `/${workspaceSlug}/settings/members`, label: 'Members', icon: Users },
   ]
 
+  const closeMobileSidebar = () => {
+    setMobileOpen(false)
+  }
+
   return (
-    <aside className="sidebar-glass h-screen w-64 fixed left-0 top-0 flex flex-col lg:relative lg:w-64 z-50">
+    <>
+      {/* Mobile Overlay */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+          onClick={closeMobileSidebar}
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside className={`sidebar-glass h-screen w-64 fixed left-0 top-0 flex flex-col z-50 transition-transform duration-300 lg:relative lg:translate-x-0 ${
+        mobileOpen ? 'translate-x-0' : '-translate-x-full'
+      }`}>
+        {/* Close button for mobile */}
+        <button
+          onClick={closeMobileSidebar}
+          className="absolute top-4 right-4 p-2 rounded-lg hover:bg-neutral-800/50 lg:hidden"
+          aria-label="Close sidebar"
+        >
+          <X className="w-5 h-5 text-neutral-400" />
+        </button>
       {/* Header / Workspace Switcher */}
       <div className="p-4 border-b border-border relative">
         <div
@@ -95,6 +120,7 @@ export function Sidebar() {
             <Link
               key={href}
               href={href}
+              onClick={closeMobileSidebar}
               className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-all duration-200 ${isActive
                   ? 'border-l-2 border-primary bg-primary/10 text-primary font-medium'
                   : 'border-l-2 border-transparent text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -111,6 +137,7 @@ export function Sidebar() {
         {/* Account Link at Bottom */}
         <Link
           href={`/${workspaceSlug}/settings/account`}
+          onClick={closeMobileSidebar}
           className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-all duration-200 mt-4 ${
             pathname.startsWith(`/${workspaceSlug}/settings/account`)
               ? 'border-l-2 border-primary bg-primary/10 text-primary font-medium'
@@ -129,5 +156,6 @@ export function Sidebar() {
         <p>University of Rhode Island</p>
       </div>
     </aside>
+    </>
   )
 }

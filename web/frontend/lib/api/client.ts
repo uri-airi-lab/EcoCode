@@ -6,7 +6,7 @@
  *   Frontend displays in Watt-hours:  Wh = J / 3600
  *
  * Water consumption estimate: 1.8 L/kWh (global data-centre average).
- * Carbon fallback: 494 gCO2/kWh (IEA 2025 world average).
+ * Carbon fallback: 445 gCO2/kWh (IEA Emissions Factors 2025 world average).
  */
 
 import { Run, MetricRecord } from '../mock-data'
@@ -15,7 +15,7 @@ import { buildApiUrl } from '../data-source'
 export { buildApiUrl }
 
 export const WATER_FACTOR = 1.8 // L/kWh
-export const WORLD_AVERAGE_INTENSITY_G_PER_KWH = 494
+export const WORLD_AVERAGE_INTENSITY_G_PER_KWH = 445 // IEA Emissions Factors 2025
 
 // --- Shared backend response shapes ---
 

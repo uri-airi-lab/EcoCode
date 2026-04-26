@@ -6,6 +6,7 @@
 //! Electricity Maps API.
 
 use axum::{extract::{State, Path}, http::StatusCode, Json, response::IntoResponse};
+use tracing::{info, warn};
 use crate::error::ApiError;
 use crate::models::project::{Project, CreateProjectPayload};
 use crate::state::AppState;
@@ -42,6 +43,7 @@ pub async fn post_projects(
     .map_err(ApiError::internal)?;
 
     if membership.is_none() {
+        warn!(user_id = auth_user.user_id, workspace_id = payload.workspace_id, "Create project denied: user not a workspace member");
         return Err(ApiError::new(
             StatusCode::FORBIDDEN,
             "You are not a member of this workspace",
@@ -53,7 +55,7 @@ pub async fn post_projects(
     let mut lat = None;
     let mut lon = None;
     let mut resolved_address = payload.address.clone();
-    let intensity = payload.intensity.unwrap_or(494.0);
+    let intensity = payload.intensity.unwrap_or(445.0); // IEA 2025 global average fallback
     let intensity_src = if payload.intensity.is_some() {
         "manual".to_string()
     } else {
@@ -109,6 +111,7 @@ pub async fn post_projects(
         .map_err(ApiError::internal)?;
     let workspace_slug: String = slug_row.get("slug");
 
+    info!(project_id = id, name = %name, workspace_id = payload.workspace_id, user_id = auth_user.user_id, "Project created");
     Ok((StatusCode::CREATED, Json(Project { id, name, workspace_slug })))
 }
 
@@ -132,11 +135,15 @@ pub async fn delete_project(
     .map_err(ApiError::internal)?;
 
     match workspace_check {
-        None => return Err(ApiError::new(StatusCode::NOT_FOUND, "Project not found or access denied")),
+        None => {
+            warn!(project_id, user_id = auth_user.user_id, "Delete project denied: not found or no access");
+            return Err(ApiError::new(StatusCode::NOT_FOUND, "Project not found or access denied"));
+        }
         Some(row) => {
             use sqlx::Row;
             let role: String = row.get("role");
             if role != "admin" {
+                warn!(project_id, user_id = auth_user.user_id, role = %role, "Delete project denied: not an admin");
                 return Err(ApiError::new(StatusCode::FORBIDDEN, "Only workspace admins can delete projects"));
             }
         }
@@ -153,5 +160,6 @@ pub async fn delete_project(
         return Err(ApiError::new(StatusCode::NOT_FOUND, "Project not found"));
     }
 
+    info!(project_id, user_id = auth_user.user_id, "Project deleted");
     Ok(StatusCode::NO_CONTENT)
 }

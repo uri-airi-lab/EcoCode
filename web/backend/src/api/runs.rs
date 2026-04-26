@@ -7,6 +7,7 @@
 use axum::{extract::{Path, Query, State}, http::StatusCode, Json, response::IntoResponse};
 use serde::Deserialize;
 use std::collections::HashMap;
+use tracing::{debug, info, warn};
 
 use crate::error::ApiError;
 use crate::models::record::{RecordPoint, RecordPointRow, GpuRecordPoint, SocketRecordPoint};
@@ -29,6 +30,7 @@ pub async fn get_runs(
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = pagination.limit.unwrap_or(100).min(500);
     let offset = pagination.offset.unwrap_or(0);
+    debug!(project_id, limit, offset, user_id = auth_user.user_id, "Fetching runs");
     let runs = crate::db::runs::fetch_runs(&state, project_id, auth_user.user_id, limit, offset).await?;
 
     if runs.is_empty() {
@@ -129,11 +131,15 @@ pub async fn delete_run(
     .map_err(ApiError::internal)?;
 
     match workspace_check {
-        None => return Err(ApiError::new(StatusCode::NOT_FOUND, "Run not found or access denied")),
+        None => {
+            warn!(run_id, user_id = auth_user.user_id, "Delete run denied: not found or no access");
+            return Err(ApiError::new(StatusCode::NOT_FOUND, "Run not found or access denied"));
+        }
         Some(row) => {
             use sqlx::Row;
             let role: String = row.get("role");
             if role != "admin" {
+                warn!(run_id, user_id = auth_user.user_id, role = %role, "Delete run denied: not an admin");
                 return Err(ApiError::new(StatusCode::FORBIDDEN, "Only workspace admins can delete runs"));
             }
         }
@@ -150,6 +156,7 @@ pub async fn delete_run(
         return Err(ApiError::new(StatusCode::NOT_FOUND, "Run not found"));
     }
 
+    info!(run_id, user_id = auth_user.user_id, "Run deleted");
     Ok(StatusCode::NO_CONTENT)
 }
 

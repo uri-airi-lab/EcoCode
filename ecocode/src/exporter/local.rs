@@ -214,7 +214,8 @@ impl SqliteExporter {
         Self::ensure_column(db, "projects", "latitude", "ALTER TABLE projects ADD COLUMN latitude REAL").await?;
         Self::ensure_column(db, "projects", "longitude", "ALTER TABLE projects ADD COLUMN longitude REAL").await?;
         Self::ensure_column(db, "projects", "electricity_maps_api_key", "ALTER TABLE projects ADD COLUMN electricity_maps_api_key TEXT").await?;
-        Self::ensure_column(db, "projects", "resolved_intensity_g_per_kwh", "ALTER TABLE projects ADD COLUMN resolved_intensity_g_per_kwh REAL NOT NULL DEFAULT 494.0").await?;
+        // IEA Emissions Factors 2025: global average = 445 gCO2/kWh
+        Self::ensure_column(db, "projects", "resolved_intensity_g_per_kwh", "ALTER TABLE projects ADD COLUMN resolved_intensity_g_per_kwh REAL NOT NULL DEFAULT 445.0").await?;
         Self::ensure_column(db, "projects", "intensity_source", "ALTER TABLE projects ADD COLUMN intensity_source TEXT NOT NULL DEFAULT 'static_WORLD'").await?;
         Self::ensure_column(db, "projects", "intensity_fetched_at", "ALTER TABLE projects ADD COLUMN intensity_fetched_at TEXT").await?;
         Self::ensure_column(db, "projects", "pue_factor", "ALTER TABLE projects ADD COLUMN pue_factor REAL NOT NULL DEFAULT 1.0").await?;

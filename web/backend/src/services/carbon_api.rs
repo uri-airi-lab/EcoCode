@@ -2,7 +2,7 @@ use crate::models::carbon::{NominatimResult, ElectricityMapsResponse, Electricit
 
 /// Static carbon intensity lookup table (gCO₂eq/kWh).
 pub const CARBON_REGIONS: &[(&str, &str, f64)] = &[
-    ("WORLD", "Global Average", 494.0),
+    ("WORLD", "Global Average", 445.0), // IEA Emissions Factors 2025: https://www.iea.org/reports/electricity-2025/emissions
     ("FR", "France", 52.0),
     ("SE", "Sweden", 13.0),
     ("NO", "Norway", 28.0),
@@ -66,7 +66,7 @@ pub fn static_intensity(country_code: &str) -> f64 {
         .iter()
         .find(|(c, _, _)| *c == code.as_str())
         .map(|(_, _, v)| *v)
-        .unwrap_or(494.0)
+        .unwrap_or(445.0) // IEA 2025 global average fallback
 }
 
 /// Geocodes a freeform address string into Latitude and Longitude using the public Nominatim API.

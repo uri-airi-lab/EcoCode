@@ -12,6 +12,7 @@ use crate::error::ApiError;
 use crate::state::AppState;
 use super::jwt::{get_jwt_secret, Claims};
 use super::password::hash_api_key;
+use tracing::{debug, warn};
 
 pub struct AuthUser {
     pub user_id: i64,
@@ -45,10 +46,14 @@ where
                         .map_err(ApiError::internal)?;
 
                         if let Some(r) = row {
+                            let user_id: i64 = r.get("user_id");
+                            debug!(user_id, "Authenticated via API key");
                             return Ok(AuthUser {
-                                user_id: r.get("user_id"),
+                                user_id,
                                 workspace_id: r.try_get("workspace_id").ok().flatten(),
                             });
+                        } else {
+                            warn!("API key not found in database");
                         }
                     } else {
                         let secret = get_jwt_secret();
@@ -56,10 +61,13 @@ where
                         if let Ok(token_data) =
                             decode::<Claims>(token_or_key, &decoding_key, &Validation::default())
                         {
+                            debug!(user_id = token_data.claims.sub, "Authenticated via JWT (Bearer header)");
                             return Ok(AuthUser {
                                 user_id: token_data.claims.sub,
                                 workspace_id: None,
                             });
+                        } else {
+                            warn!("Invalid JWT token in Authorization header");
                         }
                     }
                 }
@@ -73,13 +81,17 @@ where
             if let Ok(token_data) =
                 decode::<Claims>(cookie.value(), &decoding_key, &Validation::default())
             {
+                debug!(user_id = token_data.claims.sub, "Authenticated via JWT cookie");
                 return Ok(AuthUser {
                     user_id: token_data.claims.sub,
                     workspace_id: None,
                 });
+            } else {
+                warn!("Invalid JWT token in auth_token cookie");
             }
         }
 
+        warn!("Unauthenticated request — no valid credential found");
         Err(ApiError::new(StatusCode::UNAUTHORIZED, "Unauthorized"))
     }
 }

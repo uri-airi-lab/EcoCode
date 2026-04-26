@@ -12,6 +12,7 @@
 
 use axum::{extract::{Path, State}, http::StatusCode, Json, response::IntoResponse};
 use serde_json::json;
+use tracing::{debug, info, warn};
 
 use crate::error::ApiError;
 use crate::models::ingest::{IngestRunPayload, IngestRecordData, IngestSystemInfo, IngestCompletePayload};
@@ -44,6 +45,7 @@ pub async fn ingest_run(
         .map_err(ApiError::internal)?;
 
     if membership.is_none() {
+        warn!(user_id = auth_user.user_id, project_id = payload.project_id, "Ingest run denied: user not a member of project workspace");
         return Err(ApiError::new(StatusCode::FORBIDDEN, "Access denied to project workspace"));
     }
 
@@ -68,6 +70,7 @@ pub async fn ingest_run(
     .await
     .map_err(ApiError::internal)?;
 
+    info!(run_id, project_id = payload.project_id, user_id = auth_user.user_id, name = %payload.name, "Run created");
     Ok((StatusCode::CREATED, Json(json!({ "id": run_id }))))
 }
 
@@ -125,6 +128,7 @@ pub async fn ingest_record(
     }
 
     tx.commit().await.map_err(ApiError::internal)?;
+    debug!(run_id, record_id, "Record ingested");
     Ok(StatusCode::CREATED)
 }
 
@@ -155,6 +159,7 @@ pub async fn ingest_system_info(
     .await
     .map_err(ApiError::internal)?;
 
+    debug!(run_id, "System info stored");
     Ok(StatusCode::OK)
 }
 
@@ -179,6 +184,7 @@ pub async fn ingest_complete_run(
         .map_err(ApiError::internal)?;
 
     let _ = state.tx.send(format!("run_updated:{}", run_id));
+    info!(run_id, status = %payload.status, "Run completed");
 
     Ok(StatusCode::OK)
 }

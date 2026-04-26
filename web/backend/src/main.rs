@@ -19,6 +19,7 @@ use dotenv::dotenv;
 use sqlx::postgres::PgPoolOptions;
 use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
+use tracing::info;
 
 pub mod api;
 pub mod auth;
@@ -41,15 +42,23 @@ async fn hello_world() -> &'static str {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
 
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .init();
+
     let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let pool = PgPoolOptions::new()
         .max_connections(10)
         .connect(&db_url)
         .await?;
-    println!("PostgreSQL pool initialized.");
-    
+    info!("PostgreSQL pool initialized");
+
     // Ensure all tables and columns exist
     db::schema::ensure_postgres_schema(&pool).await?;
+    info!("Database schema verified");
 
     let (tx, _) = broadcast::channel::<String>(1000);
     let state = AppState {
@@ -94,6 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3001").await?;
+    info!("Listening on 0.0.0.0:3001");
     axum::serve(listener, app).await?;
 
     Ok(())

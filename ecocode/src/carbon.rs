@@ -4,7 +4,7 @@
 /// Static carbon intensity lookup by country code (ISO 3166-1 alpha-2).
 /// Values in gCO₂eq/kWh, sourced from IEA / carbonfootprint.com 2024-2025 data.
 pub const CARBON_REGIONS: &[(&str, &str, f64)] = &[
-    ("WORLD", "Global Average", 494.0),
+    ("WORLD", "Global Average", 445.0), // IEA Emissions Factors 2025: https://www.iea.org/reports/electricity-2025/emissions
     ("FR", "France", 52.0),
     ("SE", "Sweden", 13.0),
     ("NO", "Norway", 28.0),
@@ -68,7 +68,7 @@ pub fn static_intensity(country_code: &str) -> f64 {
         .iter()
         .find(|(c, _, _)| *c == code.as_str())
         .map(|(_, _, intensity)| *intensity)
-        .unwrap_or(494.0) // WORLD fallback
+        .unwrap_or(445.0) // WORLD fallback (IEA 2025)
 }
 
 /// Computes CO₂ emissions in grams.

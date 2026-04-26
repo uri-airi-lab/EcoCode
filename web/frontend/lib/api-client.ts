@@ -12,7 +12,7 @@
  *   Frontend displays in Watt-hours:  Wh = J / 3600
  *
  * Water consumption estimate: 1.8 L/kWh (global data-centre average).
- * Carbon fallback: 494 gCO2/kWh (IEA 2025 world average) when no project config is set.
+ * Carbon fallback: 445 gCO2/kWh (IEA Emissions Factors 2025 world average) when no project config is set.
  */
 
 import { Run, MetricRecord } from './mock-data'
@@ -258,7 +258,7 @@ function calculateDurationSeconds(
 }
 
 /** Fallback carbon intensity (gCO2/kWh) when no project configuration is available. */
-const WORLD_AVERAGE_INTENSITY_G_PER_KWH = 494
+const WORLD_AVERAGE_INTENSITY_G_PER_KWH = 445 // IEA Emissions Factors 2025
 
 /**
  * Converts Joule-based energy totals from the backend summary into Wh and

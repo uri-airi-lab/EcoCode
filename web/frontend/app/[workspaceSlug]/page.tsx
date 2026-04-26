@@ -64,7 +64,7 @@ export default function Dashboard() {
         ...prevRun,
         records: updatedRecords,
         totalEnergy: newTotalEnergy,
-        carbonFootprint: energyKwh * (prevRun.carbonIntensityUsed ?? 494) * (prevRun.pueUsed ?? 1.0),
+        carbonFootprint: energyKwh * (prevRun.carbonIntensityUsed ?? 445) * (prevRun.pueUsed ?? 1.0),
         avgCpuUsage,
         avgGpuUsage,
         avgMemUsage,

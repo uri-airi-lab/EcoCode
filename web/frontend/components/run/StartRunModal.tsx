@@ -38,7 +38,7 @@ export function StartRunModal({
   const [mode, setMode] = useState<'existing' | 'new'>('existing')
   const [selectedProjectId, setSelectedProjectId] = useState<string>('')
   const [projectName, setProjectName] = useState('')
-  const [intensity, setIntensity] = useState('494')
+  const [intensity, setIntensity] = useState('445')
   const [cost, setCost] = useState('0.15')
   const [currency, setCurrency] = useState('USD')
   const [address, setAddress] = useState('')

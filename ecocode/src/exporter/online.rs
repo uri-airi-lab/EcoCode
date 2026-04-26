@@ -295,7 +295,7 @@ impl Exporter for OnlineExporter {
         
         if !res.status().is_success() {
             return Ok(CarbonConfig {
-                resolved_intensity_g_per_kwh: 494.0,
+                resolved_intensity_g_per_kwh: 445.0, // IEA 2025 global average fallback
                 pue_factor: 1.0,
                 intensity_source: "static_WORLD_fallback".to_string(),
                 manual_cost_per_kwh: None,

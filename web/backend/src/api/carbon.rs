@@ -9,6 +9,7 @@
 //! when calculating CO2 during a monitoring run.
 
 use axum::{extract::{Path, State}, http::StatusCode, Json, response::IntoResponse};
+use tracing::{info, warn};
 use crate::error::ApiError;
 use crate::models::carbon::{CarbonConfigUpdate, CarbonConfigResponse, CarbonConfigRow, CarbonRegion};
 use crate::state::AppState;
@@ -54,9 +55,13 @@ pub async fn put_carbon_config_handler(
 ) -> Result<impl IntoResponse, ApiError> {
     let (lat, lon, resolved_address) = if let Some(addr) = &body.address {
         match geocode_address(addr).await {
-            Ok((lat, lon, display)) => (Some(lat), Some(lon), Some(display)),
+            Ok((lat, lon, display)) => {
+                let resolved_addr: &str = &display;
+                info!("Address geocoded: address={addr} lat={lat} lon={lon} resolved={resolved_addr}");
+                (Some(lat), Some(lon), Some(display))
+            }
             Err(e) => {
-                println!("Geocoding failed for {}: {}", addr, e);
+                warn!(address = %addr, error = %e, "Geocoding failed");
                 return Err(ApiError::new(
                     StatusCode::BAD_REQUEST,
                     format!("Could not find location for '{}'. Please try a more specific address.", addr),
@@ -149,6 +154,7 @@ pub async fn put_carbon_config_handler(
     .await
     .map_err(ApiError::internal)?;
 
+    info!(project_id, intensity_source = %intensity_src, intensity, "Carbon config updated");
     let row = crate::db::carbon::get_project_carbon_config(&state, project_id).await?;
     Ok(Json(make_carbon_config_response(row)))
 }
@@ -207,6 +213,7 @@ pub async fn post_refresh_carbon_intensity(
     .await
     .map_err(ApiError::internal)?;
 
+    info!(project_id, intensity_source = %intensity_src, intensity, "Carbon intensity refreshed");
     let row = crate::db::carbon::get_project_carbon_config(&state, project_id).await?;
     Ok(Json(make_carbon_config_response(row)))
 }

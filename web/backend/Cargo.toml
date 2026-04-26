@@ -23,3 +23,5 @@ rand = "0.8.5"
 uuid = { version = "1.10.0", features = ["v4", "serde"] }
 hex = "0.4"
 sha2 = "0.10"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

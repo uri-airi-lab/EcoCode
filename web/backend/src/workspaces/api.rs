@@ -10,6 +10,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 
+use tracing::{info, warn};
 use crate::auth::AuthUser;
 use crate::error::ApiError;
 use crate::state::AppState;
@@ -70,6 +71,7 @@ async fn create_workspace(
     .map_err(ApiError::internal)?;
 
     tx.commit().await.map_err(ApiError::internal)?;
+    info!(workspace_id, slug = %payload.slug, user_id = auth_user.user_id, "Workspace created");
 
     Ok((
         StatusCode::CREATED,
@@ -123,8 +125,10 @@ async fn delete_workspace(
         .map_err(ApiError::internal)?;
 
     if result.rows_affected() == 0 {
+        warn!(slug = %slug, user_id = auth_user.user_id, "Delete workspace: not found");
         return Err(ApiError::new(StatusCode::NOT_FOUND, "Workspace not found"));
     }
 
+    info!(slug = %slug, user_id = auth_user.user_id, "Workspace deleted");
     Ok(StatusCode::NO_CONTENT)
 }

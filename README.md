@@ -230,7 +230,15 @@ Where:
 Carbon intensity can be set in three ways, in order of precedence:
 1. **Live API** — real-time data from [Electricity Maps](https://electricitymaps.com/) when a project is configured with a location and API key.
 2. **Static table** — 50+ country values sourced from IEA 2025 data, selectable by country code.
-3. **Global average** — 494 gCO2eq/kWh (fallback when no configuration is present).
+3. **Global average** — 445 gCO2eq/kWh (IEA Emissions Factors 2025, fallback when no configuration is present).
+
+The web dashboard also displays environmental equivalents derived from the run's CO2 figure:
+
+| Equivalent | Factor | Source |
+|---|---|---|
+| Car distance | 170 gCO2/km | IEA global passenger car fleet average |
+| Smartphone charges | 8.2 gCO2/charge | ~16 Wh battery at world-average grid intensity |
+| Trees (1-day absorption) | 22 kg CO2/year per tree | One Tree Planted / EcoTree species average |
 
 ---
 
