@@ -34,7 +34,12 @@ pub async fn sse_handler(
         }
     });
 
-    Sse::new(stream).keep_alive(KeepAlive::default())
+    // Configure keep-alive for Azure Container Apps (shorter interval)
+    Sse::new(stream).keep_alive(
+        KeepAlive::new()
+            .interval(Duration::from_secs(15))
+            .text("keep-alive")
+    )
 }
 
 /// Background task that continuously polls the database for new records.

@@ -51,11 +51,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let pool = PgPoolOptions::new()
-        .max_connections(20) // Increased for Azure Container Apps
-        .min_connections(5)  // Keep some connections warm
-        .acquire_timeout(std::time::Duration::from_secs(30))
-        .idle_timeout(std::time::Duration::from_secs(600)) // 10 minutes
+        .max_connections(30) // Increased for Azure Container Apps
+        .min_connections(10)  // Keep more connections warm
+        .acquire_timeout(std::time::Duration::from_secs(10)) // Reduced timeout
+        .idle_timeout(std::time::Duration::from_secs(300)) // 5 minutes
         .max_lifetime(std::time::Duration::from_secs(1800)) // 30 minutes
+        .test_before_acquire(true) // Test connections before use
         .connect(&db_url)
         .await?;
     info!("PostgreSQL pool initialized");

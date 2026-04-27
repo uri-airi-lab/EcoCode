@@ -15,7 +15,7 @@ use crate::state::AppState;
 use crate::auth;
 
 /// Optimized run summary for list views
-#[derive(Serialize)]
+#[derive(Serialize, sqlx::FromRow)]
 pub struct RunSummaryResponse {
     pub id: i64,
     pub name: String,
@@ -122,6 +122,7 @@ pub async fn get_run(
 
 /// Handles GET requests to retrieve record points for a run.
 /// Supports `?limit=N&offset=M` pagination (default limit 1000, max 5000).
+/// Optimized for Azure Container Apps with better timeout handling.
 pub async fn get_record_points(
     Path(run_id): Path<i64>,
     Query(pagination): Query<PaginationQuery>,
@@ -130,7 +131,54 @@ pub async fn get_record_points(
     let limit = pagination.limit.unwrap_or(1000).min(5000);
     let offset = pagination.offset.unwrap_or(0);
 
-    let rows = crate::db::records::fetch_record_rows_paginated(&state, run_id, limit, offset).await?;
+    debug!(run_id, limit, offset, "Fetching record points");
+
+    // First check if run exists and get record count
+    let record_count: Option<i64> = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM records WHERE run_id = $1"
+    )
+    .bind(run_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(ApiError::internal)?;
+
+    let count = record_count.unwrap_or(0);
+    if count == 0 {
+        return Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            "No record points found for this run",
+        ));
+    }
+
+    // For large datasets, use a more efficient query strategy
+    let rows = if count > 10000 {
+        // For very large runs, sample the data more aggressively
+        let sample_limit = limit.min(2000);
+        let step = (count as f64 / sample_limit as f64).ceil() as i64;
+        
+        debug!(run_id, count, sample_limit, step, "Using sampling strategy for large dataset");
+        
+        sqlx::query_as::<_, crate::models::record::RecordPointRow>(
+            "SELECT * FROM (
+                SELECT *, ROW_NUMBER() OVER (ORDER BY timestamp) as rn
+                FROM records 
+                WHERE run_id = $1
+            ) t 
+            WHERE rn % $2 = 1 
+            ORDER BY timestamp 
+            LIMIT $3 OFFSET $4"
+        )
+        .bind(run_id)
+        .bind(step)
+        .bind(sample_limit)
+        .bind(offset)
+        .fetch_all(&state.pool)
+        .await
+        .map_err(ApiError::internal)?
+    } else {
+        // Normal query for smaller datasets
+        crate::db::records::fetch_record_rows_paginated(&state, run_id, limit, offset).await?
+    };
 
     if rows.is_empty() {
         return Err(ApiError::new(
@@ -146,6 +194,8 @@ pub async fn get_record_points(
     );
 
     let record_points = merge_record_points(rows, gpu_records?, socket_records?);
+    
+    debug!(run_id, returned_count = record_points.len(), "Record points fetched successfully");
     Ok((StatusCode::OK, Json(record_points)))
 }
 

@@ -1,7 +1,8 @@
 'use client'
 
-import React, { memo } from 'react'
+import { memo } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { Run } from '@/lib/mock-data'
 import { format } from 'date-fns'
 import { ChevronRight } from 'lucide-react'
@@ -13,8 +14,14 @@ interface RecentRunsTableProps {
 
 export const RecentRunsTable = memo(function RecentRunsTable({ runs }: RecentRunsTableProps) {
   const { currentWorkspace } = useWorkspace()
+  const router = useRouter()
   const workspaceSlug = currentWorkspace?.slug ?? ''
   const recentRuns = runs.slice(0, 5)
+
+  const handleRowClick = (runId: string) => {
+    console.log('Row clicked, navigating to:', `/${workspaceSlug}/runs/${runId}`)
+    router.push(`/${workspaceSlug}/runs/${runId}`)
+  }
 
   return (
     <div className="chart-container">
@@ -32,54 +39,48 @@ export const RecentRunsTable = memo(function RecentRunsTable({ runs }: RecentRun
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border">
-              <th className="text-left py-3 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px]">
+              <th className="text-left py-3 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px] w-1/4">
                 Run Name
               </th>
-                            <th className="text-left py-3 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px]">
+              <th className="text-left py-3 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px] w-1/6">
                 Run Time-Stamp
               </th>
-                            <th className="text-left py-3 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px]">
+              <th className="text-left py-3 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px] w-1/6">
                 Run Owner
               </th>
-              <th className="text-right py-3 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px]">
+              <th className="text-right py-3 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px] w-1/8">
                 Energy (Wh)
               </th>
-              <th className="text-right py-3 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px]">
+              <th className="text-right py-3 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px] w-1/8">
                 CO₂ (g)
               </th>
-              <th className="text-center py-3 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px]">
+              <th className="text-center py-3 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px] w-1/8">
                 Status
               </th>
-              <th className="text-right py-3 px-4" />
+              <th className="text-right py-3 px-4 w-8" />
             </tr>
           </thead>
           <tbody>
             {recentRuns.map((run) => (
-               <Link href={`/${workspaceSlug}/runs/${run.id}`}>
               <tr
                 key={run.id}
-                className="border-b border-border hover:bg-muted/30 transition-colors"
+                className="border-b border-border hover:bg-muted/30 transition-colors cursor-pointer"
+                onClick={() => handleRowClick(run.id)}
               >
                 <td className="py-3 px-4">
                   <div>
-                    <p className="font-medium text-foreground">{run.name}</p>
-                    {/* <p className="text-xs text-muted-foreground">
-                      {format(new Date(run.timestamp), 'MMM d, HH:mm')}
-                    </p> */}
-                    {/* <p className="text-xs text-muted-foreground">
-                      By {run.collaboratorName ?? 'Unassigned'}
-                    </p> */}
+                    <p className="font-medium text-foreground truncate">{run.name}</p>
                   </div>
                 </td>
                 <td className='py-3 px-4'>
-                  <p className="text-xs text-muted-foreground">
-                      {format(new Date(run.timestamp), 'MMM d, HH:mm')}
-                    </p> 
+                  <p className="text-sm text-muted-foreground">
+                    {format(new Date(run.timestamp), 'MMM d, HH:mm')}
+                  </p> 
                 </td>
                 <td className='py-3 px-4'>
-                    <p className="text-xs text-muted-foreground">
-                      By {run.collaboratorName ?? 'Unassigned'}
-                    </p>
+                  <p className="text-sm text-muted-foreground truncate">
+                    {run.collaboratorName ?? 'Unassigned'}
+                  </p>
                 </td>
                 <td className="text-right py-3 px-4 text-foreground font-medium font-mono">
                   {Number(run.totalEnergy.toFixed(2)).toLocaleString()}
@@ -100,13 +101,9 @@ export const RecentRunsTable = memo(function RecentRunsTable({ runs }: RecentRun
                   </span>
                 </td>
                 <td className="text-right py-3 px-4">
-             
-                    <ChevronRight className="w-4 h-4 text-muted-foreground hover:text-primary transition-colors" />
-      
+                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
                 </td>
               </tr>
-               </Link>
-
             ))}
           </tbody>
         </table>

@@ -11,7 +11,6 @@ mod middleware;
 mod password;
 
 pub use middleware::AuthUser;
-pub(crate) use password::hash_api_key;
 
 use axum::{
     extract::{Path, State},

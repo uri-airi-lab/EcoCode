@@ -109,10 +109,10 @@ BACKEND_INTERNAL_URL="http://$BACKEND_APP"
 
 log "Backend deployed → $BACKEND_EXTERNAL_URL"
 
-# ── 6. Build & push frontend (using internal backend URL for SSR proxy) ───────
-log "Building frontend image (NEXT_PUBLIC_API_URL=$BACKEND_INTERNAL_URL)"
+# ── 6. Build & push frontend (using external backend URL for browser connections) ───────
+log "Building frontend image (NEXT_PUBLIC_API_URL=$BACKEND_EXTERNAL_URL)"
 docker build \
-  --build-arg "NEXT_PUBLIC_API_URL=$BACKEND_INTERNAL_URL" \
+  --build-arg "NEXT_PUBLIC_API_URL=$BACKEND_EXTERNAL_URL" \
   -t "$FRONTEND_IMAGE" \
   "$(dirname "$0")/frontend"
 
@@ -135,7 +135,7 @@ az containerapp create \
   --max-replicas 3 \
   --env-vars \
       "NODE_ENV=production" \
-      "NEXT_PUBLIC_API_URL=$BACKEND_INTERNAL_URL" \
+      "NEXT_PUBLIC_API_URL=$BACKEND_EXTERNAL_URL" \
   --output none
 
 FRONTEND_FQDN=$(az containerapp show \

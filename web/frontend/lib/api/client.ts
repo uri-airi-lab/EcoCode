@@ -250,12 +250,26 @@ export function calculateEnergyTotals(summary: BackendRunSummary | null) {
   }
 }
 
-/** Thin wrapper around `fetch` that always sends session cookies. */
+/** Thin wrapper around `fetch` that always sends session cookies and includes timeout handling. */
 export async function apiFetch(url: string, init?: RequestInit) {
-  return fetch(url, {
-    ...init,
-    credentials: 'include',
-  })
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 30000) // 30 second timeout
+
+  try {
+    const response = await fetch(url, {
+      ...init,
+      credentials: 'include',
+      signal: controller.signal,
+    })
+    clearTimeout(timeoutId)
+    return response
+  } catch (error) {
+    clearTimeout(timeoutId)
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('Request timeout - please try again')
+    }
+    throw error
+  }
 }
 
 // --- Internal snapshot fetchers (used by runs and projects) ---

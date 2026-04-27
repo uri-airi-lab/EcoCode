@@ -11,6 +11,7 @@ import { NextRequest } from 'next/server'
  * 1. Connects to the backend SSE endpoint
  * 2. Streams events directly to the client without buffering
  * 3. Properly handles connection lifecycle
+ * 4. Optimized for Azure Container Apps
  */
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
@@ -27,6 +28,8 @@ export async function GET(request: NextRequest) {
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
       },
+      // Add timeout for Azure Container Apps
+      signal: AbortSignal.timeout(300000), // 5 minutes
     })
 
     if (!response.ok) {
@@ -56,6 +59,8 @@ export async function GET(request: NextRequest) {
         'Cache-Control': 'no-cache, no-transform',
         'Connection': 'keep-alive',
         'X-Accel-Buffering': 'no', // Disable nginx buffering if behind nginx
+        'Access-Control-Allow-Origin': '*', // Allow CORS for SSE
+        'Access-Control-Allow-Headers': 'Cache-Control',
       },
     })
   } catch (error) {

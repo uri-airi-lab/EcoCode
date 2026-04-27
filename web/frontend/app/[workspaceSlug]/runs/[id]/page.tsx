@@ -97,26 +97,38 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
 
       if (cancelled) return
 
-      // Phase 2: fetch records for charts in the background
-      try {
-        const records = await fetchRunRecords(paramId)
-        if (cancelled) return
-        setRun((prev) => {
-          if (!prev) return null
-          const count = records.length
-          return {
-            ...prev,
-            records,
-            avgCpuUsage: count > 0 ? records.reduce((s, r) => s + r.cpu_usage, 0) / count : 0,
-            avgGpuUsage: count > 0 ? records.reduce((s, r) => s + r.gpu_usage, 0) / count : 0,
-            avgMemUsage: count > 0 ? records.reduce((s, r) => s + r.mem_usage, 0) / count : 0,
+      // Phase 2: fetch records for charts in the background with retry logic
+      let retryCount = 0
+      const maxRetries = 3
+      
+      while (retryCount < maxRetries && !cancelled) {
+        try {
+          const records = await fetchRunRecords(paramId)
+          if (cancelled) return
+          setRun((prev) => {
+            if (!prev) return null
+            const count = records.length
+            return {
+              ...prev,
+              records,
+              avgCpuUsage: count > 0 ? records.reduce((s, r) => s + r.cpu_usage, 0) / count : 0,
+              avgGpuUsage: count > 0 ? records.reduce((s, r) => s + r.gpu_usage, 0) / count : 0,
+              avgMemUsage: count > 0 ? records.reduce((s, r) => s + r.mem_usage, 0) / count : 0,
+            }
+          })
+          break // Success, exit retry loop
+        } catch (error) {
+          retryCount++
+          console.error(`Failed to fetch records (attempt ${retryCount}/${maxRetries}):`, error)
+          
+          if (retryCount < maxRetries && !cancelled) {
+            // Wait before retrying (exponential backoff)
+            await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, retryCount - 1)))
           }
-        })
-      } catch {
-        // charts just won't show, not fatal
-      } finally {
-        if (!cancelled) setChartsLoading(false)
+        }
       }
+      
+      if (!cancelled) setChartsLoading(false)
     }
 
     fetchRun()
