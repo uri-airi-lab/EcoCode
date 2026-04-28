@@ -69,6 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = AppState {
         pool,
         tx: tx.clone(),
+        db_url: db_url.clone(),
     };
 
     // Start background watcher for new records

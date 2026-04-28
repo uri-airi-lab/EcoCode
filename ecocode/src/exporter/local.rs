@@ -1,4 +1,5 @@
 // SQLite exporter — persists measurement records into a SQLite database.
+// LEGACY CODE
 
 use std::{env, io, path::PathBuf};
 
@@ -49,7 +50,19 @@ impl SqliteExporter {
             "CREATE TABLE IF NOT EXISTS projects (
                 id INTEGER PRIMARY KEY,
                 name TEXT UNIQUE,
-                collaborator_name TEXT
+                collaborator_name TEXT,
+                country_code TEXT NOT NULL DEFAULT 'WORLD',
+                address TEXT,
+                latitude REAL,
+                longitude REAL,
+                electricity_maps_api_key TEXT,
+                resolved_intensity_g_per_kwh REAL NOT NULL DEFAULT 445.0,
+                intensity_source TEXT NOT NULL DEFAULT 'static_WORLD',
+                intensity_fetched_at TEXT,
+                pue_factor REAL NOT NULL DEFAULT 1.0,
+                manual_cost_per_kwh REAL,
+                manual_currency TEXT DEFAULT 'USD',
+                use_api_for_cost INTEGER NOT NULL DEFAULT 0
             )",
         )
         .execute(db)
@@ -136,94 +149,16 @@ impl SqliteExporter {
                 total_gpu_energy REAL,
                 total_mem_energy REAL,
                 total_igpu_energy REAL,
+                total_co2_g REAL,
+                carbon_intensity_used REAL,
+                pue_used REAL,
+                total_cost REAL,
+                currency_used TEXT,
                 FOREIGN KEY (run_id) REFERENCES runs(id)
             )",
         )
         .execute(db)
         .await?;
-
-        // Forward-compatibility: add CO2 columns to runsummary
-        Self::ensure_column(
-            db,
-            "runsummary",
-            "total_co2_g",
-            "ALTER TABLE runsummary ADD COLUMN total_co2_g REAL",
-        )
-        .await?;
-        Self::ensure_column(
-            db,
-            "runsummary",
-            "carbon_intensity_used",
-            "ALTER TABLE runsummary ADD COLUMN carbon_intensity_used REAL",
-        )
-        .await?;
-        Self::ensure_column(
-            db,
-            "runsummary",
-            "pue_used",
-            "ALTER TABLE runsummary ADD COLUMN pue_used REAL",
-        )
-        .await?;
-
-        Self::ensure_column(
-            db,
-            "projects",
-            "collaborator_name",
-            "ALTER TABLE projects ADD COLUMN collaborator_name TEXT",
-        )
-        .await?;
-        Self::ensure_column(
-            db,
-            "runs",
-            "collaborator_name",
-            "ALTER TABLE runs ADD COLUMN collaborator_name TEXT",
-        )
-        .await?;
-        Self::ensure_column(
-            db,
-            "runs",
-            "status",
-            "ALTER TABLE runs ADD COLUMN status TEXT NOT NULL DEFAULT 'finished'",
-        )
-        .await?;
-        Self::ensure_column(
-            db,
-            "runs",
-            "started_at",
-            "ALTER TABLE runs ADD COLUMN started_at TEXT",
-        )
-        .await?;
-        Self::ensure_column(
-            db,
-            "runs",
-            "ended_at",
-            "ALTER TABLE runs ADD COLUMN ended_at TEXT",
-        )
-        .await?;
-        Self::ensure_column(
-            db,
-            "runs",
-            "command",
-            "ALTER TABLE runs ADD COLUMN command TEXT",
-        )
-        .await?;
-
-        // Carbon fields for projects
-        Self::ensure_column(db, "projects", "country_code", "ALTER TABLE projects ADD COLUMN country_code TEXT NOT NULL DEFAULT 'WORLD'").await?;
-        Self::ensure_column(db, "projects", "address", "ALTER TABLE projects ADD COLUMN address TEXT").await?;
-        Self::ensure_column(db, "projects", "latitude", "ALTER TABLE projects ADD COLUMN latitude REAL").await?;
-        Self::ensure_column(db, "projects", "longitude", "ALTER TABLE projects ADD COLUMN longitude REAL").await?;
-        Self::ensure_column(db, "projects", "electricity_maps_api_key", "ALTER TABLE projects ADD COLUMN electricity_maps_api_key TEXT").await?;
-        // IEA Emissions Factors 2025: global average = 445 gCO2/kWh
-        Self::ensure_column(db, "projects", "resolved_intensity_g_per_kwh", "ALTER TABLE projects ADD COLUMN resolved_intensity_g_per_kwh REAL NOT NULL DEFAULT 445.0").await?;
-        Self::ensure_column(db, "projects", "intensity_source", "ALTER TABLE projects ADD COLUMN intensity_source TEXT NOT NULL DEFAULT 'static_WORLD'").await?;
-        Self::ensure_column(db, "projects", "intensity_fetched_at", "ALTER TABLE projects ADD COLUMN intensity_fetched_at TEXT").await?;
-        Self::ensure_column(db, "projects", "pue_factor", "ALTER TABLE projects ADD COLUMN pue_factor REAL NOT NULL DEFAULT 1.0").await?;
-        
-        // Cost fields for projects
-        Self::ensure_column(db, "projects", "manual_cost_per_kwh", "ALTER TABLE projects ADD COLUMN manual_cost_per_kwh REAL").await?;
-        Self::ensure_column(db, "projects", "manual_currency", "ALTER TABLE projects ADD COLUMN manual_currency TEXT DEFAULT 'USD'").await?;
-        Self::ensure_column(db, "projects", "use_api_for_cost", "ALTER TABLE projects ADD COLUMN use_api_for_cost INTEGER NOT NULL DEFAULT 0").await?;
 
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS run_system_info (
@@ -238,42 +173,10 @@ impl SqliteExporter {
         .execute(db)
         .await?;
 
-        // Cost fields for runsummary
-        Self::ensure_column(db, "runsummary", "total_cost", "ALTER TABLE runsummary ADD COLUMN total_cost REAL").await?;
-        Self::ensure_column(db, "runsummary", "currency_used", "ALTER TABLE runsummary ADD COLUMN currency_used TEXT").await?;
-
         Self::backfill_project_collaborators(db).await?;
         Self::sync_all_project_shortcuts(db).await?;
 
         Ok(())
-    }
-
-    async fn ensure_column(
-        db: &SqlitePool,
-        table: &str,
-        column: &str,
-        alter_sql: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if Self::has_column(db, table, column).await? {
-            return Ok(());
-        }
-
-        sqlx::query(alter_sql).execute(db).await?;
-        Ok(())
-    }
-
-    async fn has_column(
-        db: &SqlitePool,
-        table: &str,
-        column: &str,
-    ) -> Result<bool, Box<dyn std::error::Error>> {
-        let rows = sqlx::query(&format!("PRAGMA table_info({table})"))
-            .fetch_all(db)
-            .await?;
-
-        Ok(rows
-            .iter()
-            .any(|row| row.get::<String, _>("name") == column))
     }
 
     async fn backfill_project_collaborators(

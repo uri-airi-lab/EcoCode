@@ -1,9 +1,35 @@
 //! CLI argument definitions for the EcoCode binary.
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
+
+
+
+/// Top-level CLI entry point.
+#[derive(Parser, Debug)]
+#[command(name = "ecocode", author, version, about = "EcoCode - Monitor your code's energy consumption", long_about = None)]
+pub struct Cli {
+    #[command(subcommand)]
+    pub command: TopCommand,
+}
+
+
+/// Top-level subcommands. Used in main.rs to dispatch commands, either `run` or `config`. 
+/// claps handles the matching and validation of arguments.
+#[derive(Subcommand, Debug)]
+pub enum TopCommand {
+    /// Monitor the energy consumption of a command.
+    Run(RunArgs), //Tuple-like variant, accesed by position: ecocode run [ARGS]
+    /// Manage EcoCode configuration.
+    Config { //Struct-like variant, accesed by name: ecocode config <SUBCOMMAND> [ARGS]
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
+}
+
+
 
 /// Subcommands available under `ecocode config`.
-#[derive(Subcommand, Debug)]
+#[derive(Subcommand, Debug)] // Also matched by clap: SetApiKey → "set-api-key" (camelCase words become kebab-case)
 pub enum ConfigAction {
     /// Persist an API key to `~/.ecocode/config.json` for the online exporter.
     SetApiKey {
@@ -16,9 +42,12 @@ pub enum ConfigAction {
     Show,
 }
 
-/// CLI arguments for a monitoring run (`ecocode [OPTIONS] -- <COMMAND>`).
-#[derive(Parser, Debug)]
-#[command(author, version, about = "EcoCode - Monitor your code's energy consumption", long_about = None)]
+
+
+
+/// CLI arguments for a monitoring run (`ecocode run [OPTIONS] -- <COMMAND>`).
+#[derive(Args, Debug)]
+#[command(arg_required_else_help = true)]
 pub struct RunArgs {
     /// Project name used to group runs in the database.
     #[arg(short, long, default_value = "ecocode")]

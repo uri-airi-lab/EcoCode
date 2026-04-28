@@ -42,42 +42,70 @@ pub async fn sse_handler(
     )
 }
 
-/// Background task that continuously polls the database for new records.
-/// If a new record is found, it serializes and broadcasts it over SSE.
 pub async fn watch_changes(state: AppState) {
-    let mut last_record_id = 0_i64;
-    info!("SSE background watcher started");
+    use sqlx::postgres::PgListener;
+    
+    let mut listener = match PgListener::connect(&state.db_url).await {
+        Ok(l) => l,
+        Err(e) => {
+            error!(error = ?e, "Failed to connect dedicated PgListener for SSE");
+            return;
+        }
+    };
+
+    if let Err(e) = listener.listen("record_inserted").await {
+        error!(error = ?e, "Failed to listen on 'record_inserted' channel");
+        return;
+    }
+
+    info!("SSE background watcher started (Dedicated LISTEN/NOTIFY mode)");
 
     loop {
-        match crate::db::records::fetch_latest_record_with_details(&state).await {
-            Ok(Some(record)) if record.id > last_record_id => {
-                debug!(record_id = record.id, run_id = record.run_id, "New record detected, broadcasting");
-                if let Ok(payload) = serde_json::to_string(&record) {
-                    match state.tx.send(payload.clone()) {
-                        Ok(receiver_count) => {
-                            debug!(record_id = record.id, receiver_count, "SSE event broadcast");
-                        }
-                        Err(_) => {
-                            // Channel has no receivers - this is normal when no clients are connected
-                            debug!(record_id = record.id, "No active SSE receivers");
+        match listener.recv().await {
+            Ok(notification) => {
+                let payload_str = notification.payload();
+                let record_id: i64 = match payload_str.parse() {
+                    Ok(id) => id,
+                    Err(_) => {
+                        warn!(payload = %payload_str, "Received invalid payload on 'record_inserted' channel");
+                        continue;
+                    }
+                };
+
+                debug!(record_id, "Notification received, fetching details");
+
+                match crate::db::records::fetch_record_by_id_with_details(record_id, &state).await {
+                    Ok(Some(record)) => {
+                        if let Ok(json_payload) = serde_json::to_string(&record) {
+                            let _ = state.tx.send(json_payload);
+                            debug!(record_id, "SSE event broadcast via NOTIFY");
                         }
                     }
-                } else {
-                    error!(record_id = record.id, "Failed to serialize record for SSE broadcast");
+                    Ok(None) => {
+                        warn!(record_id, "Notification received but record not found (race condition?)");
+                    }
+                    Err(e) => {
+                        error!(record_id, error = ?e, "Failed to fetch record details for SSE");
+                    }
                 }
-                last_record_id = record.id;
             }
-            Ok(Some(record)) => {
-                last_record_id = last_record_id.max(record.id);
-            }
-            Ok(None) => {
-                // No records yet
-            }
-            Err(err) => {
-                error!(error = %err.message, "SSE watcher database error");
+            Err(e) => {
+                error!(error = ?e, "PgListener connection lost, attempting to reconnect in 5s");
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                
+                // Attempt to reconnect
+                match PgListener::connect(&state.db_url).await {
+                    Ok(mut l) => {
+                        if let Ok(_) = l.listen("record_inserted").await {
+                            info!("PgListener reconnected successfully");
+                            listener = l;
+                        }
+                    }
+                    Err(_) => {
+                        warn!("Reconnect attempt failed, will retry in next loop");
+                    }
+                }
             }
         }
-
-        tokio::time::sleep(Duration::from_millis(500)).await;
     }
 }

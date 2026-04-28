@@ -56,11 +56,11 @@ impl Exporter for CsvExporter {
                 header.push(format!("GPU{}%", gm.device_index));
                 header.push(format!("GPU{}(W)", gm.device_index));
             }
-            self.writer.write_record(&header).unwrap();
+            self.writer.write_record(&header)?;
             self.first_record = false;
         }
-        self.writer.write_record(&record.to_vec()).unwrap();
-        self.writer.flush().unwrap();
+        self.writer.write_record(&record.to_vec())?;
+        self.writer.flush()?; // flush csv to file after each record (real-time)
         Ok(())
     }
 

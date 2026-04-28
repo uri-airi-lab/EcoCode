@@ -11,12 +11,12 @@ export function chartColor(n: 1 | 2 | 3 | 4 | 5 | 6): string {
   // SSR fallback — return W&B defaults directly
   if (typeof window === 'undefined') {
     const defaults: Record<number, string> = {
-      1: 'hsl(199 90% 64%)',  // cyan
-      2: 'hsl(14 100% 70%)',  // orange
-      3: 'hsl(123 35% 64%)',  // green
-      4: 'hsl(291 45% 71%)',  // purple
-      5: 'hsl(0 70% 76%)',    // red
-      6: 'hsl(54 100% 73%)',  // yellow
+      1: 'hsl(217 91% 60%)',  // blue
+      2: 'hsl(27 96% 61%)',   // orange
+      3: 'hsl(142 71% 45%)',  // green
+      4: 'hsl(262 83% 58%)',  // purple
+      5: 'hsl(0 84% 60%)',    // red
+      6: 'hsl(47 95% 55%)',   // yellow
     }
     return defaults[n]
   }

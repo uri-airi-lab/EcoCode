@@ -10,4 +10,5 @@ use tokio::sync::broadcast;
 pub struct AppState {
     pub pool: PgPool,
     pub tx: broadcast::Sender<String>,
+    pub db_url: String,
 }

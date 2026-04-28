@@ -15,7 +15,7 @@ pub struct LogFileExporter {
     first_record: bool,
 }
 
-impl LogFileExporter {
+impl LogFileExporter {  
     pub fn new(file_path: String) -> Result<LogFileExporter, Box<dyn std::error::Error>> {
         let file = File::create(&file_path)?;
         let mut writer = BufWriter::new(file);
