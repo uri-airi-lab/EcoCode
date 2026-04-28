@@ -34,38 +34,122 @@ EcoCode monitors the real-time energy footprint of any Linux process — trackin
 
 ## Architecture
 
+The system has three independent layers: a Rust CLI that wraps any process and reads hardware energy counters, an Axum REST backend that stores and serves measurements, and a Next.js frontend that visualises runs in real time via Server-Sent Events.
+
+```mermaid
+flowchart TD
+    User(["User\nsudo ecocode -- python train.py"])
+
+    subgraph CLI["EcoCode CLI — ecocode/src/"]
+        direction TB
+        cli["cli.rs\nDefines all CLI flags via clap:\n--output  --interval  --project\n--api-key  --intensity  --price"]
+        main_cli["main.rs\nEntry point: routes to monitor loop\nor config subcommands\n(set-api-key / clear-api-key / show)"]
+        monitor["monitor.rs\nSpawns target process\nRuns per-tick sampling loop\nAttributes energy to monitored PID\nWrites final run summary"]
+        carbon_tbl["carbon.rs\n50-country static CO2 table\n(IEA 2025 gCO2eq/kWh)\nLookup by ISO 3166-1 alpha-2 code"]
+
+        subgraph Sensors["sensor/"]
+            rapl["rapl.rs\nReads /sys/class/powercap/intel-rapl/\nPer-socket energy in μJ:\ncpu · dram · uncore (iGPU domains)\nHandles counter wrap-around"]
+            nvml["gpu.rs\nNVML wrapper — all NVIDIA GPUs\nPer-GPU total energy + utilisation\nPer-process GPU attribution"]
+        end
+
+        exp_mod["exporter/mod.rs\nDefines the Record struct:\ncpu_energy · gpu_energy · mem_energy\nper_socket[] · per_gpu[]\nco2_g · timestamp · pid"]
+
+        subgraph Exporters["exporter/"]
+            exp_t["terminal.rs\nFormatted table to stdout"]
+            exp_c["csv.rs\nAppend rows to CSV file"]
+            exp_j["json.rs\nWrite JSON array to file"]
+            exp_l["local.rs\nInsert into local SQLite database"]
+            exp_o["online.rs\nHTTP POST to /api/ingest\nAuthenticated with Bearer API key"]
+            exp_p["prometheus.rs\nExpose /metrics on HTTP port 9091"]
+            exp_f["logfile.rs\nWrite formatted log file"]
+        end
+    end
+
+    subgraph Backend["Web Backend — web/backend/src/"]
+        direction TB
+        main_be["main.rs\nAxum server on :3001\nConnects PostgreSQL pool\nRuns schema migrations\nRegisters CORS + all routes\nSpawns SSE broadcast task"]
+
+        subgraph BAuth["auth/"]
+            a_mod["mod.rs\nRoutes: POST /register · POST /login\nGET/POST /api-keys\nSets 30-day HttpOnly JWT cookie"]
+            a_jwt["jwt.rs\nSign and verify JWT tokens"]
+            a_mw["middleware.rs\nAuthUser extractor:\naccepts JWT cookie or Bearer API key"]
+            a_pw["password.rs\nArgon2id password hashing\nSHA-256 API key hashing"]
+        end
+
+        subgraph BAPI["api/"]
+            ingest["ingest.rs\nPOST /api/ingest/run — create run\nPOST /run/{id}/record — append tick\nPOST /run/{id}/system-info — hardware\nPOST /run/{id}/complete — finalise"]
+            runs_api["runs.rs\nGET runs · records · summaries\nfor a workspace or project"]
+            proj_api["projects.rs\nCRUD endpoints for projects\n(workspace-scoped)"]
+            sse_h["sse.rs\nGET /api/sse\nBroadcasts each new Record\nto all connected clients"]
+            carbon_h["carbon.rs\nFetch / save carbon config\nProxy to Electricity Maps API\nfor live grid intensity"]
+            admin_h["admin.rs\nAdmin-only: list runs\nacross all workspaces"]
+        end
+
+        subgraph BDB["db/"]
+            schema_db["schema.rs\nCreates all tables on startup:\nusers · workspaces · workspace_members\napi_keys · projects · runs · records\nrecord_gpu_metrics · record_socket_metrics\nrun_summaries"]
+            rec_db["records.rs\nInsert measurement records\nwith GPU and socket breakdowns\nQuery records for a run"]
+            run_db["runs.rs\nRun CRUD: create · update status\nfetch by id / workspace / project"]
+        end
+    end
+
+    subgraph Frontend["Web Frontend — web/frontend/"]
+        direction TB
+        subgraph FPages["app/ — Pages (Next.js App Router)"]
+            run_pg["runs/[id]/page.tsx\nLive run dashboard:\ncharts + system info + carbon summary"]
+            runs_list["runs/page.tsx\nPaginated run list with filters"]
+            proj_pg["projects/[id]/page.tsx\nProject detail and run history"]
+            auth_pg["login/page.tsx + register/page.tsx\nJWT authentication forms"]
+            ws_pg["[workspaceSlug]/page.tsx\nWorkspace home: recent runs\nand summary stats"]
+            settings_pg["settings/developer/page.tsx\nCreate and revoke API keys"]
+        end
+
+        subgraph FCharts["components/charts/"]
+            ec["EnergyChart.tsx\nCumulative energy over time\n(Recharts line chart)"]
+            pd["PowerDistributionChart.tsx\nCPU vs GPU vs RAM split\n(stacked area)"]
+            sc["SocketEnergyChart.tsx\nPer-socket RAPL breakdown"]
+            uc["UtilizationChart.tsx\nCPU + GPU utilisation % over time"]
+            cc["CumulativePowerChart.tsx\nRunning total power draw"]
+        end
+
+        sse_hook["hooks/use-sse.ts\nSubscribes to GET /api/sse\nAppends incoming records to\nchart state in real time"]
+
+        api_lib["lib/api/\nruns.ts · projects.ts · carbon.ts · admin.ts\nTyped fetch wrappers — all calls\nsend the JWT cookie automatically"]
+    end
+
+    DB[("PostgreSQL — Neon / TimescaleDB\nruns · records\nrecord_gpu_metrics\nrecord_socket_metrics\nrun_summaries\nworkspaces · users · api_keys · projects")]
+
+    User --> cli --> main_cli --> monitor
+    monitor --> rapl & nvml
+    monitor --> carbon_tbl
+    rapl & nvml --> exp_mod
+    carbon_tbl --> exp_mod
+    exp_mod --> exp_t & exp_c & exp_j & exp_l & exp_o & exp_p & exp_f
+
+    exp_o -- "POST /api/ingest/{id}/record\nBearer API key" --> ingest
+    ingest --> rec_db --> DB
+    ingest --> run_db --> DB
+
+    schema_db -. "runs once at startup" .-> DB
+
+    sse_h -- "SSE stream\n(new records)" --> sse_hook
+    sse_hook --> run_pg
+    run_pg --> ec & pd & sc & uc & cc
+
+    api_lib -- "REST + JWT cookie" --> runs_api & proj_api & carbon_h
+    runs_api --> run_db
+    proj_api --> run_db
+
+    auth_pg --> a_mod --> a_jwt & a_pw
+    a_mw -. "validates every\nprotected request" .-> BAPI
 ```
-+------------------------------------------------------------------+
-|                      EcoCode CLI (Rust)                          |
-|  +----------+  +--------------+  +---------------------------+  |
-|  |  RAPL    |  |  NVML (GPU)  |  |  sysinfo (CPU / Memory)   |  |
-|  | /sys/... |  |  Multi-GPU   |  |  Process Tracking (PID)   |  |
-|  +----+-----+  +------+-------+  +-----------+---------------+  |
-|       +----------------+-----------------------+                 |
-|                        v                                         |
-|             +----------------------+                             |
-|             |    Record Engine     |--- gpu_metrics[]            |
-|             |  (energy + carbon)   |--- socket_metrics[]         |
-|             +----------+-----------+                             |
-|                        |                                         |
-|  +-----------+---------+----------+----------+----------+------+ |
-|  v           v         v          v          v          v      | |
-| Terminal    CSV      JSON      SQLite   PostgreSQL  Prometheus  | |
-|                                                      LogFile   | |
-+------------------------------------------------------------------+
-                         | SQLite or HTTP (online exporter)
-+------------------------------------------------------------------+
-|              Web Backend (Axum + PostgreSQL)                     |
-|  REST API + SSE  --  gpu_records / socket_records tables         |
-|  Auth (JWT + API keys)  --  Workspaces  --  Carbon config        |
-+------------------------------------------------------------------+
-                         | HTTP
-+------------------------------------------------------------------+
-|              Web Frontend (Next.js)                              |
-|  Dashboard  --  Charts  --  Per-GPU / Per-Socket visualisation   |
-|  Authentication  --  Workspace management  --  Carbon settings   |
-+------------------------------------------------------------------+
-```
+
+### Data flow summary
+
+1. The user runs `ecocode -- <command>`. `cli.rs` parses flags; `monitor.rs` spawns the child process and starts sampling.
+2. On every tick, `rapl.rs` reads RAPL sysfs counters and `gpu.rs` queries NVML. `exporter/mod.rs` assembles a `Record` struct and optionally enriches it with CO2 via `carbon.rs`.
+3. The selected exporter writes the record. With `--output online`, `online.rs` sends it to the backend via an authenticated HTTP POST.
+4. The Axum backend (`ingest.rs`) inserts the record and its per-GPU and per-socket breakdowns into PostgreSQL, then broadcasts it to `sse.rs`.
+5. The Next.js frontend holds an open SSE connection (`use-sse.ts`). Each incoming record is appended to chart state, so the run dashboard updates live without polling.
 
 ---
 

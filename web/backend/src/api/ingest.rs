@@ -129,6 +129,23 @@ pub async fn ingest_record(
 
     tx.commit().await.map_err(ApiError::internal)?;
     debug!(run_id, record_id, "Record ingested");
+
+    // Manually trigger notification for SSE watcher (fallback for direct DB inserts)
+    let _ = sqlx::query("SELECT pg_notify('record_inserted', $1)")
+        .bind(record_id.to_string())
+        .execute(&state.pool)
+        .await;
+
+    // Direct broadcast to internal SSE channel for immediate UI update
+    let state_clone = state.clone();
+    tokio::spawn(async move {
+        if let Ok(Some(record)) = crate::db::records::fetch_record_by_id_with_details(record_id, &state_clone).await {
+            if let Ok(json_payload) = serde_json::to_string(&record) {
+                let _ = state_clone.tx.send(json_payload);
+            }
+        }
+    });
+
     Ok(StatusCode::CREATED)
 }
 

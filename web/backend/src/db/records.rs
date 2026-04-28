@@ -176,3 +176,61 @@ pub async fn fetch_latest_record_with_details(
         socket_details,
     }))
 }
+
+/// Fetches a specific record by ID with its associated GPU and Socket details.
+pub async fn fetch_record_by_id_with_details(
+    id: i64,
+    state: &AppState,
+) -> Result<Option<RecordPoint>, ApiError> {
+    let row = sqlx::query_as::<_, RecordPointRow>(
+        "SELECT id, run_id, pid, timestamp::text AS timestamp, cpu_usage, cpu_energy,
+                gpu_usage, gpu_energy, mem_usage, mem_energy, igpu_usage, igpu_energy
+         FROM records
+         WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(ApiError::internal)?;
+
+    let Some(row) = row else {
+        return Ok(None);
+    };
+
+    let gpu_details = sqlx::query_as::<_, GpuRecordPoint>(
+        "SELECT id, record_id, device_index, gpu_usage, gpu_energy
+         FROM gpu_records
+         WHERE record_id = $1",
+    )
+    .bind(row.id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(ApiError::internal)?;
+
+    let socket_details = sqlx::query_as::<_, SocketRecordPoint>(
+        "SELECT id, record_id, socket, domain, energy
+         FROM socket_records
+         WHERE record_id = $1",
+    )
+    .bind(row.id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(ApiError::internal)?;
+
+    Ok(Some(RecordPoint {
+        id: row.id,
+        run_id: row.run_id,
+        pid: row.pid,
+        timestamp: row.timestamp,
+        cpu_usage: row.cpu_usage,
+        cpu_energy: row.cpu_energy,
+        gpu_usage: row.gpu_usage,
+        gpu_energy: row.gpu_energy,
+        mem_usage: row.mem_usage,
+        mem_energy: row.mem_energy,
+        igpu_usage: row.igpu_usage,
+        igpu_energy: row.igpu_energy,
+        gpu_details,
+        socket_details,
+    }))
+}

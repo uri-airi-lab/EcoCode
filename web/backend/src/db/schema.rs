@@ -1,8 +1,9 @@
 use sqlx::PgPool;
 
 /// Initializes the entire database schema if it doesn't already exist.
-/// Applies missing tables and alters existing tables to add new columns.
+/// Consolidates all tables, columns, indexes, and triggers into a clean, final definition.
 pub async fn ensure_postgres_schema(db: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    // 1. Core Identity & Access
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS users (
             id BIGSERIAL PRIMARY KEY,
@@ -43,6 +44,7 @@ pub async fn ensure_postgres_schema(db: &PgPool) -> Result<(), Box<dyn std::erro
         "CREATE TABLE IF NOT EXISTS api_keys (
             id BIGSERIAL PRIMARY KEY,
             user_id BIGINT NOT NULL,
+            workspace_id BIGINT REFERENCES workspaces(id) ON DELETE SET NULL,
             name TEXT NOT NULL,
             key_hash TEXT NOT NULL,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -52,22 +54,27 @@ pub async fn ensure_postgres_schema(db: &PgPool) -> Result<(), Box<dyn std::erro
     .execute(db)
     .await?;
 
-    // Workspace-scoped API keys for CLI sync
-    ensure_postgres_column(
-        db,
-        "api_keys",
-        "workspace_id",
-        "ALTER TABLE api_keys ADD COLUMN workspace_id BIGINT REFERENCES workspaces(id) ON DELETE SET NULL",
-    )
-    .await?;
-
+    // 2. Projects & Collaborators
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS projects (
             id BIGSERIAL PRIMARY KEY,
             workspace_id BIGINT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
             name TEXT,
-            UNIQUE (workspace_id, name),
-            collaborator_name TEXT
+            collaborator_name TEXT,
+            country_code TEXT NOT NULL DEFAULT 'WORLD',
+            address TEXT,
+            latitude DOUBLE PRECISION,
+            longitude DOUBLE PRECISION,
+            electricity_maps_api_key TEXT,
+            resolved_intensity_g_per_kwh DOUBLE PRECISION NOT NULL DEFAULT 445.0,
+            intensity_source TEXT NOT NULL DEFAULT 'static_WORLD',
+            intensity_fetched_at TEXT,
+            pue_factor DOUBLE PRECISION NOT NULL DEFAULT 1.0,
+            manual_cost_per_kwh DOUBLE PRECISION,
+            manual_currency TEXT,
+            use_api_for_cost BOOLEAN NOT NULL DEFAULT FALSE,
+            updated_at TEXT NOT NULL DEFAULT (now()::text),
+            UNIQUE (workspace_id, name)
         )",
     )
     .execute(db)
@@ -84,13 +91,15 @@ pub async fn ensure_postgres_schema(db: &PgPool) -> Result<(), Box<dyn std::erro
     .execute(db)
     .await?;
 
+    // 3. Runs & Systems
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS runs (
             id BIGSERIAL PRIMARY KEY,
-            name TEXT,
             project_id BIGINT REFERENCES projects(id) ON DELETE CASCADE,
+            name TEXT,
             collaborator_name TEXT,
             status TEXT NOT NULL DEFAULT 'finished',
+            command TEXT,
             started_at TEXT,
             ended_at TEXT
         )",
@@ -98,6 +107,20 @@ pub async fn ensure_postgres_schema(db: &PgPool) -> Result<(), Box<dyn std::erro
     .execute(db)
     .await?;
 
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS run_system_info (
+            run_id BIGINT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
+            cpu_name TEXT,
+            cpu_cores INTEGER,
+            ram_gb DOUBLE PRECISION,
+            gpu_count INTEGER,
+            gpu_names TEXT
+        )",
+    )
+    .execute(db)
+    .await?;
+
+    // 4. Measurement Records
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS records (
             id BIGSERIAL PRIMARY KEY,
@@ -141,6 +164,7 @@ pub async fn ensure_postgres_schema(db: &PgPool) -> Result<(), Box<dyn std::erro
     .execute(db)
     .await?;
 
+    // 5. Results & Summaries
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS runsummary (
             id BIGSERIAL PRIMARY KEY,
@@ -148,288 +172,62 @@ pub async fn ensure_postgres_schema(db: &PgPool) -> Result<(), Box<dyn std::erro
             total_cpu_energy DOUBLE PRECISION,
             total_gpu_energy DOUBLE PRECISION,
             total_mem_energy DOUBLE PRECISION,
-            total_igpu_energy DOUBLE PRECISION
+            total_igpu_energy DOUBLE PRECISION,
+            total_co2_g DOUBLE PRECISION,
+            carbon_intensity_used DOUBLE PRECISION,
+            pue_used DOUBLE PRECISION,
+            total_cost DOUBLE PRECISION,
+            currency_used TEXT
         )",
     )
     .execute(db)
     .await?;
 
-    ensure_postgres_column(db, "projects", "collaborator_name", "ALTER TABLE projects ADD COLUMN collaborator_name TEXT").await?;
-    ensure_postgres_column(db, "runs", "collaborator_name", "ALTER TABLE runs ADD COLUMN collaborator_name TEXT").await?;
-    ensure_postgres_column(db, "runs", "status", "ALTER TABLE runs ADD COLUMN status TEXT NOT NULL DEFAULT 'finished'").await?;
-    ensure_postgres_column(db, "runs", "started_at", "ALTER TABLE runs ADD COLUMN started_at TEXT").await?;
-    ensure_postgres_column(db, "runs", "ended_at", "ALTER TABLE runs ADD COLUMN ended_at TEXT").await?;
-    ensure_postgres_column(db, "runs", "command", "ALTER TABLE runs ADD COLUMN command TEXT").await?;
-
-    ensure_postgres_column(db, "runsummary", "total_co2_g", "ALTER TABLE runsummary ADD COLUMN total_co2_g DOUBLE PRECISION").await?;
-    ensure_postgres_column(db, "runsummary", "carbon_intensity_used", "ALTER TABLE runsummary ADD COLUMN carbon_intensity_used DOUBLE PRECISION").await?;
-    ensure_postgres_column(db, "runsummary", "pue_used", "ALTER TABLE runsummary ADD COLUMN pue_used DOUBLE PRECISION").await?;
-    ensure_postgres_column(db, "runsummary", "total_cost", "ALTER TABLE runsummary ADD COLUMN total_cost DOUBLE PRECISION").await?;
-    ensure_postgres_column(db, "runsummary", "currency_used", "ALTER TABLE runsummary ADD COLUMN currency_used TEXT").await?;
-
-    ensure_postgres_column(db, "projects", "workspace_id", "ALTER TABLE projects ADD COLUMN workspace_id BIGINT REFERENCES workspaces(id)").await?;
-    ensure_postgres_column(db, "projects", "country_code", "ALTER TABLE projects ADD COLUMN country_code TEXT NOT NULL DEFAULT 'WORLD'").await?;
-    ensure_postgres_column(db, "projects", "address", "ALTER TABLE projects ADD COLUMN address TEXT").await?;
-    ensure_postgres_column(db, "projects", "latitude", "ALTER TABLE projects ADD COLUMN latitude DOUBLE PRECISION").await?;
-    ensure_postgres_column(db, "projects", "longitude", "ALTER TABLE projects ADD COLUMN longitude DOUBLE PRECISION").await?;
-    ensure_postgres_column(db, "projects", "electricity_maps_api_key", "ALTER TABLE projects ADD COLUMN electricity_maps_api_key TEXT").await?;
-    // IEA Emissions Factors 2025: global average = 445 gCO2/kWh
-    ensure_postgres_column(db, "projects", "resolved_intensity_g_per_kwh", "ALTER TABLE projects ADD COLUMN resolved_intensity_g_per_kwh DOUBLE PRECISION NOT NULL DEFAULT 445.0").await?;
-    ensure_postgres_column(db, "projects", "intensity_source", "ALTER TABLE projects ADD COLUMN intensity_source TEXT NOT NULL DEFAULT 'static_WORLD'").await?;
-    ensure_postgres_column(db, "projects", "intensity_fetched_at", "ALTER TABLE projects ADD COLUMN intensity_fetched_at TEXT").await?;
-    ensure_postgres_column(db, "projects", "pue_factor", "ALTER TABLE projects ADD COLUMN pue_factor DOUBLE PRECISION NOT NULL DEFAULT 1.0").await?;
-    ensure_postgres_column(db, "projects", "manual_cost_per_kwh", "ALTER TABLE projects ADD COLUMN manual_cost_per_kwh DOUBLE PRECISION").await?;
-    ensure_postgres_column(db, "projects", "manual_currency", "ALTER TABLE projects ADD COLUMN manual_currency TEXT").await?;
-    ensure_postgres_column(db, "projects", "use_api_for_cost", "ALTER TABLE projects ADD COLUMN use_api_for_cost BOOLEAN NOT NULL DEFAULT FALSE").await?;
-    ensure_postgres_column(db, "projects", "updated_at", "ALTER TABLE projects ADD COLUMN updated_at TEXT NOT NULL DEFAULT (now()::text)").await?;
-
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS run_system_info (
-            run_id BIGINT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
-            cpu_name TEXT,
-            cpu_cores INTEGER,
-            ram_gb DOUBLE PRECISION,
-            gpu_count INTEGER,
-            gpu_names TEXT
-        )",
-    )
-    .execute(db)
-    .await?;
-
-    backfill_postgres_project_collaborators(db).await?;
-    sync_postgres_project_shortcuts(db).await?;
-    migrate_cascade_constraints(db).await?;
+    // 6. Maintenance & Performance
     create_performance_indexes(db).await?;
+    // Note: We avoid database-level triggers for SSE notifications due to sqlx connection issues.
+    // Notifications are now handled manually in the application logic.
 
     Ok(())
 }
 
-/// Creates database indexes to improve query performance
+/// Sets up PostgreSQL LISTEN/NOTIFY triggers for SSE live updates.
+async fn ensure_sse_notify_triggers(db: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    sqlx::query(
+        "CREATE OR REPLACE FUNCTION notify_record_inserted()
+         RETURNS trigger AS $$
+         BEGIN
+           PERFORM pg_notify('record_inserted', NEW.id::text);
+           RETURN NEW;
+         END;
+         $$ LANGUAGE plpgsql;"
+    )
+    .execute(db)
+    .await?;
+
+    sqlx::query(
+        "DO $$
+         BEGIN
+           IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_record_inserted') THEN
+             CREATE TRIGGER trg_record_inserted
+             AFTER INSERT ON records
+             FOR EACH ROW EXECUTE FUNCTION notify_record_inserted();
+           END IF;
+         END $$;"
+    )
+    .execute(db)
+    .await?;
+
+    Ok(())
+}
+
+/// Creates database indexes to improve query performance.
 async fn create_performance_indexes(db: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    // Index for runs queries by project_id and started_at (most common query pattern)
-    sqlx::query(
-        "CREATE INDEX IF NOT EXISTS idx_runs_project_started 
-         ON runs(project_id, started_at DESC, id DESC)"
-    )
-    .execute(db)
-    .await?;
-
-    // Index for runs by workspace access (for the optimized all-runs query)
-    sqlx::query(
-        "CREATE INDEX IF NOT EXISTS idx_runs_workspace_access 
-         ON runs(started_at DESC, id DESC)"
-    )
-    .execute(db)
-    .await?;
-
-    // Index for records by run_id and timestamp (for record point queries)
-    sqlx::query(
-        "CREATE INDEX IF NOT EXISTS idx_records_run_timestamp 
-         ON records(run_id, timestamp)"
-    )
-    .execute(db)
-    .await?;
-
-    // Index for workspace_members lookup (used in access control)
-    sqlx::query(
-        "CREATE INDEX IF NOT EXISTS idx_workspace_members_user 
-         ON workspace_members(user_id, workspace_id)"
-    )
-    .execute(db)
-    .await?;
-
-    // Index for projects by workspace
-    sqlx::query(
-        "CREATE INDEX IF NOT EXISTS idx_projects_workspace 
-         ON projects(workspace_id)"
-    )
-    .execute(db)
-    .await?;
-
-    // Index for runsummary by run_id (for summary lookups)
-    sqlx::query(
-        "CREATE INDEX IF NOT EXISTS idx_runsummary_run 
-         ON runsummary(run_id)"
-    )
-    .execute(db)
-    .await?;
-
-    Ok(())
-}
-
-/// Helper function to safely add a new column to a table if it does not already exist.
-async fn ensure_postgres_column(
-    db: &PgPool,
-    table: &str,
-    column: &str,
-    alter_sql: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    if has_postgres_column(db, table, column).await? {
-        return Ok(());
-    }
-
-    sqlx::query(alter_sql).execute(db).await?;
-    Ok(())
-}
-
-/// Checks the `information_schema` to verify if a column exists in a specific table.
-async fn has_postgres_column(
-    db: &PgPool,
-    table: &str,
-    column: &str,
-) -> Result<bool, Box<dyn std::error::Error>> {
-    let row = sqlx::query(
-        "SELECT EXISTS (
-            SELECT 1
-            FROM information_schema.columns
-            WHERE table_name = $1 AND column_name = $2
-        )",
-    )
-    .bind(table)
-    .bind(column)
-    .fetch_one(db)
-    .await?;
-
-    use sqlx::Row;
-    Ok(row.get(0))
-}
-
-/// Populates the `project_collaborators` junction table from historical runs and projects.
-async fn backfill_postgres_project_collaborators(
-    db: &PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    sqlx::query(
-        "INSERT INTO project_collaborators (project_id, collaborator_name)
-         SELECT id, collaborator_name
-         FROM projects
-         WHERE collaborator_name IS NOT NULL AND TRIM(collaborator_name) <> ''
-         ON CONFLICT DO NOTHING",
-    )
-    .execute(db)
-    .await?;
-
-    sqlx::query(
-        "INSERT INTO project_collaborators (project_id, collaborator_name)
-         SELECT DISTINCT project_id, collaborator_name
-         FROM runs
-         WHERE collaborator_name IS NOT NULL AND TRIM(collaborator_name) <> ''
-         ON CONFLICT DO NOTHING",
-    )
-    .execute(db)
-    .await?;
-
-    Ok(())
-}
-
-/// Updates the deprecated `collaborator_name` shortcut column on `projects`
-/// to the single collaborator if exactly one exists.
-async fn sync_postgres_project_shortcuts(db: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    sqlx::query(
-        "UPDATE projects
-         SET collaborator_name = (
-             SELECT CASE
-                 WHEN COUNT(*) = 1 THEN MAX(collaborator_name)
-                 ELSE NULL
-             END
-             FROM project_collaborators
-             WHERE project_id = projects.id
-         )",
-    )
-    .execute(db)
-    .await?;
-
-    Ok(())
-}
-
-/// Migrates existing foreign key constraints to add ON DELETE CASCADE.
-/// This is safe to run multiple times - it will only update if needed.
-async fn migrate_cascade_constraints(db: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    // Check if we need to migrate by looking for constraints without CASCADE
-    let needs_migration = sqlx::query(
-        "SELECT COUNT(*) as count
-         FROM information_schema.table_constraints tc
-         JOIN information_schema.referential_constraints rc ON tc.constraint_name = rc.constraint_name
-         WHERE tc.constraint_type = 'FOREIGN KEY'
-         AND tc.table_name IN ('runs', 'records', 'runsummary')
-         AND rc.delete_rule = 'NO ACTION'"
-    )
-    .fetch_one(db)
-    .await?;
-
-    use sqlx::Row;
-    let count: i64 = needs_migration.get("count");
-    
-    if count == 0 {
-        // Already migrated
-        return Ok(());
-    }
-
-    println!("Migrating foreign key constraints to add CASCADE...");
-
-    // Drop and recreate constraints with CASCADE
-    // Note: We need to handle this carefully to avoid breaking existing data
-    
-    // 1. Fix records.run_id constraint
-    sqlx::query(
-        "DO $$ 
-         BEGIN
-             IF EXISTS (
-                 SELECT 1 FROM information_schema.table_constraints 
-                 WHERE constraint_name = 'records_run_id_fkey' 
-                 AND table_name = 'records'
-             ) THEN
-                 ALTER TABLE records DROP CONSTRAINT records_run_id_fkey;
-             END IF;
-             
-             ALTER TABLE records 
-             ADD CONSTRAINT records_run_id_fkey 
-             FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE;
-         END $$;"
-    )
-    .execute(db)
-    .await?;
-
-    // 2. Fix runsummary.run_id constraint
-    sqlx::query(
-        "DO $$ 
-         BEGIN
-             IF EXISTS (
-                 SELECT 1 FROM information_schema.table_constraints 
-                 WHERE constraint_name = 'runsummary_run_id_fkey' 
-                 AND table_name = 'runsummary'
-             ) THEN
-                 ALTER TABLE runsummary DROP CONSTRAINT runsummary_run_id_fkey;
-             END IF;
-             
-             ALTER TABLE runsummary 
-             ADD CONSTRAINT runsummary_run_id_fkey 
-             FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE;
-         END $$;"
-    )
-    .execute(db)
-    .await?;
-
-    // 3. Fix runs.project_id constraint
-    sqlx::query(
-        "DO $$ 
-         BEGIN
-             IF EXISTS (
-                 SELECT 1 FROM information_schema.table_constraints 
-                 WHERE constraint_name = 'runs_project_id_fkey' 
-                 AND table_name = 'runs'
-             ) THEN
-                 ALTER TABLE runs DROP CONSTRAINT runs_project_id_fkey;
-             END IF;
-             
-             ALTER TABLE runs 
-             ADD CONSTRAINT runs_project_id_fkey 
-             FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE;
-         END $$;"
-    )
-    .execute(db)
-    .await?;
-
-    println!("Foreign key constraints migrated successfully!");
-
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_runs_project_started ON runs(project_id, started_at DESC, id DESC)").execute(db).await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_runs_workspace_access ON runs(started_at DESC, id DESC)").execute(db).await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_records_run_timestamp ON records(run_id, timestamp)").execute(db).await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_workspace_members_user ON workspace_members(user_id, workspace_id)").execute(db).await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_projects_workspace ON projects(workspace_id)").execute(db).await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_runsummary_run ON runsummary(run_id)").execute(db).await?;
     Ok(())
 }

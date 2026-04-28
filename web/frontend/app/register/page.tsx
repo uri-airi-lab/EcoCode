@@ -1,12 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowRight, Loader2, UserPlus, Mail, Lock } from 'lucide-react'
 
 export default function RegisterPage() {
-  const router = useRouter()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -26,7 +24,7 @@ export default function RegisterPage() {
       })
 
       if (res.ok) {
-        router.push('/')
+        window.location.href = '/'
       } else {
         const data = await res.text()
         setError(data || 'Registration failed')
