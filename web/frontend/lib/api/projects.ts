@@ -2,8 +2,8 @@
  * Project-level API — create, list, and aggregate project metrics.
  */
 
-import { apiFetch, buildApiUrl, BackendProject, BackendRun, fetchRunTotalsSnapshot } from './client'
-import { mapRunSummary, RunSummary } from './runs'
+import { apiFetch, buildApiUrl, BackendProject, BackendRun, fetchRunTotalsSnapshot, BackendPaginatedRuns } from './client'
+import { mapRunSummary, RunSummary, mapBackendRunToSummary } from './runs'
 
 export interface ProjectSummary {
   id: string
@@ -11,6 +11,9 @@ export interface ProjectSummary {
   workspaceSlug: string
   totalRuns: number
   totalEnergy: number
+  totalCo2G: number
+  totalCost: number
+  currency: string
   lastRunTimestamp: number
 }
 
@@ -24,6 +27,7 @@ export interface ProjectDetail extends ProjectSummary {
   totalIgpuEnergy: number
   runs: RunSummary[]
 }
+
 
 export async function createProject(
   name: string,
@@ -51,7 +55,7 @@ export async function fetchAllProjects(): Promise<ProjectSummary[]> {
 
     return Promise.all(
       projects.map(async (project) => {
-        const runsRes = await apiFetch(buildApiUrl(`/api/project/${project.id}/runs`))
+        const runsRes = await apiFetch(buildApiUrl(`/api/project/${project.id}/runs?limit=100`))
 
         if (!runsRes.ok) {
           return {
@@ -60,21 +64,30 @@ export async function fetchAllProjects(): Promise<ProjectSummary[]> {
             workspaceSlug: project.workspace_slug,
             totalRuns: 0,
             totalEnergy: 0,
+            totalCo2G: 0,
+            totalCost: 0,
+            currency: 'USD',
             lastRunTimestamp: 0,
           }
         }
 
-        const backendRuns: BackendRun[] = await runsRes.json()
-        const runSummaries = await Promise.all(backendRuns.map(fetchRunTotalsSnapshot))
+        const data: BackendPaginatedRuns = await runsRes.json()
+        const runSummaries = data.runs.map(mapBackendRunToSummary)
         const totalEnergy = runSummaries.reduce((sum, run) => sum + run.totalEnergy, 0)
+        const totalCo2G = runSummaries.reduce((sum, run) => sum + (run.carbonFootprint || 0), 0)
+        const totalCost = runSummaries.reduce((sum, run) => sum + (run.totalCost || 0), 0)
+        const currency = runSummaries.find(r => r.currency)?.currency || 'USD'
         const lastRunTimestamp = runSummaries.reduce((max, run) => Math.max(max, run.timestamp), 0)
 
         return {
           id: project.id.toString(),
           name: project.name,
           workspaceSlug: project.workspace_slug,
-          totalRuns: backendRuns.length,
+          totalRuns: data.total,
           totalEnergy,
+          totalCo2G,
+          totalCost,
+          currency,
           lastRunTimestamp: lastRunTimestamp || Date.now(),
         }
       })
@@ -94,15 +107,18 @@ export async function fetchProjectRuns(projectId: string): Promise<ProjectDetail
     const project = projects.find(p => p.id.toString() === projectId)
     if (!project) throw new Error(`Project ${projectId} not found`)
 
-    const runsRes = await apiFetch(buildApiUrl(`/api/project/${project.id}/runs`))
+    const runsRes = await apiFetch(buildApiUrl(`/api/project/${project.id}/runs?limit=1000`))
     let runSummaries: RunSummary[] = []
 
     if (runsRes.ok) {
-      const backendRuns: BackendRun[] = await runsRes.json()
-      runSummaries = await Promise.all(backendRuns.map(mapRunSummary))
+      const data: BackendPaginatedRuns = await runsRes.json()
+      runSummaries = data.runs.map(mapBackendRunToSummary)
     }
 
     const totalEnergy = runSummaries.reduce((sum, r) => sum + r.totalEnergy, 0)
+    const totalCo2G = runSummaries.reduce((sum, r) => sum + (r.carbonFootprint || 0), 0)
+    const totalCost = runSummaries.reduce((sum, r) => sum + (r.totalCost || 0), 0)
+    const currency = runSummaries.find(r => r.currency)?.currency || 'USD'
     const lastRunTimestamp = runSummaries.reduce((max, r) => Math.max(max, r.timestamp), 0)
     const totalCpuEnergy = runSummaries.reduce((sum, r) => sum + r.totalCpuEnergy, 0)
     const totalGpuEnergy = runSummaries.reduce((sum, r) => sum + r.totalGpuEnergy, 0)
@@ -121,6 +137,9 @@ export async function fetchProjectRuns(projectId: string): Promise<ProjectDetail
       workspaceSlug: project.workspace_slug,
       totalRuns: runSummaries.length,
       totalEnergy,
+      totalCo2G,
+      totalCost,
+      currency,
       lastRunTimestamp: lastRunTimestamp || Date.now(),
       avgCpuUsage,
       avgGpuUsage,

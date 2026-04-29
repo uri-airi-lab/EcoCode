@@ -20,6 +20,7 @@ pub struct RunSummaryResponse {
     pub id: i64,
     pub name: String,
     pub project_id: i64,
+    pub project_name: Option<String>,
     pub collaborator_name: Option<String>,
     pub status: Option<String>,
     pub started_at: Option<String>,
@@ -34,6 +35,9 @@ pub struct RunSummaryResponse {
     pub pue_used: Option<f64>,
     pub total_cost: Option<f64>,
     pub currency_used: Option<String>,
+    pub avg_cpu_usage: Option<f64>,
+    pub avg_gpu_usage: Option<f64>,
+    pub avg_mem_usage: Option<f64>,
 }
 
 /// Query parameters for paginated endpoints.
@@ -41,6 +45,13 @@ pub struct RunSummaryResponse {
 pub struct PaginationQuery {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+}
+
+/// Paginated response for runs
+#[derive(Serialize)]
+pub struct PaginatedRunsResponse {
+    pub runs: Vec<RunSummaryResponse>,
+    pub total: i64,
 }
 
 /// Handles GET requests to list all runs across all projects with summaries (optimized).
@@ -55,10 +66,11 @@ pub async fn get_all_runs_with_summaries(
     debug!(limit, offset, user_id = auth_user.user_id, "Fetching all runs with summaries");
     
     let runs_with_summaries = sqlx::query_as::<_, RunSummaryResponse>(
-        "SELECT r.id, r.name, r.project_id, r.collaborator_name, r.status,
+        "SELECT r.id, r.name, r.project_id, p.name as project_name, r.collaborator_name, r.status,
                 r.started_at, r.ended_at, r.command,
                 rs.total_cpu_energy, rs.total_gpu_energy, rs.total_mem_energy, rs.total_igpu_energy,
-                rs.total_co2_g, rs.carbon_intensity_used, rs.pue_used, rs.total_cost, rs.currency_used
+                rs.total_co2_g, rs.carbon_intensity_used, rs.pue_used, rs.total_cost, rs.currency_used,
+                rs.avg_cpu_usage, rs.avg_gpu_usage, rs.avg_mem_usage
          FROM runs r
          LEFT JOIN runsummary rs ON r.id = rs.run_id
          JOIN projects p ON r.project_id = p.id
@@ -91,19 +103,52 @@ pub async fn get_runs(
     Query(pagination): Query<PaginationQuery>,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let limit = pagination.limit.unwrap_or(100).min(500);
+    let limit = pagination.limit.unwrap_or(10).min(100);
     let offset = pagination.offset.unwrap_or(0);
-    debug!(project_id, limit, offset, user_id = auth_user.user_id, "Fetching runs");
-    let runs = crate::db::runs::fetch_runs(&state, project_id, auth_user.user_id, limit, offset).await?;
+    
+    debug!(project_id, limit, offset, user_id = auth_user.user_id, "Fetching runs paginated");
+    
+    // Get total count
+    let total: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) 
+         FROM runs r
+         JOIN projects p ON r.project_id = p.id
+         JOIN workspace_members wm ON p.workspace_id = wm.workspace_id
+         WHERE r.project_id = $1 AND wm.user_id = $2"
+    )
+    .bind(project_id)
+    .bind(auth_user.user_id)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(ApiError::internal)?;
 
-    if runs.is_empty() {
-        return Err(ApiError::new(
-            StatusCode::NOT_FOUND,
-            "No runs found for this project",
-        ));
-    }
+    // Get paginated runs with summaries
+    let runs = sqlx::query_as::<_, RunSummaryResponse>(
+        "SELECT r.id, r.name, r.project_id, p.name as project_name, r.collaborator_name, r.status,
+                r.started_at, r.ended_at, r.command,
+                rs.total_cpu_energy, rs.total_gpu_energy, rs.total_mem_energy, rs.total_igpu_energy,
+                rs.total_co2_g, rs.carbon_intensity_used, rs.pue_used, rs.total_cost, rs.currency_used,
+                rs.avg_cpu_usage, rs.avg_gpu_usage, rs.avg_mem_usage
+         FROM runs r
+         LEFT JOIN runsummary rs ON r.id = rs.run_id
+         JOIN projects p ON r.project_id = p.id
+         JOIN workspace_members wm ON p.workspace_id = wm.workspace_id
+         WHERE r.project_id = $1 AND wm.user_id = $2
+         ORDER BY r.started_at DESC, r.id DESC
+         LIMIT $3 OFFSET $4",
+    )
+    .bind(project_id)
+    .bind(auth_user.user_id)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(ApiError::internal)?;
 
-    Ok((StatusCode::OK, Json(runs)))
+    Ok((StatusCode::OK, Json(PaginatedRunsResponse {
+        runs,
+        total,
+    })))
 }
 
 /// Handles GET requests to retrieve details of a specific run.

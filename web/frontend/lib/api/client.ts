@@ -43,6 +43,35 @@ export interface BackendRun {
   currency?: string | null
 }
 
+export interface BackendRunSummaryResponse {
+  id: number
+  name: string
+  project_id: number
+  project_name?: string | null
+  collaborator_name?: string | null
+  status?: 'running' | 'finished' | 'failed' | null
+  started_at?: string | null
+  ended_at?: string | null
+  command?: string | null
+  total_cpu_energy?: number | null
+  total_gpu_energy?: number | null
+  total_mem_energy?: number | null
+  total_igpu_energy?: number | null
+  total_co2_g?: number | null
+  carbon_intensity_used?: number | null
+  pue_used?: number | null
+  total_cost?: number | null
+  currency_used?: string | null
+  avg_cpu_usage?: number | null
+  avg_gpu_usage?: number | null
+  avg_mem_usage?: number | null
+}
+
+export interface BackendPaginatedRuns {
+  runs: BackendRunSummaryResponse[]
+  total: number
+}
+
 export interface BackendRecordPoint {
   id: number
   run_id: number
@@ -87,6 +116,9 @@ export interface BackendRunSummary {
   pue_used?: number | null
   total_cost?: number | null
   currency_used?: string | null
+  avg_cpu_usage?: number | null
+  avg_gpu_usage?: number | null
+  avg_mem_usage?: number | null
 }
 
 export interface BackendAdminRun {
@@ -142,6 +174,9 @@ export interface RunTotalsSnapshot {
   pueUsed: number | null
   totalCost: number | null
   currency: string | null
+  avgCpuUsage: number
+  avgGpuUsage: number
+  avgMemUsage: number
 }
 
 // --- Pure transformation helpers ---
@@ -247,6 +282,9 @@ export function calculateEnergyTotals(summary: BackendRunSummary | null) {
     pueUsed: summary?.pue_used ?? null,
     totalCost: summary?.total_cost ?? null,
     currency: summary?.currency_used ?? null,
+    avgCpuUsage: summary?.avg_cpu_usage ?? 0,
+    avgGpuUsage: summary?.avg_gpu_usage ?? 0,
+    avgMemUsage: summary?.avg_mem_usage ?? 0,
   }
 }
 

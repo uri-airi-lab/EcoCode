@@ -5,14 +5,14 @@ import { Search, ChevronLeft, ChevronRight } from 'lucide-react'
 import { DashboardLayout } from '@/components/layout/DashboardLayout'
 import { RunsTable } from '@/components/tables/RunsTable'
 import { Run } from '@/lib/mock-data'
-import { fetchAllRuns, fetchAllProjects } from '@/lib/api'
+import { fetchAllRuns, fetchAllProjects, RunSummary } from '@/lib/api'
 import { useWorkspace } from '@/components/layout/WorkspaceProvider'
 
 const PAGE_SIZE = 20
 
 export default function RunsPage() {
   const { currentWorkspace, loading: workspaceLoading } = useWorkspace()
-  const [runs, setRuns] = useState<Omit<Run, 'records'>[]>([])
+  const [runs, setRuns] = useState<RunSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [page, setPage] = useState(0)
@@ -39,9 +39,12 @@ export default function RunsPage() {
 
           // Handle runs
           const allRuns = runsResult.status === 'fulfilled' ? runsResult.value : []
-          const workspaceRunList = currentWorkspace
+          const workspaceRunList = (currentWorkspace
             ? allRuns.filter(r => workspaceProjects.some(p => p.id === r.projectId))
-            : allRuns
+            : allRuns).map(run => ({
+              ...run,
+              projectName: run.projectName || allProjects.find(p => p.id === run.projectId)?.name || null
+            }))
 
           setRuns(workspaceRunList)
           setPage(0)
@@ -74,6 +77,7 @@ export default function RunsPage() {
     const lowerQuery = searchQuery.toLowerCase()
     return runs.filter((run) => {
       if (run.name.toLowerCase().includes(lowerQuery)) return true
+      if (run.projectName?.toLowerCase().includes(lowerQuery)) return true
       if (run.collaboratorName?.toLowerCase().includes(lowerQuery)) return true
 
       if (searchQuery.includes(':')) {
@@ -105,9 +109,12 @@ export default function RunsPage() {
     const workspaceProjects = currentWorkspace
       ? allProjects.filter(p => p.workspaceSlug === currentWorkspace.slug)
       : allProjects
-    const workspaceRunList = currentWorkspace
+    const workspaceRunList = (currentWorkspace
       ? allRuns.filter(r => workspaceProjects.some(p => p.id === r.projectId))
-      : allRuns
+      : allRuns).map(run => ({
+        ...run,
+        projectName: run.projectName || allProjects.find(p => p.id === run.projectId)?.name || null
+      }))
     setRuns(workspaceRunList)
   }
 

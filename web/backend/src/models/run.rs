@@ -31,6 +31,9 @@ pub struct RunSummary {
     pub pue_used: Option<f64>,
     pub total_cost: Option<f64>,
     pub currency_used: Option<String>,
+    pub avg_cpu_usage: Option<f64>,
+    pub avg_gpu_usage: Option<f64>,
+    pub avg_mem_usage: Option<f64>,
 }
 
 /// Represents a row from the runs table for admin queries.

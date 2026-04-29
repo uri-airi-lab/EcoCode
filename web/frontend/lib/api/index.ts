@@ -26,6 +26,7 @@ export {
   searchRuns,
   batchDeleteRuns,
   exportRunAsCSV,
+  fetchProjectRunsPaginated,
 } from './runs'
 
 export type { ProjectSummary, ProjectDetail } from './projects'

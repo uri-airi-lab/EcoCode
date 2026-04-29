@@ -10,29 +10,36 @@ import { useWorkspace } from '@/components/layout/WorkspaceProvider'
 
 interface RecentRunsTableProps {
   runs: Omit<Run, 'records'>[]
+  totalCount?: number
+  currentPage?: number
+  pageSize?: number
+  onPageChange?: (page: number) => void
 }
 
-export const RecentRunsTable = memo(function RecentRunsTable({ runs }: RecentRunsTableProps) {
+export const RecentRunsTable = memo(function RecentRunsTable({ 
+  runs, 
+  totalCount = runs.length, 
+  currentPage = 1, 
+  pageSize = 10, 
+  onPageChange 
+}: RecentRunsTableProps) {
   const { currentWorkspace } = useWorkspace()
   const router = useRouter()
   const workspaceSlug = currentWorkspace?.slug ?? ''
-  const recentRuns = runs.slice(0, 5)
 
   const handleRowClick = (runId: string) => {
-    console.log('Row clicked, navigating to:', `/${workspaceSlug}/runs/${runId}`)
     router.push(`/${workspaceSlug}/runs/${runId}`)
   }
+
+  const totalPages = Math.ceil(totalCount / pageSize)
 
   return (
     <div className="chart-container">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-foreground">Recent Runs</h3>
-        <Link
-          href={`/${workspaceSlug}/runs`}
-          className="text-sm text-primary hover:text-primary/80 transition-colors"
-        >
-          View all →
-        </Link>
+        <h3 className="text-lg font-semibold text-foreground">Project Runs</h3>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          Showing {runs.length} of {totalCount} runs
+        </div>
       </div>
 
       <div className="overflow-x-auto">
@@ -61,7 +68,7 @@ export const RecentRunsTable = memo(function RecentRunsTable({ runs }: RecentRun
             </tr>
           </thead>
           <tbody>
-            {recentRuns.map((run) => (
+            {runs.map((run) => (
               <tr
                 key={run.id}
                 className="border-b border-border hover:bg-muted/30 transition-colors cursor-pointer"
@@ -108,6 +115,40 @@ export const RecentRunsTable = memo(function RecentRunsTable({ runs }: RecentRun
           </tbody>
         </table>
       </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-4 mt-6">
+          <button
+            onClick={() => onPageChange?.(currentPage - 1)}
+            disabled={currentPage === 1}
+            className="px-4 py-2 text-sm font-medium rounded-lg border border-border hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            Previous
+          </button>
+          <div className="flex items-center gap-2">
+            {[...Array(totalPages)].map((_, i) => (
+              <button
+                key={i + 1}
+                onClick={() => onPageChange?.(i + 1)}
+                className={`w-8 h-8 rounded-lg text-sm font-medium transition-colors ${
+                  currentPage === i + 1
+                    ? 'bg-primary text-primary-foreground'
+                    : 'hover:bg-muted border border-border'
+                }`}
+              >
+                {i + 1}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => onPageChange?.(currentPage + 1)}
+            disabled={currentPage === totalPages}
+            className="px-4 py-2 text-sm font-medium rounded-lg border border-border hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            Next
+          </button>
+        </div>
+      )}
     </div>
   )
 })

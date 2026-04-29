@@ -90,7 +90,7 @@ export function StartRunModal({ projects, onProjectCreated, defaultProjectId, ex
     const project = mode === 'new' ? projectName : projects.find(p => p.id === selectedProjectId)?.name
     if (!project) return '...'
 
-    let cmd = `ecocode --project "${project}"`
+    let cmd = `ecocode run --project "${project}"`
     
     if (runName) cmd += ` --name "${runName}"`
     if (collaborator && outputFormat !== 'online') cmd += ` --collaborator "${collaborator}"`

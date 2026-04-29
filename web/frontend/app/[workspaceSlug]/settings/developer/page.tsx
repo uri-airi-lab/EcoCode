@@ -125,7 +125,7 @@ export default function DeveloperSettingsPage() {
                       ecocode config set-api-key YOUR_API_KEY<br />
                       <br />
                       # Now use without --api-key flag<br />
-                      ecocode --output online -- python train.py
+                      ecocode run --output online -- python train.py
                     </code>
                   </div>
                 </div>
@@ -152,7 +152,7 @@ export default function DeveloperSettingsPage() {
                       echo &apos;export ECOCODE_API_KEY=YOUR_KEY&apos; &gt;&gt; ~/.bashrc<br />
                       <br />
                       # Use the CLI<br />
-                      ecocode --output online -- python train.py
+                      ecocode run --output online -- python train.py
                     </code>
                   </div>
                 </div>
@@ -172,7 +172,7 @@ export default function DeveloperSettingsPage() {
                   </p>
                   <div className="bg-background rounded-md p-3 border border-border">
                     <code className="text-xs text-chart-2 font-mono block">
-                      ecocode --output online --api-key YOUR_API_KEY -- python train.py
+                      ecocode run --output online --api-key YOUR_API_KEY -- python train.py
                     </code>
                   </div>
                 </div>

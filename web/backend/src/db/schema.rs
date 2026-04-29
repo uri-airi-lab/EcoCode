@@ -177,13 +177,42 @@ pub async fn ensure_postgres_schema(db: &PgPool) -> Result<(), Box<dyn std::erro
             carbon_intensity_used DOUBLE PRECISION,
             pue_used DOUBLE PRECISION,
             total_cost DOUBLE PRECISION,
-            currency_used TEXT
+            currency_used TEXT,
+            avg_cpu_usage DOUBLE PRECISION,
+            avg_gpu_usage DOUBLE PRECISION,
+            avg_mem_usage DOUBLE PRECISION
         )",
     )
     .execute(db)
     .await?;
 
-    // 6. Maintenance & Performance
+    // Ensure existing databases have the usage columns
+    sqlx::query("ALTER TABLE runsummary ADD COLUMN IF NOT EXISTS avg_cpu_usage DOUBLE PRECISION").execute(db).await?;
+    sqlx::query("ALTER TABLE runsummary ADD COLUMN IF NOT EXISTS avg_gpu_usage DOUBLE PRECISION").execute(db).await?;
+    sqlx::query("ALTER TABLE runsummary ADD COLUMN IF NOT EXISTS avg_mem_usage DOUBLE PRECISION").execute(db).await?;
+
+    // 6. Maintenance & Data Backfill
+    // Backfill usage averages for existing runs that were created before these columns existed
+    sqlx::query(
+        "UPDATE runsummary rs
+         SET 
+            avg_cpu_usage = sub.avg_cpu,
+            avg_gpu_usage = sub.avg_gpu,
+            avg_mem_usage = sub.avg_mem
+         FROM (
+            SELECT 
+                run_id, 
+                COALESCE(AVG(cpu_usage), 0.0) as avg_cpu, 
+                COALESCE(AVG(gpu_usage), 0.0) as avg_gpu, 
+                COALESCE(AVG(mem_usage), 0.0) as avg_mem 
+            FROM records 
+            GROUP BY run_id
+         ) sub
+         WHERE rs.run_id = sub.run_id AND rs.avg_cpu_usage IS NULL"
+    )
+    .execute(db)
+    .await?;
+
     create_performance_indexes(db).await?;
     // Note: We avoid database-level triggers for SSE notifications due to sqlx connection issues.
     // Notifications are now handled manually in the application logic.

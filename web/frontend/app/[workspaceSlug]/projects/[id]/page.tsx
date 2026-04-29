@@ -5,13 +5,14 @@ import Link from 'next/link'
 import { Activity, ArrowLeft, Folder, Zap, Clock } from 'lucide-react'
 import { DashboardLayout } from '@/components/layout/DashboardLayout'
 import { RecentRunsTable } from '@/components/tables/RecentRunsTable'
-import { ProjectDetail, fetchProjectRuns, fetchAllProjects, ProjectSummary } from '@/lib/api'
+import { ProjectDetail, fetchProjectRuns, fetchAllProjects, ProjectSummary, fetchProjectRunsPaginated, RunSummary } from '@/lib/api'
 import { useParams } from 'next/navigation'
 import { MetricCard } from '@/components/MetricCard'
 import { CarbonSettings } from '@/components/run/CarbonSettings'
 import { StartRunModal } from '@/components/StartRunModal'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Leaf } from 'lucide-react'
+import { Leaf, Coins } from 'lucide-react'
+import { EnvironmentalImpact } from '@/components/run/EnvironmentalImpact'
 
 interface ProjectPageProps {
     params: Promise<{ id: string }>
@@ -24,6 +25,13 @@ export default function ProjectPage({ params }: ProjectPageProps) {
     const [allProjects, setAllProjects] = useState<ProjectSummary[]>([])
     const [loading, setLoading] = useState(true)
     const [paramId, setParamId] = useState<string | null>(null)
+    
+    // Pagination state
+    const [page, setPage] = useState(1)
+    const [paginatedRuns, setPaginatedRuns] = useState<RunSummary[]>([])
+    const [totalRunsCount, setTotalRunsCount] = useState(0)
+    const [runsLoading, setRunsLoading] = useState(false)
+    const pageSize = 10
 
     useEffect(() => {
         const initParams = async () => {
@@ -63,6 +71,34 @@ export default function ProjectPage({ params }: ProjectPageProps) {
             cancelled = true
         }
     }, [paramId])
+
+    useEffect(() => {
+        if (!paramId) return
+
+        let cancelled = false
+
+        const loadRuns = async () => {
+            setRunsLoading(true)
+            try {
+                const { runs, total } = await fetchProjectRunsPaginated(paramId, page, pageSize)
+                if (!cancelled) {
+                    setPaginatedRuns(runs)
+                    setTotalRunsCount(total)
+                }
+            } catch (error) {
+                console.error('Failed to fetch paginated runs:', error)
+            } finally {
+                if (!cancelled) {
+                    setRunsLoading(false)
+                }
+            }
+        }
+        loadRuns()
+
+        return () => {
+            cancelled = true
+        }
+    }, [paramId, page])
 
     if (loading) {
         return (
@@ -141,82 +177,103 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                     </TabsList>
 
                     <TabsContent value="overview" className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                        <div className="space-y-8">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 md:gap-4">
-                                <MetricCard
-                                    icon={Zap}
-                                    label="Total Energy"
-                                    value={Number(project.totalEnergy.toFixed(2)).toLocaleString()}
-                                    unit="Wh"
-                                    loading={loading}
-                                />
-                                <MetricCard
-                                    icon={Clock}
-                                    label="Total Core Hours"
-                                    value={(totalCoreHours / 24).toFixed(2)}
-                                    unit="hrs"
-                                    loading={loading}
-                                />
-                                <MetricCard
-                                    icon={Zap}
-                                    label="CPU Energy"
-                                    value={Number(project.totalCpuEnergy.toFixed(2)).toLocaleString()}
-                                    unit="Wh"
-                                    loading={loading}
-                                />
-                                <MetricCard
-                                    icon={Zap}
-                                    label="GPU Energy"
-                                    value={Number(project.totalGpuEnergy.toFixed(2)).toLocaleString()}
-                                    unit="Wh"
-                                    loading={loading}
-                                />
-                                <MetricCard
-                                    icon={Zap}
-                                    label="Memory Energy"
-                                    value={Number(project.totalMemEnergy.toFixed(2)).toLocaleString()}
-                                    unit="Wh"
-                                    loading={loading}
-                                />
-                                <MetricCard
-                                    icon={Zap}
-                                    label="iGPU Energy"
-                                    value={Number(project.totalIgpuEnergy.toFixed(2)).toLocaleString()}
-                                    unit="Wh"
-                                    loading={loading}
-                                />
-                                <MetricCard
-                                    icon={Folder}
-                                    label="Total Runs"
-                                    value={project.totalRuns.toString()}
-                                    unit=""
-                                    loading={loading}
-                                />
-                                <MetricCard
-                                    icon={Activity}
-                                    label="Avg CPU Usage"
-                                    value={project.avgCpuUsage.toFixed(1)}
-                                    unit="%"
-                                    loading={loading}
-                                />
-                                <MetricCard
-                                    icon={Activity}
-                                    label="Avg GPU Usage"
-                                    value={project.avgGpuUsage.toFixed(1)}
-                                    unit="%"
-                                    loading={loading}
-                                />
-                                <MetricCard
-                                    icon={Activity}
-                                    label="Avg Memory Usage"
-                                    value={project.avgMemUsage.toFixed(1)}
-                                    unit="%"
-                                    loading={loading}
-                                />
+                        <div className="space-y-12">
+                            {/* Key Metrics Row */}
+                            <div className="grid grid-cols-1 lg:grid-cols-12 gap-0 items-stretch border border-border rounded-xl overflow-hidden">
+                                <div className="lg:col-span-7 p-6 bg-emerald-500/[0.02]">
+                                    <h4 className="text-xs font-bold text-emerald-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                        Impact Overview
+                                    </h4>
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                        <MetricCard
+                                            icon={Leaf}
+                                            label="Total Carbon"
+                                            value={project.totalCo2G > 1000 ? (project.totalCo2G / 1000).toFixed(4) : project.totalCo2G.toFixed(4)}
+                                            unit={project.totalCo2G > 1000 ? 'kg CO₂' : 'g CO₂'}
+                                            loading={loading}
+                                            className="bg-emerald-500/10 border-emerald-500/20"
+                                        />
+                                        <MetricCard
+                                            icon={Coins}
+                                            label="Total Cost"
+                                            value={project.totalCost.toFixed(4)}
+                                            unit={project.currency}
+                                            loading={loading}
+                                            className="bg-amber-500/10 border-amber-500/20"
+                                        />
+                                        <MetricCard icon={Zap} label="Total Energy" value={project.totalEnergy.toFixed(4)} unit="Wh" loading={loading} />
+                                    </div>
+                                </div>
+                                <div className="lg:col-span-5 p-6 bg-blue-500/[0.02] border-t lg:border-t-0 lg:border-l border-border">
+                                    <h4 className="text-xs font-bold text-blue-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                                        Execution Stats
+                                    </h4>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        <MetricCard icon={Folder} label="Total Runs" value={project.totalRuns.toString()} loading={loading} className="bg-blue-500/5 border-blue-500/10" />
+                                        <MetricCard icon={Clock} label="Core Hours" value={(totalCoreHours / 24).toFixed(4)} unit="hrs" loading={loading} className="bg-blue-500/5 border-blue-500/10" />
+                                    </div>
+                                </div>
                             </div>
 
-                            <RecentRunsTable runs={project.runs} />
+                            {/* Detailed Breakdown Row */}
+                            <div className="grid grid-cols-1 lg:grid-cols-12 gap-0 items-stretch border border-border rounded-xl overflow-hidden">
+                                <div className="lg:col-span-7 p-6 bg-amber-500/[0.02]">
+                                    <h4 className="text-xs font-bold text-amber-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                                        Energy Breakdown
+                                    </h4>
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                                        <MetricCard icon={Zap} label="CPU" value={project.totalCpuEnergy.toFixed(4)} unit="Wh" loading={loading} className="bg-amber-500/5 border-amber-500/10" />
+                                        <MetricCard icon={Zap} label="GPU" value={project.totalGpuEnergy.toFixed(4)} unit="Wh" loading={loading} className="bg-amber-500/5 border-amber-500/10" />
+                                        <MetricCard icon={Zap} label="Memory" value={project.totalMemEnergy.toFixed(4)} unit="Wh" loading={loading} className="bg-amber-500/5 border-amber-500/10" />
+                                        <MetricCard icon={Zap} label="iGPU" value={project.totalIgpuEnergy.toFixed(4)} unit="Wh" loading={loading} className="bg-amber-500/5 border-amber-500/10" />
+                                    </div>
+                                </div>
+                                <div className="lg:col-span-5 p-6 bg-purple-500/[0.02] border-t lg:border-t-0 lg:border-l border-border">
+                                    <h4 className="text-xs font-bold text-purple-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-purple-500" />
+                                        Average Performance
+                                    </h4>
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                        <MetricCard icon={Activity} label="CPU" value={project.avgCpuUsage.toFixed(4)} unit="%" loading={loading} className="bg-purple-500/5 border-purple-500/10" />
+                                        <MetricCard icon={Activity} label="GPU" value={project.avgGpuUsage.toFixed(4)} unit="%" loading={loading} className="bg-purple-500/5 border-purple-500/10" />
+                                        <MetricCard icon={Activity} label="Mem" value={project.avgMemUsage.toFixed(4)} unit="%" loading={loading} className="bg-purple-500/5 border-purple-500/10" />
+                                    </div>
+                                </div>
+                            </div>
                         </div>
+                            <div className="space-y-12">
+                                <section>
+                                    <h3 className="text-xl font-bold text-foreground mb-6 flex items-center gap-2">
+                                        <Leaf className="w-5 h-5 text-primary" />
+                                        Sustainability Impact
+                                    </h3>
+                                    <EnvironmentalImpact 
+                                        totalEnergyWh={project.totalEnergy}
+                                        totalCo2G={project.totalCo2G}
+                                        totalCost={project.totalCost}
+                                        currency={project.currency}
+                                    />
+                                </section>
+
+                                <section>
+                                    <h3 className="text-xl font-bold text-foreground mb-6 flex items-center gap-2">
+                                        <Activity className="w-5 h-5 text-primary" />
+                                        Project Activity
+                                    </h3>
+                                    <div className={runsLoading ? 'opacity-50 pointer-events-none transition-opacity' : 'transition-opacity'}>
+                                        <RecentRunsTable 
+                                            runs={paginatedRuns} 
+                                            totalCount={totalRunsCount}
+                                            currentPage={page}
+                                            pageSize={pageSize}
+                                            onPageChange={setPage}
+                                        />
+                                    </div>
+                                </section>
+                            </div>
                     </TabsContent>
 
                     <TabsContent value="environmental" className="animate-in fade-in slide-in-from-bottom-2 duration-500">

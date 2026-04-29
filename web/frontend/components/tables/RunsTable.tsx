@@ -6,6 +6,7 @@ import { Run } from '@/lib/mock-data'
 import { format } from 'date-fns'
 import { ChevronRight, Check, Clock, X, Trash2 } from 'lucide-react'
 import { useWorkspace } from '@/components/layout/WorkspaceProvider'
+import { RunSummary } from '@/lib/api'
 import {
   Pagination,
   PaginationContent,
@@ -16,7 +17,7 @@ import {
 } from '@/components/ui/pagination'
 
 interface RunsTableProps {
-  runs: Omit<Run, 'records'>[]
+  runs: RunSummary[]
   onRunDeleted?: () => void
 }
 
@@ -130,6 +131,9 @@ export function RunsTable({ runs, onRunDeleted }: RunsTableProps) {
               <th className="text-left py-4 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px]">
                 Run Name
               </th>
+              <th className="text-left py-4 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px]">
+                Project
+              </th>
               <th className="text-center py-4 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px]">
                 Status
               </th>
@@ -176,6 +180,11 @@ export function RunsTable({ runs, onRunDeleted }: RunsTableProps) {
                         By {run.collaboratorName ?? 'Unassigned'}
                       </p>
                     </div>
+                  </td>
+                  <td className="py-4 px-4">
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-secondary text-secondary-foreground">
+                      {run.projectName ?? 'Unknown'}
+                    </span>
                   </td>
                   <td className="py-4 px-4 text-center">
                     <div className="flex items-center justify-center">

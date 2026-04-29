@@ -19,9 +19,13 @@ import {
   calculateEnergyTotals,
   fetchRunMetricSnapshot,
   fetchRunTotalsSnapshot,
+  BackendRunSummaryResponse,
+  BackendPaginatedRuns,
 } from './client'
 
-export interface RunSummary extends Omit<Run, 'records'> {}
+export interface RunSummary extends Omit<Run, 'records'> {
+  projectName?: string | null
+}
 export interface RunDetail extends Run {}
 
 export interface Improvement {
@@ -68,6 +72,43 @@ export async function mapRunSummary(backendRun: BackendRun): Promise<RunSummary>
     pueUsed: snapshot.pueUsed,
     totalCost: snapshot.totalCost,
     currency: snapshot.currency,
+  }
+}
+
+export function mapBackendRunToSummary(b: BackendRunSummaryResponse): RunSummary {
+  const totalCpuEnergy = (b.total_cpu_energy ?? 0) / 3600
+  const totalGpuEnergy = (b.total_gpu_energy ?? 0) / 3600
+  const totalMemEnergy = (b.total_mem_energy ?? 0) / 3600
+  const totalIgpuEnergy = (b.total_igpu_energy ?? 0) / 3600
+  const totalEnergy = totalCpuEnergy + totalGpuEnergy + totalMemEnergy + totalIgpuEnergy
+  const energyKwh = totalEnergy / 1000
+  const duration = calculateDurationSeconds([], b.started_at, b.ended_at)
+
+  return {
+    id: b.id.toString(),
+    projectId: b.project_id.toString(),
+    projectName: b.project_name ?? null,
+    name: b.name,
+    timestamp: parseTimestamp(b.started_at) ?? Date.now(),
+    status: normalizeRunStatus(b.status),
+    collaboratorName: b.collaborator_name ?? null,
+    totalEnergy,
+    totalCpuEnergy,
+    totalGpuEnergy,
+    totalMemEnergy,
+    totalIgpuEnergy,
+    totalCoreHours: energyKwh * 24,
+    avgCpuUsage: b.avg_cpu_usage ?? 0,
+    avgGpuUsage: b.avg_gpu_usage ?? 0,
+    avgMemUsage: b.avg_mem_usage ?? 0,
+    carbonFootprint: b.total_co2_g ?? (energyKwh * WORLD_AVERAGE_INTENSITY_G_PER_KWH),
+    waterConsumption: energyKwh * WATER_FACTOR * 1000,
+    duration,
+    command: b.command ?? null,
+    carbonIntensityUsed: b.carbon_intensity_used ?? null,
+    pueUsed: b.pue_used ?? null,
+    totalCost: b.total_cost ?? null,
+    currency: b.currency_used ?? null,
   }
 }
 
@@ -127,16 +168,28 @@ export async function fetchAllRuns(projectIds?: number[]): Promise<RunSummary[]>
 
     const projectRunsArrays = await Promise.all(
       ids.map(async (id) => {
-        const runsRes = await apiFetch(buildApiUrl(`/api/project/${id}/runs`))
+        // Fetch with a large limit to get "all" runs for now, or we might want to paginate this too
+        const runsRes = await apiFetch(buildApiUrl(`/api/project/${id}/runs?limit=100`))
         if (!runsRes.ok) return []
-        const backendRuns: BackendRun[] = await runsRes.json()
-        return Promise.all(backendRuns.map(mapRunSummary))
+        const data: BackendPaginatedRuns = await runsRes.json()
+        return data.runs.map(mapBackendRunToSummary)
       })
     )
 
     return projectRunsArrays.flat().sort((a, b) => b.timestamp - a.timestamp)
   } catch (error) {
     throw error
+  }
+}
+
+export async function fetchProjectRunsPaginated(projectId: string, page = 1, limit = 10): Promise<{ runs: RunSummary[], total: number }> {
+  const offset = (page - 1) * limit
+  const res = await apiFetch(buildApiUrl(`/api/project/${projectId}/runs?limit=${limit}&offset=${offset}`))
+  if (!res.ok) throw new Error(`Failed to fetch runs for project ${projectId}`)
+  const data: BackendPaginatedRuns = await res.json()
+  return {
+    runs: data.runs.map(mapBackendRunToSummary),
+    total: data.total
   }
 }
 
@@ -155,12 +208,12 @@ export async function fetchAllRunsWithRecords(
 
   await Promise.all(
     filtered.map(async (project: { id: number }) => {
-      const runsRes = await apiFetch(buildApiUrl(`/api/project/${project.id}/runs`))
+      const runsRes = await apiFetch(buildApiUrl(`/api/project/${project.id}/runs?limit=100`))
       if (!runsRes.ok) return
-      const backendRuns: BackendRun[] = await runsRes.json()
+      const data: BackendPaginatedRuns = await runsRes.json()
 
       await Promise.all(
-        backendRuns.map(async (backendRun) => {
+        data.runs.map(async (backendRun) => {
           const recordsRes = await apiFetch(
             buildApiUrl(`/api/run/${backendRun.id}/record_points`)
           )

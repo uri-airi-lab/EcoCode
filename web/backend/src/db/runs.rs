@@ -71,7 +71,8 @@ pub async fn fetch_run_summary(
 ) -> Result<Option<RunSummary>, ApiError> {
     sqlx::query_as::<_, RunSummary>(
         "SELECT run_id, total_cpu_energy, total_gpu_energy, total_mem_energy, total_igpu_energy,
-                total_co2_g, carbon_intensity_used, pue_used, total_cost, currency_used
+                total_co2_g, carbon_intensity_used, pue_used, total_cost, currency_used,
+                avg_cpu_usage, avg_gpu_usage, avg_mem_usage
          FROM runsummary
          WHERE run_id = $1",
     )
@@ -131,14 +132,18 @@ pub async fn calculate_run_summary_db(
     sqlx::query(
         "INSERT INTO runsummary
             (run_id, total_cpu_energy, total_gpu_energy, total_mem_energy, total_igpu_energy,
-             total_co2_g, carbon_intensity_used, pue_used, total_cost, currency_used)
+             total_co2_g, carbon_intensity_used, pue_used, total_cost, currency_used,
+             avg_cpu_usage, avg_gpu_usage, avg_mem_usage)
           SELECT
             $1,
             COALESCE(SUM(cpu_energy),  0.0),
             COALESCE(SUM(gpu_energy),  0.0),
             COALESCE(SUM(mem_energy),  0.0),
             COALESCE(SUM(igpu_energy), 0.0),
-            0.0, $2, $3, 0.0, $4
+            0.0, $2, $3, 0.0, $4,
+            COALESCE(AVG(cpu_usage), 0.0),
+            COALESCE(AVG(gpu_usage), 0.0),
+            COALESCE(AVG(mem_usage), 0.0)
           FROM records
           WHERE run_id = $1",
     )

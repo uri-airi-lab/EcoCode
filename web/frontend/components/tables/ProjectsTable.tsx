@@ -4,7 +4,7 @@ import React, { memo, useState } from 'react'
 import Link from 'next/link'
 import { ProjectSummary } from '@/lib/api'
 import { format } from 'date-fns'
-import { ChevronRight, Folder, Trash2 } from 'lucide-react'
+import { ChevronRight, Folder, Trash2, Leaf, Coins } from 'lucide-react'
 import { useWorkspace } from '@/components/layout/WorkspaceProvider'
 import {
   Pagination,
@@ -27,14 +27,14 @@ export const ProjectsTable = memo(function ProjectsTable({ projects, loading = f
     const { currentWorkspace } = useWorkspace()
     const workspaceSlug = currentWorkspace?.slug ?? ''
     const [currentPage, setCurrentPage] = useState(1)
-    const [deletingId, setDeletingId] = useState<number | null>(null)
+    const [deletingId, setDeletingId] = useState<string | null>(null)
     
     const totalPages = Math.ceil(projects.length / ITEMS_PER_PAGE)
     const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
     const endIndex = startIndex + ITEMS_PER_PAGE
     const currentProjects = projects.slice(startIndex, endIndex)
 
-    const handleDelete = async (projectId: number, projectName: string) => {
+    const handleDelete = async (projectId: string, projectName: string) => {
         if (!confirm(`Are you sure you want to delete project "${projectName}"? This will also delete all associated runs and records. This action cannot be undone.`)) {
             return
         }
@@ -89,6 +89,12 @@ export const ProjectsTable = memo(function ProjectsTable({ projects, loading = f
                                 Total Energy (Wh)
                             </th>
                             <th className="text-right py-3 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px]">
+                                Carbon (g CO₂)
+                            </th>
+                            <th className="text-right py-3 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px]">
+                                Cost
+                            </th>
+                            <th className="text-right py-3 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px]">
                                 Last Run
                             </th>
                             <th className="text-right py-3 px-4" />
@@ -97,7 +103,7 @@ export const ProjectsTable = memo(function ProjectsTable({ projects, loading = f
                     <tbody>
                         {loading ? (
                             <tr>
-                                <td colSpan={5} className="py-12 text-center">
+                                <td colSpan={7} className="py-12 text-center">
                                     <div className="flex flex-col items-center gap-3">
                                         <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
                                         <p className="text-sm text-muted-foreground">Loading projects...</p>
@@ -106,7 +112,7 @@ export const ProjectsTable = memo(function ProjectsTable({ projects, loading = f
                             </tr>
                         ) : projects.length === 0 ? (
                             <tr>
-                                <td colSpan={5} className="py-8 text-center text-muted-foreground">
+                                <td colSpan={7} className="py-8 text-center text-muted-foreground">
                                     No projects found.
                                 </td>
                             </tr>
@@ -124,6 +130,20 @@ export const ProjectsTable = memo(function ProjectsTable({ projects, loading = f
                                 </td>
                                 <td className="text-right py-3 px-4 text-foreground font-medium font-mono">
                                     {Number(project.totalEnergy.toFixed(2)).toLocaleString()}
+                                </td>
+                                <td className="text-right py-3 px-4 text-emerald-400 font-medium font-mono whitespace-nowrap">
+                                    <div className="flex items-center justify-end gap-1.5">
+                                        <Leaf className="w-3 h-3" />
+                                        {project.totalCo2G > 1000 ? (project.totalCo2G / 1000).toFixed(2) : project.totalCo2G.toFixed(0)}
+                                        <span className="text-[10px] text-muted-foreground uppercase">{project.totalCo2G > 1000 ? 'kg' : 'g'}</span>
+                                    </div>
+                                </td>
+                                <td className="text-right py-3 px-4 text-amber-400 font-medium font-mono whitespace-nowrap">
+                                    <div className="flex items-center justify-end gap-1.5">
+                                        <Coins className="w-3 h-3" />
+                                        {project.totalCost.toFixed(2)}
+                                        <span className="text-[10px] text-muted-foreground uppercase">{project.currency}</span>
+                                    </div>
                                 </td>
                                 <td className="text-right py-3 px-4 text-muted-foreground">
                                     {project.lastRunTimestamp ? format(new Date(project.lastRunTimestamp), 'MMM d, yyyy') : '-'}

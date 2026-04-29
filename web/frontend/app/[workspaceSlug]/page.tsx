@@ -6,6 +6,7 @@ import {
   Clock,
   Activity,
   Coins,
+  Leaf,
 } from 'lucide-react'
 import { DashboardLayout } from '@/components/layout/DashboardLayout'
 import { MetricCard } from '@/components/MetricCard'
@@ -17,7 +18,7 @@ import { CumulativePowerChart } from '@/components/charts/CumulativePowerChart'
 import { EnvironmentalImpact } from '@/components/run/EnvironmentalImpact'
 import { CarbonSettings } from '@/components/run/CarbonSettings'
 import { StartRunModal } from '@/components/StartRunModal'
-import { Run } from '@/lib/mock-data'
+import { Run, MetricRecord } from '@/lib/mock-data'
 import { fetchAllRuns, fetchRunDetail, fetchAllProjects, ProjectSummary } from '@/lib/api'
 import { useSSE } from '@/hooks/use-sse'
 import { useWorkspace } from '@/components/layout/WorkspaceProvider'
@@ -207,88 +208,88 @@ export default function Dashboard() {
 
 
         {/* Project Overview */}
-        <div className="mb-8">
-          <h2 className="text-lg md:text-xl font-semibold text-foreground mb-4">
-            Project Overview
-          </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-            <MetricCard
-              icon={Zap}
-              label="Total Energy"
-              value={Number(stats.totalEnergy.toFixed(2)).toLocaleString()}
-              unit="Wh"
-              trend={
-                trend
-                  ? {
-                    value: trend.energyTrend,
-                    direction: trend.energyTrend > 0 ? 'up' : 'down',
-                  }
-                  : undefined
-              }
-              loading={loading}
-            />
-            <MetricCard
-              icon={Clock}
-              label="Total Core Hours"
-              value={(stats.totalCoreHours / 24).toFixed(2)}
-              unit="hrs"
-              loading={loading}
-            />
-            {/* <MetricCard
-              icon={Leaf}
-              label="Carbon Footprint"
-              value={Number(stats.totalCarbonFootprint.toFixed(2)).toLocaleString()}
-              unit="g CO₂"
-              trend={
-                trend
-                  ? {
-                    value: trend.carbonTrend,
-                    direction: trend.carbonTrend > 0 ? 'up' : 'down',
-                  }
-                  : undefined
-              }
-              loading={loading}
-            /> */}
-            <MetricCard
-              icon={Activity}
-              label="Avg CPU Usage"
-              value={stats.avgCpuUsage.toFixed(1)}
-              unit="%"
-              loading={loading}
-            />
-            <MetricCard
-              icon={Activity}
-              label="Avg GPU Usage"
-              value={stats.avgGpuUsage.toFixed(1)}
-              unit="%"
-              loading={loading}
-            />
-            <MetricCard
-              icon={Activity}
-              label="Avg Memory Usage"
-              value={stats.avgMemUsage.toFixed(1)}
-              unit="%"
-              loading={loading}
-            />
-            <MetricCard
-              icon={Coins}
-              label="Total Cost"
-              value={stats.totalCost.toFixed(2)}
-              unit={stats.currency}
-              loading={loading}
-              className="bg-amber-500/10 border-amber-500/20"
-            />
-          </div>
+        {/* Metrics Row */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-0 items-stretch border border-border rounded-xl overflow-hidden mb-12">
+          <section className="lg:col-span-7 p-6 bg-emerald-500/[0.02]">
+            <h4 className="text-xs font-bold text-emerald-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+              Impact Summary
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <MetricCard
+                icon={Leaf}
+                label="Carbon Footprint"
+                value={stats.totalCarbonFootprint > 1000 ? (stats.totalCarbonFootprint / 1000).toFixed(4) : stats.totalCarbonFootprint.toFixed(4)}
+                unit={stats.totalCarbonFootprint > 1000 ? 'kg CO₂' : 'g CO₂'}
+                trend={
+                  trend
+                    ? {
+                      value: trend.carbonTrend,
+                      direction: trend.carbonTrend > 0 ? 'up' : 'down',
+                    }
+                    : undefined
+                }
+                loading={loading}
+                className="bg-emerald-500/10 border-emerald-500/20"
+              />
+              <MetricCard
+                icon={Coins}
+                label="Total Cost"
+                value={stats.totalCost.toFixed(4)}
+                unit={stats.currency}
+                loading={loading}
+                className="bg-amber-500/10 border-amber-500/20"
+              />
+              <MetricCard
+                icon={Zap}
+                label="Total Energy"
+                value={stats.totalEnergy.toFixed(4)}
+                unit="Wh"
+                trend={
+                  trend
+                    ? {
+                      value: trend.energyTrend,
+                      direction: trend.energyTrend > 0 ? 'up' : 'down',
+                    }
+                    : undefined
+                }
+                loading={loading}
+              />
+            </div>
+          </section>
+
+          <section className="lg:col-span-5 p-6 bg-blue-500/[0.02] border-t lg:border-t-0 lg:border-l border-border">
+            <h4 className="text-xs font-bold text-blue-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+              <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+              Workspace Stats
+            </h4>
+            <div className="grid grid-cols-2 sm:grid-cols-2 gap-4">
+              <MetricCard
+                icon={Clock}
+                label="Core Hours"
+                value={(stats.totalCoreHours / 24).toFixed(4)}
+                unit="hrs"
+                loading={loading}
+                className="bg-blue-500/5 border-blue-500/10"
+              />
+              <MetricCard icon={Activity} label="Avg CPU" value={stats.avgCpuUsage.toFixed(4)} unit="%" loading={loading} className="bg-blue-500/5 border-blue-500/10" />
+              <MetricCard icon={Activity} label="Avg GPU" value={stats.avgGpuUsage.toFixed(4)} unit="%" loading={loading} className="bg-blue-500/5 border-blue-500/10" />
+              <MetricCard icon={Activity} label="Avg Mem" value={stats.avgMemUsage.toFixed(4)} unit="%" loading={loading} className="bg-blue-500/5 border-blue-500/10" />
+            </div>
+          </section>
         </div>
 
-        {/* Environmental Impact Translation
-        <div className="mb-8">
-          <h2 className="text-lg md:text-xl font-semibold text-foreground mb-4">
-            Environmental Impact Equivalents
+        {/* Sustainability Impact */}
+        <div className="mb-12">
+          <h2 className="text-xl font-bold text-foreground mb-6 flex items-center gap-2">
+            <Leaf className="w-5 h-5 text-primary" />
+            Sustainability Impact
           </h2>
           <EnvironmentalImpact
             totalEnergyWh={stats.totalEnergy}
             totalCo2G={stats.totalCarbonFootprint}
+            totalCost={stats.totalCost}
+            currency={stats.currency}
           />
         </div>
 
