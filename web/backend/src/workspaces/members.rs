@@ -47,7 +47,7 @@ async fn invite_member(
     State(state): State<AppState>,
     Json(payload): Json<InvitePayload>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let ws_id = resolve_workspace_id(&state, &slug).await?;
+    let ws_id = resolve_workspace_id(&state, &slug, auth_user.user_id).await?;
     require_admin(&state, ws_id, auth_user.user_id).await?;
 
     let target_user_row = sqlx::query("SELECT id FROM users WHERE email = $1")
@@ -85,7 +85,7 @@ async fn list_members(
     Path(slug): Path<String>,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let ws_id = resolve_workspace_id(&state, &slug).await?;
+    let ws_id = resolve_workspace_id(&state, &slug, auth_user.user_id).await?;
     require_admin(&state, ws_id, auth_user.user_id).await?;
 
     let members = sqlx::query(
@@ -116,7 +116,7 @@ async fn remove_member(
     Path((slug, target_user_id)): Path<(String, i64)>,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let ws_id = resolve_workspace_id(&state, &slug).await?;
+    let ws_id = resolve_workspace_id(&state, &slug, auth_user.user_id).await?;
     require_admin(&state, ws_id, auth_user.user_id).await?;
 
     if target_user_id == auth_user.user_id {
@@ -144,7 +144,7 @@ async fn update_member_role(
     State(state): State<AppState>,
     Json(payload): Json<UpdateRolePayload>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let ws_id = resolve_workspace_id(&state, &slug).await?;
+    let ws_id = resolve_workspace_id(&state, &slug, auth_user.user_id).await?;
     require_admin(&state, ws_id, auth_user.user_id).await?;
 
     if target_user_id == auth_user.user_id {

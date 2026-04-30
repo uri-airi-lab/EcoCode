@@ -50,6 +50,16 @@ struct AuthPayload {
     password: String,
 }
 
+#[derive(Deserialize)]
+struct RegisterPayload {
+    email: String,
+    password: String,
+    full_name: Option<String>,
+    institution: String,
+    position: String,
+    use_case: Option<String>,
+}
+
 #[derive(Serialize)]
 struct AuthResponse {
     token: String,
@@ -58,8 +68,15 @@ struct AuthResponse {
 
 async fn register(
     State(state): State<AppState>,
-    Json(payload): Json<AuthPayload>,
+    Json(payload): Json<RegisterPayload>,
 ) -> Result<impl IntoResponse, ApiError> {
+    if payload.institution.trim().is_empty() {
+        return Err(ApiError::new(StatusCode::UNPROCESSABLE_ENTITY, "Institution is required"));
+    }
+    if payload.position.trim().is_empty() {
+        return Err(ApiError::new(StatusCode::UNPROCESSABLE_ENTITY, "Position is required"));
+    }
+
     let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
     let password_hash = argon2
@@ -68,10 +85,15 @@ async fn register(
         .to_string();
 
     let res = sqlx::query(
-        "INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id",
+        "INSERT INTO users (email, password_hash, full_name, institution, position, use_case)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
     )
     .bind(&payload.email)
     .bind(&password_hash)
+    .bind(&payload.full_name)
+    .bind(payload.institution.trim())
+    .bind(payload.position.trim())
+    .bind(&payload.use_case)
     .fetch_one(&state.pool)
     .await
     .map_err(|e| {

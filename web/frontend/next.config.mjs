@@ -11,12 +11,19 @@ const nextConfig = {
     // In Docker the backend is reachable via the service name "backend".
     // Locally it stays on http://localhost:3001.
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
-    return [
-      {
-        source: '/api/:path*',
-        destination: `${apiUrl}/api/:path*`,
-      },
-    ]
+    return {
+      // beforeFiles: run before filesystem routes — catch-all API proxy
+      beforeFiles: [],
+      // afterFiles: run after filesystem routes — /api/sse is handled by its
+      // own route handler (app/api/sse/route.ts) and must NOT be rewritten here.
+      afterFiles: [
+        {
+          source: '/api/:path*',
+          destination: `${apiUrl}/api/:path*`,
+        },
+      ],
+      fallback: [],
+    }
   },
 
   async headers() {

@@ -46,18 +46,30 @@ async fn create_workspace(
 ) -> Result<impl IntoResponse, ApiError> {
     let mut tx = state.pool.begin().await.map_err(ApiError::internal)?;
 
+    // Check slug uniqueness within this user's workspaces only
+    let slug_taken: bool = sqlx::query_scalar(
+        "SELECT EXISTS(
+           SELECT 1 FROM workspaces w
+           JOIN workspace_members m ON m.workspace_id = w.id
+           WHERE w.slug = $1 AND m.user_id = $2
+         )"
+    )
+    .bind(&payload.slug)
+    .bind(auth_user.user_id)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(ApiError::internal)?;
+
+    if slug_taken {
+        return Err(ApiError::new(StatusCode::CONFLICT, "You already have a workspace with this slug"));
+    }
+
     let res = sqlx::query("INSERT INTO workspaces (name, slug) VALUES ($1, $2) RETURNING id")
         .bind(&payload.name)
         .bind(&payload.slug)
         .fetch_one(&mut *tx)
         .await
-        .map_err(|e| {
-            if e.to_string().contains("duplicate key value") {
-                ApiError::new(StatusCode::CONFLICT, "Workspace slug already exists")
-            } else {
-                ApiError::internal(e)
-            }
-        })?;
+        .map_err(ApiError::internal)?;
     let workspace_id: i64 = res.get("id");
 
     sqlx::query(
@@ -115,7 +127,7 @@ async fn delete_workspace(
     Path(slug): Path<String>,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let ws_id = resolve_workspace_id(&state, &slug).await?;
+    let ws_id = resolve_workspace_id(&state, &slug, auth_user.user_id).await?;
     require_admin(&state, ws_id, auth_user.user_id).await?;
 
     let result = sqlx::query("DELETE FROM workspaces WHERE id = $1")

@@ -2,16 +2,22 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { ArrowRight, Loader2, UserPlus, Mail, Lock } from 'lucide-react'
+import { ArrowRight, Loader2, UserPlus, Mail, Lock, Building2, Briefcase, User, FileText } from 'lucide-react'
 
 export default function RegisterPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [fullName, setFullName] = useState('')
+  const [institution, setInstitution] = useState('')
+  const [position, setPosition] = useState('')
+  const [useCase, setUseCase] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!institution.trim()) { setError('Institution is required.'); return }
+    if (!position.trim()) { setError('Position is required.'); return }
     setLoading(true)
     setError('')
 
@@ -19,7 +25,14 @@ export default function RegisterPage() {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({
+          email,
+          password,
+          full_name: fullName.trim() || null,
+          institution: institution.trim(),
+          position: position.trim(),
+          use_case: useCase.trim() || null,
+        }),
         credentials: 'include'
       })
 
@@ -35,6 +48,8 @@ export default function RegisterPage() {
       setLoading(false)
     }
   }
+
+  const inputClass = "w-full pl-11 pr-4 py-3 bg-background border border-border rounded-md text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all"
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center overflow-hidden">
@@ -70,7 +85,7 @@ export default function RegisterPage() {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-11 pr-4 py-3 bg-background border border-border rounded-md text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all"
+                  className={inputClass}
                   placeholder="you@example.com"
                 />
               </div>
@@ -89,8 +104,82 @@ export default function RegisterPage() {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-11 pr-4 py-3 bg-background border border-border rounded-md text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all"
+                  className={inputClass}
                   placeholder="Create a strong password"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">
+                Full Name <span className="text-muted-foreground font-normal">(optional)</span>
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                  <User className="h-5 w-5 text-muted-foreground" />
+                </div>
+                <input
+                  type="text"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  className={inputClass}
+                  placeholder="Your full name"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">
+                Institution
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                  <Building2 className="h-5 w-5 text-muted-foreground" />
+                </div>
+                <input
+                  type="text"
+                  required
+                  value={institution}
+                  onChange={(e) => setInstitution(e.target.value)}
+                  className={inputClass}
+                  placeholder="University / Company / Research Lab"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">
+                Position
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                  <Briefcase className="h-5 w-5 text-muted-foreground" />
+                </div>
+                <input
+                  type="text"
+                  required
+                  value={position}
+                  onChange={(e) => setPosition(e.target.value)}
+                  className={inputClass}
+                  placeholder="e.g. PhD Student, Research Engineer, Professor"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">
+                How will you use EcoCode? <span className="text-muted-foreground font-normal">(optional)</span>
+              </label>
+              <div className="relative">
+                <div className="absolute top-3 left-0 pl-4 flex items-start pointer-events-none">
+                  <FileText className="h-5 w-5 text-muted-foreground" />
+                </div>
+                <textarea
+                  value={useCase}
+                  onChange={(e) => setUseCase(e.target.value)}
+                  rows={3}
+                  className="w-full pl-11 pr-4 py-3 bg-background border border-border rounded-md text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all resize-none"
+                  placeholder="Briefly describe your use case..."
                 />
               </div>
             </div>

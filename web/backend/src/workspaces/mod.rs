@@ -14,13 +14,18 @@ use sqlx::Row;
 use crate::error::ApiError;
 use crate::state::AppState;
 
-/// Looks up a workspace by its URL slug and returns its database ID.
-pub(super) async fn resolve_workspace_id(state: &AppState, slug: &str) -> Result<i64, ApiError> {
-    let row = sqlx::query("SELECT id FROM workspaces WHERE slug = $1")
-        .bind(slug)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(ApiError::internal)?;
+/// Looks up a workspace by slug within the authenticated user's memberships.
+pub(super) async fn resolve_workspace_id(state: &AppState, slug: &str, user_id: i64) -> Result<i64, ApiError> {
+    let row = sqlx::query(
+        "SELECT w.id FROM workspaces w
+         JOIN workspace_members m ON m.workspace_id = w.id
+         WHERE w.slug = $1 AND m.user_id = $2"
+    )
+    .bind(slug)
+    .bind(user_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(ApiError::internal)?;
 
     match row {
         Some(r) => Ok(r.get("id")),

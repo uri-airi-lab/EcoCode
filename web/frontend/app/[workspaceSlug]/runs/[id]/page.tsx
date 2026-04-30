@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
@@ -13,10 +13,11 @@ import { RunSystemInfo } from '@/components/run/RunSystemInfo'
 import { PowerDistributionChart } from '@/components/charts/PowerDistributionChart'
 import { CumulativePowerChart } from '@/components/charts/CumulativePowerChart'
 import { EnvironmentalImpact } from '@/components/run/EnvironmentalImpact'
-import { Run, MetricRecord } from '@/lib/mock-data'
+import { Run } from '@/lib/mock-data'
 import { fetchRunMeta, fetchRunRecords } from '@/lib/api'
-import { useSSE } from '@/hooks/use-sse'
 import { format } from 'date-fns'
+
+const POLL_INTERVAL_MS = 1000
 
 interface RunDetailPageProps {
   params: Promise<{ id: string }>
@@ -29,7 +30,8 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
   const [loading, setLoading] = useState(true)
   const [chartsLoading, setChartsLoading] = useState(true)
   const [paramId, setParamId] = useState<string | null>(null)
-  const { latestRecord } = useSSE()
+  // Tracks how many records we already have so incremental polls only fetch the diff
+  const recordOffsetRef = useRef(0)
 
   useEffect(() => {
     const initParams = async () => {
@@ -38,40 +40,6 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
     }
     initParams()
   }, [params])
-
-  // Update current run with real-time SSE data
-  useEffect(() => {
-    if (!latestRecord || !run || latestRecord.run_id !== paramId) return
-
-    setRun((prevRun) => {
-      if (!prevRun) return null
-      if (prevRun.records.some((r) => r.id === latestRecord.id)) return prevRun
-
-      const updatedRecords = [...prevRun.records, latestRecord]
-      const count = updatedRecords.length
-      const newTotalEnergy =
-        prevRun.totalEnergy +
-        ((latestRecord.cpu_energy ?? 0) +
-          (latestRecord.gpu_energy ?? 0) +
-          (latestRecord.mem_energy ?? 0) +
-          (latestRecord.igpu_energy ?? 0)) / 3600.0
-      const energyKwh = newTotalEnergy / 1000
-      const avgCpuUsage = (prevRun.avgCpuUsage * (count - 1) + (latestRecord.cpu_usage ?? 0)) / count
-      const avgGpuUsage = (prevRun.avgGpuUsage * (count - 1) + (latestRecord.gpu_usage ?? 0)) / count
-      const avgMemUsage = (prevRun.avgMemUsage * (count - 1) + (latestRecord.mem_usage ?? 0)) / count
-
-      return {
-        ...prevRun,
-        records: updatedRecords,
-        totalEnergy: newTotalEnergy,
-        carbonFootprint: energyKwh * (prevRun.carbonIntensityUsed ?? 445) * (prevRun.pueUsed ?? 1.0),
-        avgCpuUsage,
-        avgGpuUsage,
-        avgMemUsage,
-        status: 'running',
-      }
-    })
-  }, [latestRecord, paramId])
 
   useEffect(() => {
     if (!paramId) return
@@ -105,6 +73,8 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
         try {
           const records = await fetchRunRecords(paramId)
           if (cancelled) return
+          // Set offset immediately so the first poll doesn't re-fetch these records
+          recordOffsetRef.current = records.length
           setRun((prev) => {
             if (!prev) return null
             const count = records.length
@@ -134,6 +104,57 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
     fetchRun()
     return () => { cancelled = true }
   }, [paramId])
+
+  // Keep recordOffsetRef in sync with the latest loaded record count
+  useEffect(() => {
+    if (run) recordOffsetRef.current = run.records.length
+  }, [run?.records.length])
+
+  // Incremental poll: only fetches records added since the last poll
+  useEffect(() => {
+    if (!paramId || !run || run.status !== 'running') return
+
+    const poll = async () => {
+      try {
+        const offset = recordOffsetRef.current
+        const newRecords = await fetchRunRecords(paramId, 200, offset)
+        if (newRecords.length === 0) return
+
+        recordOffsetRef.current += newRecords.length
+        setRun((prev) => {
+          if (!prev) return null
+          const merged = [...prev.records, ...newRecords]
+          const count = merged.length
+          return {
+            ...prev,
+            records: merged,
+            avgCpuUsage: count > 0 ? merged.reduce((s, r) => s + r.cpu_usage, 0) / count : prev.avgCpuUsage,
+            avgGpuUsage: count > 0 ? merged.reduce((s, r) => s + r.gpu_usage, 0) / count : prev.avgGpuUsage,
+            avgMemUsage: count > 0 ? merged.reduce((s, r) => s + r.mem_usage, 0) / count : prev.avgMemUsage,
+          }
+        })
+      } catch {
+        // silently ignore poll errors
+      }
+    }
+
+    // Also check if the run finished — on a separate slower interval to avoid overhead
+    const statusCheck = async () => {
+      try {
+        const meta = await fetchRunMeta(paramId)
+        if (meta.status !== 'running') {
+          setRun((prev) => prev ? { ...prev, status: meta.status, totalEnergy: meta.totalEnergy, carbonFootprint: meta.carbonFootprint } : null)
+        }
+      } catch { /* ignore */ }
+    }
+
+    const recordInterval = setInterval(poll, POLL_INTERVAL_MS)
+    const statusInterval = setInterval(statusCheck, 5000)
+    return () => {
+      clearInterval(recordInterval)
+      clearInterval(statusInterval)
+    }
+  }, [paramId, run?.status])
 
   if (loading) {
     return (

@@ -9,6 +9,7 @@
 //! - [`logfile`] — formatted log file
 
 pub mod csv;
+pub mod dual;
 pub mod json;
 pub mod local;
 pub mod logfile;

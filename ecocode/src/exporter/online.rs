@@ -83,13 +83,15 @@ impl OnlineExporter {
             .or_else(|| env::var("ECOCODE_API_KEY").ok())
             .or_else(|| config.as_ref().and_then(|c| c.api_key.clone()))
             .ok_or_else(|| {
-                "Error: API Key is missing.\n\
-                 Please provide it via:\n\
-                 1. Command line: --api-key <KEY>\n\
-                 2. Environment variable: ECOCODE_API_KEY\n\
-                 3. Save it once: ecocode config set-api-key <KEY>\n\
+                "Error: No API key found.\n\
+                 EcoCode requires an account to record runs.\n\
                  \n\
-                 You can get your key in the web platform under Settings > Developer."
+                 Sign up on the EcoCode web platform and get your API key under Settings > Developer.\n\
+                 \n\
+                 Then provide it via:\n\
+                 1. Command line:        --api-key <KEY>\n\
+                 2. Environment variable: ECOCODE_API_KEY=<KEY>\n\
+                 3. Save it once:        ecocode config set-api-key <KEY>"
             })?;
 
         // If API key was provided via command line, offer to save it

@@ -308,8 +308,8 @@ export async function fetchRunMeta(id: string): Promise<RunDetail> {
 }
 
 // Fetches up to `limit` record points for a run, sorted by timestamp.
-export async function fetchRunRecords(id: string, limit = 1000): Promise<MetricRecord[]> {
-  const res = await apiFetch(buildApiUrl(`/api/run/${id}/record_points?limit=${limit}`))
+export async function fetchRunRecords(id: string, limit = 1000, offset = 0): Promise<MetricRecord[]> {
+  const res = await apiFetch(buildApiUrl(`/api/run/${id}/record_points?limit=${limit}&offset=${offset}`))
   if (!res.ok) return []
   const backendRecords: BackendRecordPoint[] = await res.json()
   return backendRecords.map(mapRecord).sort((a, b) => a.timestamp - b.timestamp)

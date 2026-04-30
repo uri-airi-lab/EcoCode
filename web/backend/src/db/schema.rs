@@ -9,19 +9,42 @@ pub async fn ensure_postgres_schema(db: &PgPool) -> Result<(), Box<dyn std::erro
             id BIGSERIAL PRIMARY KEY,
             email TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
+            full_name TEXT,
+            institution TEXT NOT NULL DEFAULT '',
+            position TEXT NOT NULL DEFAULT '',
+            use_case TEXT,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )",
     )
     .execute(db)
     .await?;
 
+    // Migrate existing databases that are missing the profile columns
+    sqlx::query("ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name TEXT").execute(db).await?;
+    sqlx::query("ALTER TABLE users ADD COLUMN IF NOT EXISTS institution TEXT NOT NULL DEFAULT ''").execute(db).await?;
+    sqlx::query("ALTER TABLE users ADD COLUMN IF NOT EXISTS position TEXT NOT NULL DEFAULT ''").execute(db).await?;
+    sqlx::query("ALTER TABLE users ADD COLUMN IF NOT EXISTS use_case TEXT").execute(db).await?;
+
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS workspaces (
             id BIGSERIAL PRIMARY KEY,
             name TEXT NOT NULL,
-            slug TEXT UNIQUE NOT NULL,
+            slug TEXT NOT NULL,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )",
+    )
+    .execute(db)
+    .await?;
+
+    // Drop the global unique constraint on slug if it exists (slugs are now unique per user, not globally)
+    sqlx::query(
+        "DO $$ BEGIN
+           IF EXISTS (
+             SELECT 1 FROM pg_constraint WHERE conname = 'workspaces_slug_key'
+           ) THEN
+             ALTER TABLE workspaces DROP CONSTRAINT workspaces_slug_key;
+           END IF;
+         END $$"
     )
     .execute(db)
     .await?;
@@ -55,6 +78,35 @@ pub async fn ensure_postgres_schema(db: &PgPool) -> Result<(), Box<dyn std::erro
     .await?;
 
     // 2. Projects & Collaborators
+
+    // Drop any old global unique constraint on projects.name (names must only be unique per workspace)
+    sqlx::query(
+        "DO $$ BEGIN
+           IF EXISTS (
+             SELECT 1 FROM pg_constraint
+             WHERE conname = 'projects_name_key' AND conrelid = 'projects'::regclass
+           ) THEN
+             ALTER TABLE projects DROP CONSTRAINT projects_name_key;
+           END IF;
+         END $$"
+    )
+    .execute(db)
+    .await?;
+
+    // Ensure the correct per-workspace unique constraint exists
+    sqlx::query(
+        "DO $$ BEGIN
+           IF NOT EXISTS (
+             SELECT 1 FROM pg_constraint
+             WHERE conname = 'projects_workspace_id_name_key' AND conrelid = 'projects'::regclass
+           ) THEN
+             ALTER TABLE projects ADD CONSTRAINT projects_workspace_id_name_key UNIQUE (workspace_id, name);
+           END IF;
+         END $$"
+    )
+    .execute(db)
+    .await?;
+
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS projects (
             id BIGSERIAL PRIMARY KEY,

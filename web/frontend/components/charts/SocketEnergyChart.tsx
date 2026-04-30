@@ -13,8 +13,8 @@ import {
   Brush,
 } from 'recharts'
 import { MetricRecord } from '@/lib/mock-data'
-import { format } from 'date-fns'
 import { ChartInfoTooltip } from '@/components/ChartInfoTooltip'
+import { formatChartTime, minIntervalMs } from '@/lib/utils'
 import { chartColor } from '@/lib/chart-colors'
 
 const SOCKET_COLORS: Record<string, string> = {
@@ -48,10 +48,11 @@ export function SocketEnergyChart({ data }: SocketEnergyChartProps) {
 
   const chartData = useMemo(() => {
     const records = data
+    const intervalMs = minIntervalMs(data.map(r => r.timestamp))
 
     return records.map((record) => {
       const point: Record<string, string | number> = {
-        time: format(new Date(record.timestamp), 'HH:mm:ss'),
+        time: formatChartTime(record.timestamp, intervalMs),
       }
 
       // Pre-fill all known socket keys with 0 to prevent gaps

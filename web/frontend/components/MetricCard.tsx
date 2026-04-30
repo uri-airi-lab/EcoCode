@@ -43,21 +43,16 @@ export function MetricCard({
   return (
     <div className={`metric-card ${className}`}>
       <div className="flex items-start justify-between">
-        <div className="flex-1">
-          <p className="text-sm text-muted-foreground mb-2">{label}</p>
-          <div className="flex items-baseline gap-2">
-            <h3 className="text-2xl md:text-3xl font-bold font-mono text-foreground">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm text-muted-foreground mb-2 truncate">{label}</p>
+          <div className="flex items-baseline gap-1.5 flex-wrap">
+            <h3 className="text-xl lg:text-2xl xl:text-3xl font-bold font-mono text-foreground">
               {value}
             </h3>
             {unit && <span className="text-sm text-muted-foreground">{unit}</span>}
           </div>
-          {/* {trend && (
-            <p className={`text-xs mt-2 font-medium ${trendColor}`}>
-              {trendSymbol} {Math.abs(trend.value).toFixed(1)}% vs last run
-            </p>
-          )} */}
         </div>
-        <div className="ml-4 p-2 rounded bg-primary/15">
+        <div className="ml-3 p-2 rounded bg-primary/15 flex-shrink-0">
           <Icon className="w-5 h-5 text-primary" />
         </div>
       </div>

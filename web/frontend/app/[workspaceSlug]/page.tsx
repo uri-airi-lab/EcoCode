@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useRef, useState, useMemo } from 'react'
 import {
   Zap,
   Clock,
@@ -18,60 +18,19 @@ import { CumulativePowerChart } from '@/components/charts/CumulativePowerChart'
 import { EnvironmentalImpact } from '@/components/run/EnvironmentalImpact'
 import { CarbonSettings } from '@/components/run/CarbonSettings'
 import { StartRunModal } from '@/components/StartRunModal'
-import { Run, MetricRecord } from '@/lib/mock-data'
-import { fetchAllRuns, fetchRunDetail, fetchAllProjects, ProjectSummary } from '@/lib/api'
-import { useSSE } from '@/hooks/use-sse'
+import { Run } from '@/lib/mock-data'
+import { fetchAllRuns, fetchRunDetail, fetchRunRecords, fetchAllProjects, ProjectSummary } from '@/lib/api'
 import { useWorkspace } from '@/components/layout/WorkspaceProvider'
+
+const POLL_INTERVAL_MS = 1000
 
 export default function Dashboard() {
   const { currentWorkspace, loading: workspaceLoading } = useWorkspace()
   const [runs, setRuns] = useState<Omit<Run, 'records'>[]>([])
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [currentRun, setCurrentRun] = useState<Run | null>(null)
-  const [allRunsRecords, setAllRunsRecords] = useState<{ runId: string; runName: string; records: MetricRecord[] }[]>([])
   const [loading, setLoading] = useState(true)
-  const { latestRecord } = useSSE()
-
-  // Update current run with real-time SSE data
-  useEffect(() => {
-    if (!latestRecord) return
-
-    setCurrentRun((prevRun) => {
-      if (!prevRun) return null
-
-      // Check if the record already exists to avoid duplicates
-      if (prevRun.records.some((r) => r.id === latestRecord.id)) return prevRun
-
-      const updatedRecords = [...prevRun.records, latestRecord]
-      const count = updatedRecords.length
-
-      // Calculate new total and averages incrementally (O(1) instead of O(N))
-      // Conversion: Joules / 3600 = Wh
-      const newTotalEnergy =
-        prevRun.totalEnergy +
-        (latestRecord.cpu_energy +
-          latestRecord.gpu_energy +
-          latestRecord.mem_energy +
-          latestRecord.igpu_energy) / 3600.0;
-
-      const energyKwh = newTotalEnergy / 1000
-
-      // Incremental averages: (old_avg * old_count + new_val) / new_count
-      const avgCpuUsage = (prevRun.avgCpuUsage * (count - 1) + latestRecord.cpu_usage) / count
-      const avgGpuUsage = (prevRun.avgGpuUsage * (count - 1) + latestRecord.gpu_usage) / count
-      const avgMemUsage = (prevRun.avgMemUsage * (count - 1) + latestRecord.mem_usage) / count
-
-      return {
-        ...prevRun,
-        records: updatedRecords,
-        totalEnergy: newTotalEnergy,
-        carbonFootprint: energyKwh * (prevRun.carbonIntensityUsed ?? 445) * (prevRun.pueUsed ?? 1.0),
-        avgCpuUsage,
-        avgGpuUsage,
-        avgMemUsage,
-      }
-    })
-  }, [latestRecord])
+  const recordOffsetRef = useRef(0)
 
   useEffect(() => {
     if (workspaceLoading) return
@@ -117,8 +76,8 @@ export default function Dashboard() {
       try {
         const runData = await fetchRunDetail(latestRunId)
         if (!cancelled) {
+          recordOffsetRef.current = runData.records.length
           setCurrentRun(runData)
-          setAllRunsRecords([{ runId: runData.id, runName: runData.name, records: runData.records }])
         }
       } catch {
         if (!cancelled) setCurrentRun(null)
@@ -131,6 +90,41 @@ export default function Dashboard() {
       cancelled = true
     }
   }, [currentWorkspace, workspaceLoading])
+
+  // Keep offset ref in sync with currentRun's record count
+  useEffect(() => {
+    if (currentRun) recordOffsetRef.current = currentRun.records.length
+  }, [currentRun?.records.length])
+
+  // Incremental poll: only fetches new records added since the last poll
+  useEffect(() => {
+    if (!currentRun || currentRun.status !== 'running') return
+
+    const poll = async () => {
+      try {
+        const offset = recordOffsetRef.current
+        const newRecords = await fetchRunRecords(currentRun.id, 200, offset)
+        if (newRecords.length === 0) return
+
+        recordOffsetRef.current += newRecords.length
+        setCurrentRun((prev) => {
+          if (!prev) return null
+          const merged = [...prev.records, ...newRecords]
+          const count = merged.length
+          return {
+            ...prev,
+            records: merged,
+            avgCpuUsage: count > 0 ? merged.reduce((s, r) => s + r.cpu_usage, 0) / count : prev.avgCpuUsage,
+            avgGpuUsage: count > 0 ? merged.reduce((s, r) => s + r.gpu_usage, 0) / count : prev.avgGpuUsage,
+            avgMemUsage: count > 0 ? merged.reduce((s, r) => s + r.mem_usage, 0) / count : prev.avgMemUsage,
+          }
+        })
+      } catch { /* ignore */ }
+    }
+
+    const id = setInterval(poll, POLL_INTERVAL_MS)
+    return () => clearInterval(id)
+  }, [currentRun?.id, currentRun?.status])
 
   // Calculate aggregate stats (memoized to avoid re-calculating on every real-time update)
   const stats = useMemo(() => {
@@ -313,26 +307,32 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
-        ) : (allRunsRecords.length > 0 || currentRun) ? (
+        ) : currentRun ? (
           <div className="mb-8 space-y-4 md:space-y-6">
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 md:gap-6">
-              <div className="xl:col-span-2">
-                <EnergyChart runs={allRunsRecords.length > 0 ? allRunsRecords : (currentRun ? [{ runId: currentRun.id, runName: currentRun.name, records: currentRun.records }] : [])} />
-              </div>
-              {currentRun && currentRun.records.length > 0 && (
-                <div className="xl:col-span-1">
-                  <PowerDistributionChart 
-                    record={currentRun.records[currentRun.records.length - 1]} 
-                    prevRecord={currentRun.records.length > 1 ? currentRun.records[currentRun.records.length - 2] : undefined}
-                  />
-                </div>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
-              <CumulativePowerChart runs={allRunsRecords.length > 0 ? allRunsRecords : (currentRun ? [{ runId: currentRun.id, runName: currentRun.name, records: currentRun.records }] : [])} />
-              <UtilizationChart runs={allRunsRecords.length > 0 ? allRunsRecords : (currentRun ? [{ runId: currentRun.id, runName: currentRun.name, records: currentRun.records }] : [])} />
-            </div>
+            {(() => {
+              const runData = [{ runId: currentRun.id, runName: currentRun.name, records: currentRun.records }]
+              return (
+                <>
+                  <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 md:gap-6">
+                    <div className="xl:col-span-2">
+                      <EnergyChart runs={runData} />
+                    </div>
+                    {currentRun.records.length > 0 && (
+                      <div className="xl:col-span-1">
+                        <PowerDistributionChart
+                          record={currentRun.records[currentRun.records.length - 1]}
+                          prevRecord={currentRun.records.length > 1 ? currentRun.records[currentRun.records.length - 2] : undefined}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+                    <CumulativePowerChart runs={runData} />
+                    <UtilizationChart runs={runData} />
+                  </div>
+                </>
+              )
+            })()}
           </div>
         ) : null}
 

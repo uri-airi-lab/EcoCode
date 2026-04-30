@@ -12,8 +12,8 @@ import {
   ReferenceLine,
 } from 'recharts'
 import { MetricRecord } from '@/lib/mock-data'
-import { format } from 'date-fns'
 import { ChartInfoTooltip } from '@/components/ChartInfoTooltip'
+import { formatChartTime, minIntervalMs } from '@/lib/utils'
 import { chartColor } from '@/lib/chart-colors'
 
 const GPU_COLORS = [1, 2, 3, 4, 5, 6].map(n => chartColor(n as 1 | 2 | 3 | 4 | 5 | 6))
@@ -70,6 +70,9 @@ export function EnergyChart({ runs: runsProp, data }: EnergyChartProps) {
     // { index: number, runName: string } — index is the first point of the *next* run
     const seps: { index: number; runName: string }[] = []
 
+    const allTimestamps = runs.flatMap(r => r.records.map(rec => rec.timestamp))
+    const intervalMs = minIntervalMs(allTimestamps)
+
     runs.forEach((run, runIdx) => {
       const records = run.records.length > 1 ? run.records.slice(1) : run.records
 
@@ -86,7 +89,7 @@ export function EnergyChart({ runs: runsProp, data }: EnergyChartProps) {
         const deltaS = (deltaMs / 1000) || 1
 
         const point: Record<string, string | number | null> = {
-          time: format(new Date(record.timestamp), 'HH:mm:ss'),
+          time: formatChartTime(record.timestamp, intervalMs),
           index: data.length,
           cpu: Number(((record.cpu_energy ?? 0) / deltaS).toFixed(2)),
           gpu: Number(((record.gpu_energy ?? 0) / deltaS).toFixed(2)),

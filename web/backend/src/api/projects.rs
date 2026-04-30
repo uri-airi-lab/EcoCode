@@ -94,7 +94,7 @@ pub async fn post_projects(
     .await
     .map_err(|e| {
         if e.to_string().contains("duplicate key value") {
-            ApiError::new(StatusCode::CONFLICT, "Project name already exists")
+            ApiError::new(StatusCode::CONFLICT, "A project with this name already exists in this workspace")
         } else {
             ApiError::internal(e)
         }

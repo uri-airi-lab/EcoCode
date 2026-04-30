@@ -16,6 +16,7 @@ use crate::sensor::RAPL_PATH;
 use crate::sensor::gpu::{get_all_gpu_devices, get_all_gpu_energies, get_all_gpu_energies_by_pid};
 use crate::sensor::rapl::{delta_cpu_energy_per_pid_j, get_all_energies, scan_rapl_files};
 use crate::exporter::csv::CsvExporter;
+use crate::exporter::dual::DualExporter;
 use crate::exporter::json::JsonExporter;
 use crate::exporter::local::SqliteExporter;
 use crate::exporter::logfile::LogFileExporter;
@@ -64,15 +65,20 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
         })
     };
 
-    let mut exporter: Box<dyn Exporter> = match output.as_str() {
-        "terminal" => Box::new(TerminalExporter::new()),
-        "csv" => Box::new(CsvExporter::new(require_file("csv"))?),
-        "json" => Box::new(JsonExporter::new(require_file("json"))?),
-        "local" => Box::new(SqliteExporter::new().await?),
-        "online" => Box::new(OnlineExporter::new(args.api_key)?),
-        "prometheus" => Box::new(PrometheusExporter::new()),
-        "logfile" => Box::new(LogFileExporter::new(require_file("logfile"))?),
-        _ => Box::new(TerminalExporter::new()),
+    let mut exporter: Box<dyn Exporter> = if output == "online" {
+        Box::new(OnlineExporter::new(args.api_key)?)
+    } else {
+        let primary: Box<dyn Exporter> = match output.as_str() {
+            "terminal" => Box::new(TerminalExporter::new()),
+            "csv" => Box::new(CsvExporter::new(require_file("csv"))?),
+            "json" => Box::new(JsonExporter::new(require_file("json"))?),
+            "local" => Box::new(SqliteExporter::new().await?),
+            "prometheus" => Box::new(PrometheusExporter::new()),
+            "logfile" => Box::new(LogFileExporter::new(require_file("logfile"))?),
+            _ => Box::new(TerminalExporter::new()),
+        };
+        let online = OnlineExporter::new(args.api_key)?;
+        Box::new(DualExporter::new(primary, online))
     };
     if output == "online" && args.collaborator.is_some() {
         println!("Notice: In 'online' mode, the collaborator name is automatically linked to your EcoCode account. The provided --collaborator value will be ignored.");

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { FolderPlus, Loader2, ArrowRight, ArrowLeft } from 'lucide-react'
 import { useWorkspace } from '@/components/layout/WorkspaceProvider'
@@ -11,10 +11,15 @@ export default function CreateWorkspacePage() {
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
   const [slug, setSlug] = useState('')
+  const [error, setError] = useState('')
+  const submittingRef = useRef(false)
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (submittingRef.current) return
+    submittingRef.current = true
     setCreating(true)
+    setError('')
 
     try {
       const res = await fetch('/api/workspaces', {
@@ -28,16 +33,16 @@ export default function CreateWorkspacePage() {
         await refresh()
         router.push(`/${slug}`)
       } else if (res.status === 409) {
-        alert('Workspace slug is already taken. Please choose a different one.')
+        setError('You already have a workspace with this slug. Please choose a different one.')
       } else if (res.status === 401) {
         router.push('/login')
       } else {
-        const errorData = await res.json().catch(() => ({}))
-        alert(`Failed to create workspace: ${errorData.message || 'Server error'}`)
+        setError('Failed to create workspace. Please try again.')
       }
     } catch {
-      alert('An error occurred. Please try again.')
+      setError('An error occurred. Please try again.')
     } finally {
+      submittingRef.current = false
       setCreating(false)
     }
   }
@@ -78,6 +83,10 @@ export default function CreateWorkspacePage() {
 
         <div className="bg-neutral-900/60 backdrop-blur-xl border border-neutral-800 rounded-3xl p-8 shadow-2xl">
           <form onSubmit={handleCreate} className="space-y-5">
+            {error && (
+              <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-3">{error}</p>
+            )}
+
             <div>
               <label className="block text-sm font-medium text-neutral-300 mb-2">
                 Workspace Name
@@ -97,7 +106,7 @@ export default function CreateWorkspacePage() {
                 Workspace URL
               </label>
               <div className="flex items-center">
-                <span className="px-4 py-3 bg-neutral-900 border border-neutral-800 border-r-0 rounded-l-xl text-neutral-500 text-sm">
+                <span className="px-4 py-3 bg-neutral-900 border border-neutral-800 border-r-0 rounded-l-xl text-neutral-500 text-sm whitespace-nowrap">
                   ecocode.com/
                 </span>
                 <input
