@@ -242,6 +242,7 @@ pub async fn ensure_postgres_schema(db: &PgPool) -> Result<(), Box<dyn std::erro
     sqlx::query("ALTER TABLE runsummary ADD COLUMN IF NOT EXISTS avg_cpu_usage DOUBLE PRECISION").execute(db).await?;
     sqlx::query("ALTER TABLE runsummary ADD COLUMN IF NOT EXISTS avg_gpu_usage DOUBLE PRECISION").execute(db).await?;
     sqlx::query("ALTER TABLE runsummary ADD COLUMN IF NOT EXISTS avg_mem_usage DOUBLE PRECISION").execute(db).await?;
+    sqlx::query("ALTER TABLE runs ADD COLUMN IF NOT EXISTS exporter_type TEXT").execute(db).await?;
 
     // 6. Maintenance & Data Backfill
     // Backfill usage averages for existing runs that were created before these columns existed

@@ -72,6 +72,7 @@ export async function mapRunSummary(backendRun: BackendRun): Promise<RunSummary>
     pueUsed: snapshot.pueUsed,
     totalCost: snapshot.totalCost,
     currency: snapshot.currency,
+    exporterType: backendRun.exporter_type ?? null,
   }
 }
 
@@ -109,6 +110,7 @@ export function mapBackendRunToSummary(b: BackendRunSummaryResponse): RunSummary
     pueUsed: b.pue_used ?? null,
     totalCost: b.total_cost ?? null,
     currency: b.currency_used ?? null,
+    exporterType: b.exporter_type ?? null,
   }
 }
 
@@ -147,6 +149,7 @@ export async function mapRun(backendRun: BackendRun): Promise<Run> {
       gpuCount: backendRun.gpu_count ?? 0,
       gpuNames: backendRun.gpu_names ?? '',
     } : null,
+    exporterType: backendRun.exporter_type ?? null,
     records: snapshot.records,
   }
 }
@@ -296,6 +299,7 @@ export async function fetchRunMeta(id: string): Promise<RunDetail> {
     pueUsed: summary?.pue_used ?? null,
     totalCost: summary?.total_cost ?? null,
     currency: summary?.currency_used ?? null,
+    exporterType: backendRun.exporter_type ?? null,
     systemInfo: backendRun.cpu_name ? {
       cpuName: backendRun.cpu_name,
       cpuCores: backendRun.cpu_cores ?? 0,
@@ -383,6 +387,7 @@ export async function fetchRunDetail(id: string): Promise<RunDetail> {
       pueUsed: summary?.pue_used ?? null,
       totalCost: summary?.total_cost ?? null,
       currency: summary?.currency_used ?? null,
+      exporterType: backendRun.exporter_type ?? null,
       systemInfo: backendRun.cpu_name ? {
         cpuName: backendRun.cpu_name,
         cpuCores: backendRun.cpu_cores ?? 0,

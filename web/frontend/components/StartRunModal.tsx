@@ -112,10 +112,7 @@ export function StartRunModal({ projects, onProjectCreated, defaultProjectId, ex
         }
     }
     
-    if (outputFormat === 'online') {
-        cmd += ` --api-key "ecocode_your_key_here"`
-    }
-    
+    cmd += ` --api-key "ecocode_your_key_here"`
     cmd += ` "<your-command>"`
     return cmd
   }
@@ -475,30 +472,28 @@ export function StartRunModal({ projects, onProjectCreated, defaultProjectId, ex
                         </div>
                     )}
 
-                    {outputFormat === 'online' && (
-                        <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 space-y-3 animate-in fade-in slide-in-from-top-2">
-                            <div className="flex items-center gap-2 text-emerald-400">
-                                <Key className="w-4 h-4" />
-                                <span className="text-sm font-bold">Authentication Required</span>
-                            </div>
-                            <p className="text-[11px] text-emerald-200/70 leading-relaxed">
-                                To push data to this dashboard, you must provide your API key using the <code>--api-key</code> parameter:
-                            </p>
-                            <div className="flex flex-col gap-2">
-                                <code className="text-[10px] bg-black/40 p-2 rounded border border-white/5 text-emerald-300 break-all font-mono">
-                                    --api-key "ecocode_..."
-                                </code>
-                                <a 
-                                    href={`/${currentWorkspace?.slug}/settings/developer`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-[10px] text-emerald-400 hover:text-emerald-300 font-bold flex items-center gap-1 transition-colors"
-                                >
-                                    Get your API key in Settings →
-                                </a>
-                            </div>
+                    <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 space-y-3">
+                        <div className="flex items-center gap-2 text-emerald-400">
+                            <Key className="w-4 h-4" />
+                            <span className="text-sm font-bold">API Key Required</span>
                         </div>
-                    )}
+                        <p className="text-[11px] text-emerald-200/70 leading-relaxed">
+                            All runs report to the EcoCode platform. Provide your API key using the <code>--api-key</code> parameter:
+                        </p>
+                        <div className="flex flex-col gap-2">
+                            <code className="text-[10px] bg-black/40 p-2 rounded border border-white/5 text-emerald-300 break-all font-mono">
+                                --api-key "ecocode_..."
+                            </code>
+                            <a
+                                href={`/${currentWorkspace?.slug}/settings/developer`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[10px] text-emerald-400 hover:text-emerald-300 font-bold flex items-center gap-1 transition-colors"
+                            >
+                                Get your API key in Settings →
+                            </a>
+                        </div>
+                    </div>
             </div>
         </div>
 

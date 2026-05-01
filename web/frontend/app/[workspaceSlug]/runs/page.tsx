@@ -137,7 +137,7 @@ export default function RunsPage() {
             <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground" />
             <input
               type="text"
-              placeholder="Search runs... (e.g., 'Training Run', 'status:finished', 'energy < 100')"
+              placeholder="Search runs... (e.g., 'Training Run', 'status:finished', 'status:canceled', 'energy < 100')"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-12 pr-4 py-2 bg-card border border-border rounded text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary transition-all duration-200"

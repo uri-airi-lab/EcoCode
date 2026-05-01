@@ -47,6 +47,7 @@ impl Exporter for DualExporter {
         command: Option<&str>,
     ) -> Result<i64, Box<dyn std::error::Error>> {
         if let Some(online_project_id) = self.online_project_id {
+            self.online.exporter_type_label = self.primary.exporter_type().to_string();
             match self.online.create_run(run_name, online_project_id, collaborator_name, started_at, command).await {
                 Ok(id) => { self.online_run_id = Some(id); }
                 Err(e) => { eprintln!("[online] create_run warning: {}", e); }

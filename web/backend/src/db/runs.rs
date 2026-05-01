@@ -20,7 +20,7 @@ pub async fn fetch_runs(
 ) -> Result<Vec<Run>, ApiError> {
     sqlx::query_as::<_, Run>(
         "SELECT runs.id, runs.name, runs.project_id, runs.collaborator_name, runs.status,
-                runs.started_at, runs.ended_at, runs.command,
+                runs.started_at, runs.ended_at, runs.command, runs.exporter_type,
                 run_system_info.cpu_name, run_system_info.cpu_cores, run_system_info.ram_gb,
                 run_system_info.gpu_count, run_system_info.gpu_names
          FROM runs
@@ -48,7 +48,7 @@ pub async fn fetch_run(
 ) -> Result<Option<Run>, ApiError> {
     sqlx::query_as::<_, Run>(
         "SELECT runs.id, runs.name, runs.project_id, runs.collaborator_name, runs.status,
-                runs.started_at, runs.ended_at, runs.command,
+                runs.started_at, runs.ended_at, runs.command, runs.exporter_type,
                 run_system_info.cpu_name, run_system_info.cpu_cores, run_system_info.ram_gb,
                 run_system_info.gpu_count, run_system_info.gpu_names
          FROM runs

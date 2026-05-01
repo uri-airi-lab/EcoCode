@@ -190,7 +190,9 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
       ? 'bg-emerald-500/20 text-emerald-300'
       : run.status === 'running'
         ? 'bg-blue-500/20 text-blue-300'
-        : 'bg-red-500/20 text-red-300'
+        : run.status === 'canceled'
+          ? 'bg-amber-500/20 text-amber-300'
+          : 'bg-red-500/20 text-red-300'
 
   return (
     <DashboardLayout>
@@ -223,9 +225,16 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
                 </div>
               )}
             </div>
-            <span className={`inline-block px-3 md:px-4 py-2 rounded-lg font-medium whitespace-nowrap ${statusColor}`}>
-              {run.status}
-            </span>
+            <div className="flex flex-col items-end gap-2">
+              <span className={`inline-block px-3 md:px-4 py-2 rounded-lg font-medium whitespace-nowrap ${statusColor}`}>
+                {run.status}
+              </span>
+              {run.exporterType && (
+                <span className="inline-block px-3 py-1 rounded-lg text-xs font-medium font-mono bg-secondary text-secondary-foreground">
+                  {run.exporterType}
+                </span>
+              )}
+            </div>
           </div>
         </div>
 

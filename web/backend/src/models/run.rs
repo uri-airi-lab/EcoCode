@@ -11,6 +11,7 @@ pub struct Run {
     pub started_at: Option<String>,
     pub ended_at: Option<String>,
     pub command: Option<String>,
+    pub exporter_type: Option<String>,
     pub cpu_name: Option<String>,
     pub cpu_cores: Option<i32>,
     pub ram_gb: Option<f64>,

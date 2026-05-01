@@ -127,6 +127,20 @@ pub enum ExporterType {
     // Http, // Renamed to Online
 }
 
+impl std::fmt::Display for ExporterType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ExporterType::Terminal => write!(f, "terminal"),
+            ExporterType::Csv => write!(f, "csv"),
+            ExporterType::Json => write!(f, "json"),
+            ExporterType::Local => write!(f, "local"),
+            ExporterType::Online => write!(f, "online"),
+            ExporterType::Prometheus => write!(f, "prometheus"),
+            ExporterType::LogFile => write!(f, "logfile"),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SystemInfo {
     pub cpu_name: String,

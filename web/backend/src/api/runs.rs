@@ -26,6 +26,7 @@ pub struct RunSummaryResponse {
     pub started_at: Option<String>,
     pub ended_at: Option<String>,
     pub command: Option<String>,
+    pub exporter_type: Option<String>,
     pub total_cpu_energy: Option<f64>,
     pub total_gpu_energy: Option<f64>,
     pub total_mem_energy: Option<f64>,
@@ -67,7 +68,7 @@ pub async fn get_all_runs_with_summaries(
     
     let runs_with_summaries = sqlx::query_as::<_, RunSummaryResponse>(
         "SELECT r.id, r.name, r.project_id, p.name as project_name, r.collaborator_name, r.status,
-                r.started_at, r.ended_at, r.command,
+                r.started_at, r.ended_at, r.command, r.exporter_type,
                 rs.total_cpu_energy, rs.total_gpu_energy, rs.total_mem_energy, rs.total_igpu_energy,
                 rs.total_co2_g, rs.carbon_intensity_used, rs.pue_used, rs.total_cost, rs.currency_used,
                 rs.avg_cpu_usage, rs.avg_gpu_usage, rs.avg_mem_usage
@@ -125,7 +126,7 @@ pub async fn get_runs(
     // Get paginated runs with summaries
     let runs = sqlx::query_as::<_, RunSummaryResponse>(
         "SELECT r.id, r.name, r.project_id, p.name as project_name, r.collaborator_name, r.status,
-                r.started_at, r.ended_at, r.command,
+                r.started_at, r.ended_at, r.command, r.exporter_type,
                 rs.total_cpu_energy, rs.total_gpu_energy, rs.total_mem_energy, rs.total_igpu_energy,
                 rs.total_co2_g, rs.carbon_intensity_used, rs.pue_used, rs.total_cost, rs.currency_used,
                 rs.avg_cpu_usage, rs.avg_gpu_usage, rs.avg_mem_usage

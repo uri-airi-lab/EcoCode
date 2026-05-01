@@ -34,7 +34,7 @@ export interface Run {
   projectId: string
   name: string
   timestamp: number
-  status: 'running' | 'finished' | 'failed'
+  status: 'running' | 'finished' | 'failed' | 'canceled'
   collaboratorName?: string | null
   totalEnergy: number // Wh
   totalCpuEnergy: number // Wh
@@ -60,6 +60,7 @@ export interface Run {
   pueUsed?: number | null
   totalCost: number | null
   currency: string | null
+  exporterType?: string | null
   records: MetricRecord[]
 }
 

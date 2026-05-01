@@ -45,3 +45,7 @@ Thumbs.db
 
 # Project Specific
 data/
+
+.kiro/
+.idea/
+.vscode/

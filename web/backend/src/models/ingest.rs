@@ -8,6 +8,7 @@ pub struct IngestRunPayload {
     pub collaborator_name: Option<String>,
     pub started_at: Option<String>,
     pub command: Option<String>,
+    pub exporter_type: Option<String>,
 }
 
 /// Nested payload for GPU metrics inside an ingestion record.

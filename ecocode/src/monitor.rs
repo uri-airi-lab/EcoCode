@@ -152,12 +152,12 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
     let mut rapl_readers = scan_rapl_files()?;
 
     // --- Spawn the target process ---
-    let command = Command::new(&args.command[0])
+    let mut child = Command::new(&args.command[0])
         .args(&args.command[1..])
         .spawn()
         .expect("failed to execute process");
 
-    let pid = Pid::from(command.id() as usize);
+    let pid = Pid::from(child.id() as usize);
 
     // --- System setup ---
     let mut sys = System::new_with_specifics(RefreshKind::everything());
@@ -279,11 +279,21 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
     let mut ticker = time::interval_at(last_sample + period, period);
     ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
+    let mut canceled = false;
     let execution_result: Result<(), Box<dyn std::error::Error>> = async {
-        loop {
+        'monitoring: loop {
+            tokio::select! {
+                biased;
+                _ = tokio::signal::ctrl_c() => {
+                    eprintln!("\nCtrl+C received — saving run data...");
+                    canceled = true;
+                    break 'monitoring;
+                }
+                _ = ticker.tick() => {}
+            }
+
             iteration += 1;
 
-            ticker.tick().await;
             let now = Instant::now();
             let elapsed_secs = now.duration_since(last_sample).as_secs_f64();
             last_sample = now;
@@ -407,8 +417,15 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
     }
     .await;
 
+    if canceled {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
     let run_ended_at = Utc::now().to_rfc3339();
-    let final_status = if execution_result.is_ok() {
+    let final_status = if canceled {
+        "canceled"
+    } else if execution_result.is_ok() {
         "finished"
     } else {
         "failed"

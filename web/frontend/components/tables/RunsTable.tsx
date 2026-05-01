@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useState } from 'react'
 import { Run } from '@/lib/mock-data'
 import { format } from 'date-fns'
-import { ChevronRight, Check, Clock, X, Trash2 } from 'lucide-react'
+import { ChevronRight, Check, Clock, X, Trash2, Ban } from 'lucide-react'
 import { useWorkspace } from '@/components/layout/WorkspaceProvider'
 import { RunSummary } from '@/lib/api'
 import {
@@ -80,7 +80,7 @@ export function RunsTable({ runs, onRunDeleted }: RunsTableProps) {
   }
 
   const getStatusIcon = (
-    status: 'running' | 'finished' | 'failed'
+    status: 'running' | 'finished' | 'failed' | 'canceled'
   ) => {
     switch (status) {
       case 'finished':
@@ -89,6 +89,8 @@ export function RunsTable({ runs, onRunDeleted }: RunsTableProps) {
         return <Clock className="w-4 h-4 text-blue-400 animate-spin" />
       case 'failed':
         return <X className="w-4 h-4 text-red-400" />
+      case 'canceled':
+        return <Ban className="w-4 h-4 text-amber-400" />
     }
   }
 
@@ -185,6 +187,13 @@ export function RunsTable({ runs, onRunDeleted }: RunsTableProps) {
                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-secondary text-secondary-foreground">
                       {run.projectName ?? 'Unknown'}
                     </span>
+                  </td>
+                  <td className="py-4 px-4">
+                    {run.exporterType && (
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-secondary text-secondary-foreground font-mono">
+                        {run.exporterType}
+                      </span>
+                    )}
                   </td>
                   <td className="py-4 px-4 text-center">
                     <div className="flex items-center justify-center">

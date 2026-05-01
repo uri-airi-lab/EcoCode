@@ -34,7 +34,7 @@ interface BackendRun {
   name: string
   project_id: number
   collaborator_name?: string | null
-  status?: 'running' | 'finished' | 'failed' | null
+  status?: 'running' | 'finished' | 'failed' | 'canceled' | null
   started_at?: string | null
   ended_at?: string | null
   command?: string | null
@@ -132,7 +132,7 @@ interface BackendAdminRun {
   run_id: number
   run_name: string
   collaborator_name: string | null
-  status: 'running' | 'finished' | 'failed'
+  status: 'running' | 'finished' | 'failed' | 'canceled'
   started_at: string | null
   ended_at: string | null
   last_record_at: string | null
@@ -155,9 +155,9 @@ function parseTimestamp(value?: string | null): number | null {
   return Number.isNaN(timestamp) ? null : timestamp
 }
 
-/** Normalises the backend run status to one of the three frontend-known values. */
+/** Normalises the backend run status to one of the frontend-known values. */
 function normalizeRunStatus(status?: BackendRun['status']): Run['status'] {
-  return status === 'running' || status === 'failed' ? status : 'finished'
+  return status === 'running' || status === 'failed' || status === 'canceled' ? status : 'finished'
 }
 
 /** Maps a backend record point (Joules, ISO timestamp) to the frontend MetricRecord type. */

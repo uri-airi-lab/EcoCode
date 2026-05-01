@@ -57,8 +57,8 @@ pub async fn ingest_run(
     let user_email: String = user_row.get("email");
 
     let run_id: i64 = sqlx::query_scalar(
-        "INSERT INTO runs (name, project_id, collaborator_name, status, started_at, command)
-         VALUES ($1, $2, $3, 'running', $4, $5)
+        "INSERT INTO runs (name, project_id, collaborator_name, status, started_at, command, exporter_type)
+         VALUES ($1, $2, $3, 'running', $4, $5, $6)
          RETURNING id",
     )
     .bind(&payload.name)
@@ -66,6 +66,7 @@ pub async fn ingest_run(
     .bind(user_email)
     .bind(payload.started_at)
     .bind(payload.command)
+    .bind(payload.exporter_type)
     .fetch_one(&state.pool)
     .await
     .map_err(ApiError::internal)?;

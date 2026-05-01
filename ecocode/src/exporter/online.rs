@@ -13,6 +13,7 @@ pub struct OnlineExporter {
     client: Client,
     base_url: String,
     api_key: String,
+    pub exporter_type_label: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -112,7 +113,7 @@ impl OnlineExporter {
             .default_headers(headers)
             .build()?;
             
-        Ok(OnlineExporter { client, base_url, api_key })
+        Ok(OnlineExporter { client, base_url, api_key, exporter_type_label: "online".to_string() })
     }
 }
 
@@ -123,6 +124,7 @@ struct CreateRunPayload {
     collaborator_name: Option<String>,
     started_at: Option<String>,
     command: Option<String>,
+    exporter_type: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -203,6 +205,7 @@ impl Exporter for OnlineExporter {
             collaborator_name: collaborator_name.map(|s| s.to_string()),
             started_at: started_at.map(|s| s.to_string()),
             command: command.map(|s| s.to_string()),
+            exporter_type: Some(self.exporter_type_label.clone()),
         };
         
         let res = self.client.post(&url)

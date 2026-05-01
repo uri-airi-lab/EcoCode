@@ -105,7 +105,7 @@ export function StartRunModal({
       }
     }
 
-    if (outputFormat === 'online') cmd += ` --api-key "ecocode_your_key_here"`
+    cmd += ` --api-key "ecocode_your_key_here"`
     cmd += ` "<your-command>"`
     return cmd
   }

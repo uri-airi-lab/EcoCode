@@ -30,10 +30,11 @@ export interface BackendRun {
   name: string
   project_id: number
   collaborator_name?: string | null
-  status?: 'running' | 'finished' | 'failed' | null
+  status?: 'running' | 'finished' | 'failed' | 'canceled' | null
   started_at?: string | null
   ended_at?: string | null
   command?: string | null
+  exporter_type?: string | null
   cpu_name?: string | null
   cpu_cores?: number | null
   ram_gb?: number | null
@@ -49,10 +50,11 @@ export interface BackendRunSummaryResponse {
   project_id: number
   project_name?: string | null
   collaborator_name?: string | null
-  status?: 'running' | 'finished' | 'failed' | null
+  status?: 'running' | 'finished' | 'failed' | 'canceled' | null
   started_at?: string | null
   ended_at?: string | null
   command?: string | null
+  exporter_type?: string | null
   total_cpu_energy?: number | null
   total_gpu_energy?: number | null
   total_mem_energy?: number | null
@@ -125,7 +127,7 @@ export interface BackendAdminRun {
   run_id: number
   run_name: string
   collaborator_name: string | null
-  status: 'running' | 'finished' | 'failed'
+  status: 'running' | 'finished' | 'failed' | 'canceled'
   started_at: string | null
   ended_at: string | null
   last_record_at: string | null
@@ -188,9 +190,9 @@ export function parseTimestamp(value?: string | null): number | null {
   return Number.isNaN(timestamp) ? null : timestamp
 }
 
-/** Normalises the backend run status to one of the three frontend-known values. */
+/** Normalises the backend run status to one of the frontend-known values. */
 export function normalizeRunStatus(status?: BackendRun['status']): Run['status'] {
-  return status === 'running' || status === 'failed' ? status : 'finished'
+  return status === 'running' || status === 'failed' || status === 'canceled' ? status : 'finished'
 }
 
 /** Maps a backend record point (Joules, ISO timestamp) to the frontend MetricRecord type. */

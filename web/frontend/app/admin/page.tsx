@@ -14,12 +14,14 @@ function formatDate(timestamp: number | null): string {
   return timestamp ? new Date(timestamp).toLocaleString() : 'No activity'
 }
 
-function statusTone(status: 'running' | 'finished' | 'failed') {
+function statusTone(status: string) {
   switch (status) {
     case 'running':
       return 'bg-blue-500/20 text-blue-300 border-blue-500/30'
     case 'failed':
       return 'bg-red-500/20 text-red-300 border-red-500/30'
+    case 'canceled':
+      return 'bg-amber-500/20 text-amber-300 border-amber-500/30'
     default:
       return 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
   }

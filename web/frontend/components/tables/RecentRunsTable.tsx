@@ -61,6 +61,9 @@ export const RecentRunsTable = memo(function RecentRunsTable({
               <th className="text-right py-3 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px] w-1/8">
                 CO₂ (g)
               </th>
+              <th className="text-left py-3 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px]">
+                Exporter
+              </th>
               <th className="text-center py-3 px-4 text-muted-foreground font-medium uppercase tracking-widest text-[11px] w-1/8">
                 Status
               </th>
@@ -95,13 +98,22 @@ export const RecentRunsTable = memo(function RecentRunsTable({
                 <td className="text-right py-3 px-4 text-foreground font-medium font-mono">
                   {Number(run.carbonFootprint.toFixed(2)).toLocaleString()}
                 </td>
+                <td className="py-3 px-4">
+                  {run.exporterType && (
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-secondary text-secondary-foreground font-mono">
+                      {run.exporterType}
+                    </span>
+                  )}
+                </td>
                 <td className="text-center py-3 px-4">
                   <span
                     className={`inline-block px-3 py-1 rounded text-xs font-medium ${run.status === 'finished'
                       ? 'bg-primary/15 text-primary'
                       : run.status === 'running'
                         ? 'bg-chart-1/20 text-chart-1'
-                        : 'bg-destructive/15 text-destructive'
+                        : run.status === 'canceled'
+                          ? 'bg-amber-500/15 text-amber-500'
+                          : 'bg-destructive/15 text-destructive'
                       }`}
                   >
                     {run.status}
