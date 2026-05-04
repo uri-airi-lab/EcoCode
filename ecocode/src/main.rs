@@ -15,7 +15,6 @@ mod cli;
 mod configs;
 mod exporter;
 mod monitor;
-mod sensor;
 
 use cli::{Cli, TopCommand};
 

@@ -8,13 +8,26 @@ use nvml_wrapper::Nvml;
 use sqlx::types::chrono::Utc;
 use std::io;
 use std::process::Command;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use sysinfo::{Pid, ProcessesToUpdate, RefreshKind, System};
 use tokio::time::{self, Instant, MissedTickBehavior};
 
-use crate::sensor::RAPL_PATH;
-use crate::sensor::gpu::{get_all_gpu_devices, get_all_gpu_energies, get_all_gpu_energies_by_pid};
-use crate::sensor::rapl::{delta_cpu_energy_per_pid_j, get_all_energies, scan_rapl_files};
+/// Shared state updated by the Python SDK via Unix socket (attached mode).
+/// The main sampling loop reads these values on every tick and attaches them to the Record.
+#[derive(Debug, Default, Clone)]
+struct MarkerState {
+    current_phase: Option<String>,
+    tokens_processed: Option<i64>,
+    training_step: Option<i64>,
+    loss: Option<f64>,
+    learning_rate: Option<f64>,
+    sequence_length: Option<i32>,
+}
+
+use ecocode_core::sensor::RAPL_PATH;
+use ecocode_core::sensor::gpu::{get_all_gpu_devices, get_all_gpu_energies, get_all_gpu_energies_by_pid};
+use ecocode_core::sensor::rapl::{delta_cpu_energy_per_pid_j, get_all_energies, scan_rapl_files};
 use crate::exporter::csv::CsvExporter;
 use crate::exporter::dual::DualExporter;
 use crate::exporter::json::JsonExporter;
@@ -151,9 +164,83 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
 
     let mut rapl_readers = scan_rapl_files()?;
 
+    // --- Python SDK socket listener (attached mode) ---
+    // Creates a Unix domain socket so the Python SDK running inside the child process
+    // can send semantic marker events (phase, tokens, step, loss, lr, seq_len).
+    let cli_pid = std::process::id();
+    let socket_path = format!("/tmp/ecocode_{}.sock", cli_pid);
+    let marker_state: Arc<Mutex<MarkerState>> = Arc::new(Mutex::new(MarkerState::default()));
+
+    // Remove any stale socket left by a previous crash
+    let _ = std::fs::remove_file(&socket_path);
+
+    let listener = tokio::net::UnixListener::bind(&socket_path)?;
+    let marker_state_for_task = Arc::clone(&marker_state);
+    let socket_path_for_task = socket_path.clone();
+
+    tokio::spawn(async move {
+        loop {
+            match listener.accept().await {
+                Ok((mut stream, _)) => {
+                    let ms = Arc::clone(&marker_state_for_task);
+                    tokio::spawn(async move {
+                        use tokio::io::{AsyncBufReadExt, BufReader};
+                        let reader = BufReader::new(&mut stream);
+                        let mut lines = reader.lines();
+                        while let Ok(Some(line)) = lines.next_line().await {
+                            let line = line.trim().to_string();
+                            if line.is_empty() { continue; }
+                            if let Ok(event) = serde_json::from_str::<serde_json::Value>(&line) {
+                                let mut state = ms.lock().unwrap();
+                                match event.get("event").and_then(|e| e.as_str()) {
+                                    Some("phase") => {
+                                        state.current_phase = event["value"].as_str().map(|s| s.to_string());
+                                    }
+                                    Some("epoch") => {
+                                        let n = event["value"].as_i64().unwrap_or(0);
+                                        state.current_phase = Some(format!("epoch:{}", n));
+                                    }
+                                    Some("tokens") => {
+                                        state.tokens_processed = event["count"].as_i64();
+                                    }
+                                    Some("step") => {
+                                        state.training_step = event["value"].as_i64();
+                                    }
+                                    Some("loss") => {
+                                        state.loss = event["value"].as_f64();
+                                    }
+                                    Some("learning_rate") => {
+                                        state.learning_rate = event["value"].as_f64();
+                                    }
+                                    Some("sequence_length") => {
+                                        state.sequence_length = event["value"].as_i64().map(|n| n as i32);
+                                    }
+                                    _ => {
+                                        eprintln!("[sdk] Unknown marker event: {}", line);
+                                    }
+                                }
+                            } else {
+                                eprintln!("[sdk] Failed to parse marker event: {}", line);
+                            }
+                        }
+                    });
+                }
+                Err(e) => {
+                    eprintln!("[sdk] Socket accept error: {}", e);
+                    break;
+                }
+            }
+        }
+        let _ = std::fs::remove_file(&socket_path_for_task);
+    });
+
     // --- Spawn the target process ---
+    // Inject ECOCODE_SOCKET and ECOCODE_RUN_ID so the Python SDK running inside
+    // the child process can attach to this run in attached mode.
     let mut child = Command::new(&args.command[0])
         .args(&args.command[1..])
+        .env("ECOCODE_SOCKET", &socket_path)
+        .env("ECOCODE_RUN_ID", run_id.to_string())
         .spawn()
         .expect("failed to execute process");
 
@@ -385,6 +472,19 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
             cpu_energy_1 = cpu_energy_2;
             gpu_energies_1 = gpu_energies_2;
 
+            // --- Read SDK marker state ---
+            let (current_phase, current_tokens, current_step, current_loss, current_lr, current_seqlen) = {
+                let state = marker_state.lock().unwrap();
+                (
+                    state.current_phase.clone(),
+                    state.tokens_processed,
+                    state.training_step,
+                    state.loss,
+                    state.learning_rate,
+                    state.sequence_length,
+                )
+            };
+
             // --- Export record ---
             let record = Record::new(
                 iteration,
@@ -401,6 +501,12 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
                 igpu_j,
                 gpu_metrics,
                 socket_metrics,
+                current_phase,
+                current_tokens,
+                current_step,
+                current_loss,
+                current_lr,
+                current_seqlen,
             );
 
             exporter.add_record(record).await?;
@@ -435,6 +541,10 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
         .complete_run(run_id, final_status, Some(run_ended_at.as_str()))
         .await?;
     exporter.run_summary(run_id).await?;
+
+    // Clean up the SDK socket file
+    let _ = std::fs::remove_file(&socket_path);
+
     execution_result?;
 
     Ok(())

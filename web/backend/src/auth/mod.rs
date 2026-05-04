@@ -203,6 +203,7 @@ async fn change_password(
 struct CreateApiKeyPayload {
     name: String,
     workspace_id: Option<i64>,
+    project_id: Option<i64>,
 }
 
 #[derive(Serialize)]
@@ -210,7 +211,9 @@ struct ApiKeyResponse {
     id: i64,
     name: String,
     key: Option<String>,
+    key_hint: Option<String>,
     workspace_id: Option<i64>,
+    project_id: Option<i64>,
     created_at: String,
 }
 
@@ -226,14 +229,20 @@ async fn create_api_key(
         .collect();
     let api_key = format!("ecocode_{}", raw_key);
     let key_hash = hash_key(&api_key);
+    // Store enough characters for the user to identify the key later (safe — not the full secret).
+    let key_prefix = api_key.chars().take(16).collect::<String>() + "...";
 
     let row = sqlx::query(
-        "INSERT INTO api_keys (user_id, name, key_hash, workspace_id) VALUES ($1, $2, $3, $4) RETURNING id, workspace_id, created_at::text",
+        "INSERT INTO api_keys (user_id, name, key_hash, key_prefix, workspace_id, project_id)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id, workspace_id, project_id, created_at::text",
     )
     .bind(auth_user.user_id)
     .bind(&payload.name)
     .bind(&key_hash)
+    .bind(&key_prefix)
     .bind(payload.workspace_id)
+    .bind(payload.project_id)
     .fetch_one(&state.pool)
     .await
     .map_err(ApiError::internal)?;
@@ -244,7 +253,9 @@ async fn create_api_key(
             id: row.get("id"),
             name: payload.name,
             key: Some(api_key),
+            key_hint: Some(key_prefix),
             workspace_id: row.try_get("workspace_id").ok().flatten(),
+            project_id: row.try_get("project_id").ok().flatten(),
             created_at: row.get("created_at"),
         }),
     ))
@@ -255,7 +266,7 @@ async fn list_api_keys(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, ApiError> {
     let keys = sqlx::query(
-        "SELECT id, name, workspace_id, created_at::text FROM api_keys WHERE user_id = $1 ORDER BY created_at DESC",
+        "SELECT id, name, key_prefix, workspace_id, project_id, created_at::text FROM api_keys WHERE user_id = $1 ORDER BY created_at DESC",
     )
     .bind(auth_user.user_id)
     .fetch_all(&state.pool)
@@ -266,7 +277,9 @@ async fn list_api_keys(
         id: r.get("id"),
         name: r.get("name"),
         key: None,
+        key_hint: r.try_get("key_prefix").ok().flatten(),
         workspace_id: r.try_get("workspace_id").ok().flatten(),
+        project_id: r.try_get("project_id").ok().flatten(),
         created_at: r.get("created_at"),
     })
     .collect::<Vec<_>>();

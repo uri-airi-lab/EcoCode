@@ -28,8 +28,13 @@ pub async fn ingest_run(
 ) -> Result<impl IntoResponse, ApiError> {
     use sqlx::Row;
     
+    // Resolve project_id: API key scope takes priority over payload value.
+    let resolved_project_id = auth_user.project_id
+        .or(payload.project_id)
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "project_id is required when using a workspace-scoped API key"))?;
+
     let project_workspace = sqlx::query("SELECT workspace_id FROM projects WHERE id = $1")
-        .bind(payload.project_id)
+        .bind(resolved_project_id)
         .fetch_optional(&state.pool)
         .await
         .map_err(ApiError::internal)?
@@ -62,7 +67,7 @@ pub async fn ingest_run(
          RETURNING id",
     )
     .bind(&payload.name)
-    .bind(payload.project_id)
+    .bind(resolved_project_id)
     .bind(user_email)
     .bind(payload.started_at)
     .bind(payload.command)
@@ -87,8 +92,10 @@ pub async fn ingest_record(
 
     let record_id: i64 = sqlx::query_scalar(
         "INSERT INTO records
-            (run_id, pid, timestamp, cpu_usage, cpu_energy, gpu_usage, gpu_energy, mem_usage, mem_energy, igpu_usage, igpu_energy)
-         VALUES ($1, $2, $3::timestamptz, $4, $5, $6, $7, $8, $9, $10, $11)
+            (run_id, pid, timestamp, cpu_usage, cpu_energy, gpu_usage, gpu_energy,
+             mem_usage, mem_energy, igpu_usage, igpu_energy,
+             phase, tokens_processed, training_step, loss, learning_rate, sequence_length, accuracy)
+         VALUES ($1, $2, $3::timestamptz, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
          RETURNING id",
     )
     .bind(run_id)
@@ -102,6 +109,13 @@ pub async fn ingest_record(
     .bind(payload.mem_energy)
     .bind(payload.igpu_usage)
     .bind(payload.igpu_energy)
+    .bind(&payload.phase)
+    .bind(payload.tokens_processed)
+    .bind(payload.training_step)
+    .bind(payload.loss)
+    .bind(payload.learning_rate)
+    .bind(payload.sequence_length)
+    .bind(payload.accuracy)
     .fetch_one(&mut *tx)
     .await
     .map_err(ApiError::internal)?;
@@ -130,12 +144,6 @@ pub async fn ingest_record(
 
     tx.commit().await.map_err(ApiError::internal)?;
     debug!(run_id, record_id, "Record ingested");
-
-    // Manually trigger notification for SSE watcher (fallback for direct DB inserts)
-    let _ = sqlx::query("SELECT pg_notify('record_inserted', $1)")
-        .bind(record_id.to_string())
-        .execute(&state.pool)
-        .await;
 
     // Direct broadcast to internal SSE channel for immediate UI update
     let state_clone = state.clone();

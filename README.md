@@ -32,6 +32,42 @@ EcoCode monitors the real-time energy footprint of any Linux process — trackin
 
 ---
 
+## How EcoCode Differs from Existing Tools
+
+Most energy monitoring tools for software rely on estimation: they multiply hardware TDP by CPU utilisation and treat the result as consumed energy. EcoCode takes a different approach — it reads what the hardware actually reports.
+
+### Measurement accuracy
+
+CodeCarbon, Carbontracker, and similar Python libraries estimate power from manufacturer TDP figures. EcoCode reads Intel RAPL sysfs counters (`/sys/class/powercap/intel-rapl/`) and NVIDIA NVML directly. These are the same interfaces used by hardware performance engineers and power-management firmware — they reflect real joules drawn, not modelled approximations.
+
+### Per-process GPU attribution
+
+Most tools that claim GPU monitoring report whole-device power and divide it evenly, or skip it entirely. EcoCode uses NVML `process_utilization_stats` to attribute GPU energy to the specific monitored PID proportionally, across every detected GPU independently.
+
+### Language and runtime agnostic
+
+CodeCarbon requires Python and instruments code through decorators or context managers. EcoCode wraps any executable — `ecocode -- python train.py`, `ecocode -- ./simulation`, `ecocode -- node server.js` — with no changes to the target program.
+
+### Comparison table
+
+| Capability | EcoCode | CodeCarbon | Scaphandre | Carbontracker |
+|---|:---:|:---:|:---:|:---:|
+| Real hardware energy (RAPL) | Yes | No | Yes | No |
+| Real GPU energy (NVML) | Yes | No | No | No |
+| Per-process GPU attribution | Yes | No | No | No |
+| Multi-GPU per-device breakdown | Yes | No | No | No |
+| Multi-socket per-domain breakdown | Yes | No | No | No |
+| Any language / any process | Yes | Python only | Yes | Python only |
+| Live real-time dashboard (SSE) | Yes | No | No | No |
+| Team workspaces and collaboration | Yes | No | No | No |
+| Prometheus export | Yes | No | Yes | No |
+| Live grid carbon intensity (API) | Yes | Partial | No | No |
+| Counter wrap-around correction | Yes | No | No | No |
+
+Scaphandre is the closest alternative on the measurement side — it is also RAPL-based — but it has no GPU support, no web dashboard, no carbon estimation, and no developer workflow integration. It is designed as a production infrastructure exporter, not a per-experiment tool.
+
+---
+
 ## Architecture
 
 The system has three independent layers: a Rust CLI that wraps any process and reads hardware energy counters, an Axum REST backend that stores and serves measurements, and a Next.js frontend that visualises runs in real time via Server-Sent Events.

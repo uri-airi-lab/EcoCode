@@ -8,21 +8,30 @@ import { useWorkspace } from '@/components/layout/WorkspaceProvider'
 interface ApiKey {
   id: number
   name: string
-  key_hint: string
+  key_hint: string | null
+  project_id: number | null
   created_at: string
+}
+
+interface Project {
+  id: number
+  name: string
 }
 
 export default function DeveloperSettingsPage() {
   const { currentWorkspace } = useWorkspace()
   const [keys, setKeys] = useState<ApiKey[]>([])
+  const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [newKey, setNewKey] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [keyName, setKeyName] = useState('')
+  const [selectedProjectId, setSelectedProjectId] = useState<number | ''>('')
 
   useEffect(() => {
     fetchKeys()
+    fetchProjects()
   }, [])
 
   const fetchKeys = async () => {
@@ -36,6 +45,17 @@ export default function DeveloperSettingsPage() {
     }
   }
 
+  const fetchProjects = async () => {
+    try {
+      const res = await fetch('/api/projects', { credentials: 'include' })
+      if (res.ok) {
+        setProjects(await res.json())
+      }
+    } catch (e) {
+      // non-critical
+    }
+  }
+
   const handleGenerate = async () => {
     if (!keyName.trim()) return
     setGenerating(true)
@@ -46,7 +66,8 @@ export default function DeveloperSettingsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: keyName,
-          workspace_id: currentWorkspace?.id
+          workspace_id: currentWorkspace?.id,
+          project_id: selectedProjectId !== '' ? selectedProjectId : null,
         }),
         credentials: 'include'
       })
@@ -262,18 +283,28 @@ export default function DeveloperSettingsPage() {
               <h2 className="text-lg font-semibold">API Keys</h2>
               <p className="text-sm text-muted-foreground">Keys associated with your account</p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
               <input
                 type="text"
-                placeholder="Key Name (e.g. GitHub Actions)"
+                placeholder="Key name (e.g. training-server)"
                 value={keyName}
                 onChange={(e) => setKeyName(e.target.value)}
-                className="bg-background border border-border rounded-md px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary w-full sm:w-64 transition-all"
+                className="bg-background border border-border rounded-md px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary w-full sm:w-48 transition-all"
               />
+              <select
+                value={selectedProjectId}
+                onChange={(e) => setSelectedProjectId(e.target.value === '' ? '' : Number(e.target.value))}
+                className="bg-background border border-border rounded-md px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary w-full sm:w-44 transition-all"
+              >
+                <option value="">Select project</option>
+                {projects.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
               <button
                 onClick={handleGenerate}
-                disabled={generating || !keyName.trim()}
-                className="bg-primary hover:brightness-110 text-primary-foreground px-4 py-2 rounded-md font-medium text-sm flex items-center transition-all disabled:opacity-50 whitespace-nowrap"
+                disabled={generating || !keyName.trim() || selectedProjectId === ''}
+                className="bg-primary hover:brightness-110 text-primary-foreground px-4 py-2 rounded-md font-medium text-sm flex items-center justify-center transition-all disabled:opacity-50 whitespace-nowrap"
               >
                 {generating ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}
                 Generate Key
@@ -298,9 +329,16 @@ export default function DeveloperSettingsPage() {
                       <span className="font-semibold text-sm text-foreground">
                         {key.name}
                       </span>
-                      <span className="font-mono text-[10px] bg-background px-2 py-0.5 rounded border border-border text-muted-foreground">
-                        {key.key_hint}
-                      </span>
+                      {key.key_hint && (
+                        <span className="font-mono text-[10px] bg-background px-2 py-0.5 rounded border border-border text-muted-foreground">
+                          {key.key_hint}
+                        </span>
+                      )}
+                      {key.project_id && (
+                        <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded border border-primary/20">
+                          {projects.find(p => p.id === key.project_id)?.name ?? `project ${key.project_id}`}
+                        </span>
+                      )}
                     </div>
                     <p className="text-xs text-muted-foreground">
                       Created on {new Date(key.created_at).toLocaleDateString()}

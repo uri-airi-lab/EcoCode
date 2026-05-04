@@ -27,6 +27,13 @@ export interface MetricRecord {
   igpu_energy: number // Joules
   gpu_details: GpuMetric[]
   socket_details: SocketMetric[]
+  phase?: string | null
+  tokens_processed?: number | null
+  training_step?: number | null
+  loss?: number | null
+  learning_rate?: number | null
+  sequence_length?: number | null
+  accuracy?: number | null
 }
 
 export interface Run {

@@ -51,8 +51,15 @@ pub struct Record {
     pub mem_energy: Option<f64>, // Joules (Watt-seconds) — None when DRAM RAPL domain absent on this system
     pub igpu_usage: Option<f64>, // None — no per-process iGPU sensor available
     pub igpu_energy: Option<f64>, // None when iGPU RAPL domain absent on this system
-    pub gpu_metrics: Vec<GpuMetric>, // per-GPU breakdown
+    pub gpu_metrics: Vec<GpuMetric>,       // per-GPU breakdown
     pub socket_metrics: Vec<SocketMetric>, // per-socket RAPL breakdown
+    // ML semantic fields — populated by the Python SDK via Unix socket in attached mode
+    pub phase: Option<String>,
+    pub tokens_processed: Option<i64>,
+    pub training_step: Option<i64>,
+    pub loss: Option<f64>,
+    pub learning_rate: Option<f64>,
+    pub sequence_length: Option<i32>,
 }
 
 impl Record {
@@ -71,6 +78,12 @@ impl Record {
         igpu_energy: Option<f64>,
         gpu_metrics: Vec<GpuMetric>,
         socket_metrics: Vec<SocketMetric>,
+        phase: Option<String>,
+        tokens_processed: Option<i64>,
+        training_step: Option<i64>,
+        loss: Option<f64>,
+        learning_rate: Option<f64>,
+        sequence_length: Option<i32>,
     ) -> Record {
         Record {
             id,
@@ -87,6 +100,12 @@ impl Record {
             igpu_energy,
             gpu_metrics,
             socket_metrics,
+            phase,
+            tokens_processed,
+            training_step,
+            loss,
+            learning_rate,
+            sequence_length,
         }
     }
     pub fn to_vec(&self) -> Vec<String> {
@@ -111,6 +130,12 @@ impl Record {
             v.push(gm.gpu_usage.to_string());
             v.push(gm.gpu_energy.to_string());
         }
+        v.push(self.phase.clone().unwrap_or_else(|| "N/A".to_string()));
+        v.push(self.tokens_processed.map_or_else(|| "N/A".to_string(), |n| n.to_string()));
+        v.push(self.training_step.map_or_else(|| "N/A".to_string(), |n| n.to_string()));
+        v.push(self.loss.map_or_else(|| "N/A".to_string(), |n| n.to_string()));
+        v.push(self.learning_rate.map_or_else(|| "N/A".to_string(), |n| n.to_string()));
+        v.push(self.sequence_length.map_or_else(|| "N/A".to_string(), |n| n.to_string()));
         v
     }
 }

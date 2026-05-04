@@ -13,6 +13,9 @@ import { RunSystemInfo } from '@/components/run/RunSystemInfo'
 import { PowerDistributionChart } from '@/components/charts/PowerDistributionChart'
 import { CumulativePowerChart } from '@/components/charts/CumulativePowerChart'
 import { EnvironmentalImpact } from '@/components/run/EnvironmentalImpact'
+import { MLMetricsBar } from '@/components/run/MLMetricsBar'
+import { PhaseTimeline } from '@/components/charts/PhaseTimeline'
+import { TrainingMetricsChart } from '@/components/charts/TrainingMetricsChart'
 import { Run } from '@/lib/mock-data'
 import { fetchRunMeta, fetchRunRecords } from '@/lib/api'
 import { format } from 'date-fns'
@@ -238,6 +241,13 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
           </div>
         </div>
 
+        {/* ML Training Overview — shown only when ML fields are present */}
+        {run.records.length > 0 && (
+          <div className="mb-6">
+            <MLMetricsBar records={run.records} />
+          </div>
+        )}
+
         {/* Two Column Layout for System Info and Environmental Impact */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
           <div>
@@ -275,6 +285,8 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
           </div>
         ) : run.records.length > 0 ? (
           <div className="mb-8 space-y-4 md:space-y-6">
+            <PhaseTimeline records={run.records} />
+            <TrainingMetricsChart records={run.records} />
             <EnergyChart data={run.records} />
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
               <CumulativePowerChart data={run.records} />

@@ -364,6 +364,13 @@ fn merge_record_points(
             igpu_energy: row.igpu_energy,
             gpu_details: gpu_by_record.remove(&row.id).unwrap_or_default(),
             socket_details: socket_by_record.remove(&row.id).unwrap_or_default(),
+            phase: row.phase,
+            tokens_processed: row.tokens_processed,
+            training_step: row.training_step,
+            loss: row.loss,
+            learning_rate: row.learning_rate,
+            sequence_length: row.sequence_length,
+            accuracy: row.accuracy,
         })
         .collect()
 }

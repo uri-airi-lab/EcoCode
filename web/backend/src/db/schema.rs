@@ -266,6 +266,18 @@ pub async fn ensure_postgres_schema(db: &PgPool) -> Result<(), Box<dyn std::erro
     .execute(db)
     .await?;
 
+    // SDK ML fields — phase labels, token counts, optimizer steps, loss, lr, sequence length
+    sqlx::query("ALTER TABLE records ADD COLUMN IF NOT EXISTS phase TEXT").execute(db).await?;
+    sqlx::query("ALTER TABLE records ADD COLUMN IF NOT EXISTS tokens_processed BIGINT").execute(db).await?;
+    sqlx::query("ALTER TABLE records ADD COLUMN IF NOT EXISTS training_step BIGINT").execute(db).await?;
+    sqlx::query("ALTER TABLE records ADD COLUMN IF NOT EXISTS loss DOUBLE PRECISION").execute(db).await?;
+    sqlx::query("ALTER TABLE records ADD COLUMN IF NOT EXISTS learning_rate DOUBLE PRECISION").execute(db).await?;
+    sqlx::query("ALTER TABLE records ADD COLUMN IF NOT EXISTS sequence_length INT").execute(db).await?;
+    sqlx::query("ALTER TABLE records ADD COLUMN IF NOT EXISTS accuracy DOUBLE PRECISION").execute(db).await?;
+
+    sqlx::query("ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS project_id BIGINT REFERENCES projects(id) ON DELETE SET NULL").execute(db).await?;
+    sqlx::query("ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS key_prefix TEXT").execute(db).await?;
+
     create_performance_indexes(db).await?;
     // Note: We avoid database-level triggers for SSE notifications due to sqlx connection issues.
     // Notifications are now handled manually in the application logic.
