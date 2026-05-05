@@ -1,0 +1,18 @@
+[package]
+name = "ecocode-core"
+version = "0.1.0"
+edition = "2021"
+description = "Shared sensor and HTTP client library for EcoCode CLI and Python SDK."
+
+[features]
+default = ["gpu"]
+gpu = ["nvml-wrapper"]
+
+[dependencies]
+nvml-wrapper = { version = "0.11.0", optional = true }
+regex = "1.12.3"
+reqwest = { version = "0.12", features = ["json", "blocking"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sysinfo = "0.38.0"
+chrono = "0.4"

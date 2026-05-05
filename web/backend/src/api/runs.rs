@@ -4,15 +4,20 @@
 //! helper assembles flat database rows into the nested `RecordPoint` structures
 //! expected by the frontend.
 
-use axum::{extract::{Path, Query, State}, http::StatusCode, Json, response::IntoResponse};
+use axum::{
+    Json,
+    extract::{Path, Query, State},
+    http::StatusCode,
+    response::IntoResponse,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::{debug, info, warn};
 
-use crate::error::ApiError;
-use crate::models::record::{RecordPoint, RecordPointRow, GpuRecordPoint, SocketRecordPoint};
-use crate::state::AppState;
 use crate::auth;
+use crate::error::ApiError;
+use crate::models::record::{GpuRecordPoint, RecordPoint, RecordPointRow, SocketRecordPoint};
+use crate::state::AppState;
 
 /// Optimized run summary for list views
 #[derive(Serialize, sqlx::FromRow)]
@@ -63,9 +68,14 @@ pub async fn get_all_runs_with_summaries(
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = pagination.limit.unwrap_or(100).min(500);
     let offset = pagination.offset.unwrap_or(0);
-    
-    debug!(limit, offset, user_id = auth_user.user_id, "Fetching all runs with summaries");
-    
+
+    debug!(
+        limit,
+        offset,
+        user_id = auth_user.user_id,
+        "Fetching all runs with summaries"
+    );
+
     let runs_with_summaries = sqlx::query_as::<_, RunSummaryResponse>(
         "SELECT r.id, r.name, r.project_id, p.name as project_name, r.collaborator_name, r.status,
                 r.started_at, r.ended_at, r.command, r.exporter_type,
@@ -87,13 +97,6 @@ pub async fn get_all_runs_with_summaries(
     .await
     .map_err(ApiError::internal)?;
 
-    if runs_with_summaries.is_empty() {
-        return Err(ApiError::new(
-            StatusCode::NOT_FOUND,
-            "No runs found",
-        ));
-    }
-
     Ok((StatusCode::OK, Json(runs_with_summaries)))
 }
 
@@ -106,16 +109,22 @@ pub async fn get_runs(
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = pagination.limit.unwrap_or(10).min(100);
     let offset = pagination.offset.unwrap_or(0);
-    
-    debug!(project_id, limit, offset, user_id = auth_user.user_id, "Fetching runs paginated");
-    
+
+    debug!(
+        project_id,
+        limit,
+        offset,
+        user_id = auth_user.user_id,
+        "Fetching runs paginated"
+    );
+
     // Get total count
     let total: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) 
          FROM runs r
          JOIN projects p ON r.project_id = p.id
          JOIN workspace_members wm ON p.workspace_id = wm.workspace_id
-         WHERE r.project_id = $1 AND wm.user_id = $2"
+         WHERE r.project_id = $1 AND wm.user_id = $2",
     )
     .bind(project_id)
     .bind(auth_user.user_id)
@@ -146,10 +155,7 @@ pub async fn get_runs(
     .await
     .map_err(ApiError::internal)?;
 
-    Ok((StatusCode::OK, Json(PaginatedRunsResponse {
-        runs,
-        total,
-    })))
+    Ok((StatusCode::OK, Json(PaginatedRunsResponse { runs, total })))
 }
 
 /// Handles GET requests to retrieve details of a specific run.
@@ -180,13 +186,12 @@ pub async fn get_record_points(
     debug!(run_id, limit, offset, "Fetching record points");
 
     // First check if run exists and get record count
-    let record_count: Option<i64> = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM records WHERE run_id = $1"
-    )
-    .bind(run_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(ApiError::internal)?;
+    let record_count: Option<i64> =
+        sqlx::query_scalar("SELECT COUNT(*) FROM records WHERE run_id = $1")
+            .bind(run_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(ApiError::internal)?;
 
     let count = record_count.unwrap_or(0);
     if count == 0 {
@@ -201,9 +206,12 @@ pub async fn get_record_points(
         // For very large runs, sample the data more aggressively
         let sample_limit = limit.min(2000);
         let step = (count as f64 / sample_limit as f64).ceil() as i64;
-        
-        debug!(run_id, count, sample_limit, step, "Using sampling strategy for large dataset");
-        
+
+        debug!(
+            run_id,
+            count, sample_limit, step, "Using sampling strategy for large dataset"
+        );
+
         sqlx::query_as::<_, crate::models::record::RecordPointRow>(
             "SELECT * FROM (
                 SELECT *, ROW_NUMBER() OVER (ORDER BY timestamp) as rn
@@ -212,7 +220,7 @@ pub async fn get_record_points(
             ) t 
             WHERE rn % $2 = 1 
             ORDER BY timestamp 
-            LIMIT $3 OFFSET $4"
+            LIMIT $3 OFFSET $4",
         )
         .bind(run_id)
         .bind(step)
@@ -240,8 +248,12 @@ pub async fn get_record_points(
     );
 
     let record_points = merge_record_points(rows, gpu_records?, socket_records?);
-    
-    debug!(run_id, returned_count = record_points.len(), "Record points fetched successfully");
+
+    debug!(
+        run_id,
+        returned_count = record_points.len(),
+        "Record points fetched successfully"
+    );
     Ok((StatusCode::OK, Json(record_points)))
 }
 
@@ -298,15 +310,25 @@ pub async fn delete_run(
 
     match workspace_check {
         None => {
-            warn!(run_id, user_id = auth_user.user_id, "Delete run denied: not found or no access");
-            return Err(ApiError::new(StatusCode::NOT_FOUND, "Run not found or access denied"));
+            warn!(
+                run_id,
+                user_id = auth_user.user_id,
+                "Delete run denied: not found or no access"
+            );
+            return Err(ApiError::new(
+                StatusCode::NOT_FOUND,
+                "Run not found or access denied",
+            ));
         }
         Some(row) => {
             use sqlx::Row;
             let role: String = row.get("role");
             if role != "admin" {
                 warn!(run_id, user_id = auth_user.user_id, role = %role, "Delete run denied: not an admin");
-                return Err(ApiError::new(StatusCode::FORBIDDEN, "Only workspace admins can delete runs"));
+                return Err(ApiError::new(
+                    StatusCode::FORBIDDEN,
+                    "Only workspace admins can delete runs",
+                ));
             }
         }
     }
@@ -364,6 +386,14 @@ fn merge_record_points(
             igpu_energy: row.igpu_energy,
             gpu_details: gpu_by_record.remove(&row.id).unwrap_or_default(),
             socket_details: socket_by_record.remove(&row.id).unwrap_or_default(),
+            phase: row.phase,
+            tokens_processed: row.tokens_processed,
+            training_step: row.training_step,
+            loss: row.loss,
+            learning_rate: row.learning_rate,
+            sequence_length: row.sequence_length,
+            accuracy: row.accuracy,
+            custom_metrics: row.custom_metrics,
         })
         .collect()
 }

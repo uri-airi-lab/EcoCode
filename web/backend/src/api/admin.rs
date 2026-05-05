@@ -1,6 +1,6 @@
-use axum::{extract::State, http::StatusCode, Json, response::IntoResponse};
 use crate::error::ApiError;
 use crate::state::AppState;
+use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 
 /// Handles GET requests to list all projects for administrative overview.
 pub async fn get_admin_projects(

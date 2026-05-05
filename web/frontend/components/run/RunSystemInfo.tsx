@@ -56,79 +56,99 @@ export function RunSystemInfo({ run }: RunSystemInfoProps) {
 
   return (
     <div className="space-y-6">
-      {/* Hardware Section - Terminal Style */}
-      {run.systemInfo ? (
-        <div className="chart-container overflow-hidden">
-          {/* Run Metrics */}
-          <h3 className="text-lg font-semibold text-foreground mb-4">Run Metrics</h3>
-          <div className="grid grid-cols-2 gap-3 mb-6">
-            {runStats.map((stat, idx) => (
-              <div key={idx} className="p-4 rounded-xl border border-border/40 bg-card/50 flex flex-col items-center justify-center text-center gap-2">
-                <stat.icon className="w-5 h-5 text-muted-foreground mb-1" />
-                <div>
-                  <p className="text-xs text-muted-foreground uppercase tracking-wider">{stat.label}</p>
-                  <p className="text-lg font-bold text-foreground mt-0.5">{stat.value}</p>
+      <div className="chart-container overflow-hidden">
+        {/* Run Metrics */}
+        <h4 className="text-[10px] font-bold text-primary uppercase tracking-[0.2em] mb-6 flex items-center gap-2">
+          <Activity className="w-3 h-3" />
+          Execution Summary
+        </h4>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-8">
+          {runStats.map((stat, idx) => (
+            <div key={idx} className="p-4 rounded-lg border border-border/40 bg-primary/[0.02] flex flex-col items-center justify-center text-center group hover:bg-primary/[0.05] transition-all duration-300">
+              <stat.icon className="w-4 h-4 text-muted-foreground/60 mb-2 group-hover:text-primary transition-colors" />
+              <p className="text-[9px] font-bold text-muted-foreground/40 uppercase tracking-tighter mb-1">{stat.label}</p>
+              <p className="text-sm font-mono font-bold text-foreground">{stat.value}</p>
+            </div>
+          ))}
+        </div>
+
+        <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] mb-6 flex items-center gap-2">
+          <Zap className="w-3 h-3" />
+          Hardware Specification
+        </h4>
+        
+        {run.systemInfo ? (
+          <div className="relative rounded-lg overflow-hidden border border-border/60 glass-strong">
+            {/* Terminal Header */}
+            <div className="bg-muted/40 px-4 py-2 flex items-center justify-between border-b border-border/40">
+              <div className="flex gap-1.5">
+                <div className="w-2.5 h-2.5 rounded-full bg-rose-500/40" />
+                <div className="w-2.5 h-2.5 rounded-full bg-amber-500/40" />
+                <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/40" />
+              </div>
+              <span className="text-[10px] font-mono text-muted-foreground/60">ecocode-sys-summary --verbose</span>
+            </div>
+            
+            {/* Terminal Content */}
+            <div className="p-6 font-mono text-[13px] leading-relaxed bg-black/20">
+              <div className="flex items-start gap-4 mb-3 pb-3 border-b border-white/5">
+                <span className="text-primary font-bold">CPU:</span>
+                <span className="text-foreground/90">{run.systemInfo.cpuName}</span>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2">
+                <div className="flex justify-between border-b border-white/5 pb-1">
+                  <span className="text-muted-foreground/60">Cores / Threads:</span>
+                  <span className="text-foreground">{run.systemInfo.cpuCores} / {run.systemInfo.cpuCores * 2}</span>
+                </div>
+                <div className="flex justify-between border-b border-white/5 pb-1">
+                  <span className="text-muted-foreground/60">Total RAM:</span>
+                  <span className="text-foreground">{run.systemInfo.ramGb.toFixed(1)} GB</span>
+                </div>
+                <div className="flex justify-between border-b border-white/5 pb-1">
+                  <span className="text-muted-foreground/60">CPU Sockets:</span>
+                  <span className="text-foreground">{socketCount}</span>
+                </div>
+                <div className="flex justify-between border-b border-white/5 pb-1">
+                  <span className="text-muted-foreground/60">GPU Units:</span>
+                  <span className="text-foreground">{run.systemInfo.gpuCount}</span>
                 </div>
               </div>
-            ))}
-          </div>
 
-          <h3 className="text-lg font-semibold text-foreground mb-4">System Hardware</h3>
-          <div className="bg-card/30 rounded-lg p-6 font-mono text-sm border border-primary/20 overflow-x-auto">
-            <div className="text-primary leading-relaxed">
-              <div>╔════════════════════════════════════════════════════╗</div>
-              <div>║              EcoCode System Summary                ║</div>
-              <div>╠════════════════════════════════════════════════════╣</div>
-              <div className="text-cyan-400">║  CPU: {padLine(run.systemInfo.cpuName.substring(0, 44), 44)}║</div>
-              <div className="text-emerald-400">║  Cores / Threads: {padLine(run.systemInfo.cpuCores.toString(), 32)}║</div>
-              <div className="text-amber-400">║  Total RAM: {padLine(`${run.systemInfo.ramGb.toFixed(1)} GB`, 38)}║</div>
-              <div className="text-blue-400">║  CPU Sockets (RAPL): {padLine(socketCount.toString(), 29)}║</div>
-              {Array.from(socketDomains.entries()).map(([socket, domains]) => (
-                <div key={socket} className="text-blue-300">║    Socket {socket}: {padLine(domains.join(', '), 37)}║</div>
-              ))}
-              <div className="text-purple-400">║  NVIDIA GPUs: {padLine(run.systemInfo.gpuCount.toString(), 36)}║</div>
-              {run.systemInfo.gpuCount > 0 && run.systemInfo.gpuNames && (
-                typeof run.systemInfo.gpuNames === 'string' 
-                  ? run.systemInfo.gpuNames.split(',').map((gpu, i) => (
-                      <div key={i} className="text-purple-300">║    GPU {i}: {padLine(gpu.trim().substring(0, 40), 40)}║</div>
-                    ))
-                  : run.systemInfo.gpuNames.map((gpu, i) => (
-                      <div key={i} className="text-purple-300">║    GPU {i}: {padLine(gpu.substring(0, 40), 40)}║</div>
-                    ))
+              {socketCount > 0 && (
+                <div className="mt-4 pt-4 border-t border-white/5">
+                  <span className="text-primary/60 text-[11px] font-bold uppercase mb-2 block tracking-widest">Socket Mapping</span>
+                  {Array.from(socketDomains.entries()).map(([socket, domains]) => (
+                    <div key={socket} className="flex gap-4 items-center text-xs mb-1">
+                      <span className="text-primary/40">[{socket}]</span>
+                      <span className="text-foreground/70">{domains.join(', ')}</span>
+                    </div>
+                  ))}
+                </div>
               )}
-              <div>╚════════════════════════════════════════════════════╝</div>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="chart-container">
-          {/* Run Metrics */}
-          <h3 className="text-lg font-semibold text-foreground mb-4">Run Metrics</h3>
-          <div className="grid grid-cols-2 gap-3 mb-6">
-            {runStats.map((stat, idx) => (
-              <div key={idx} className="p-4 rounded-xl border border-border/40 bg-card/50 flex flex-col items-center justify-center text-center gap-2">
-                <stat.icon className="w-5 h-5 text-muted-foreground mb-1" />
-                <div>
-                  <p className="text-xs text-muted-foreground uppercase tracking-wider">{stat.label}</p>
-                  <p className="text-lg font-bold text-foreground mt-0.5">{stat.value}</p>
-                </div>
-              </div>
-            ))}
-          </div>
 
-          <h3 className="text-lg font-semibold text-foreground mb-4">System Hardware</h3>
-          <div className="bg-card/30 rounded-lg p-6 font-mono text-sm border border-primary/20 overflow-x-auto">
-            <div className="text-primary">
-              <div>╔════════════════════════════════════════════════════╗</div>
-              <div>║              Hardware Overview                     ║</div>
-              <div>╠════════════════════════════════════════════════════╣</div>
-              <div>║  Detected Components:                              ║</div>
-              <div>║    {padLine(`${socketCount} Socket${socketCount !== 1 ? 's' : ''}${gpuCount > 0 ? ` + ${gpuCount} GPU${gpuCount !== 1 ? 's' : ''}` : ''}`, 46)}║</div>
-              <div>╚════════════════════════════════════════════════════╝</div>
+              {run.systemInfo.gpuCount > 0 && run.systemInfo.gpuNames && (
+                <div className="mt-4 pt-4 border-t border-white/5">
+                  <span className="text-primary/60 text-[11px] font-bold uppercase mb-2 block tracking-widest">Accelerator Devices</span>
+                  {(typeof run.systemInfo.gpuNames === 'string' 
+                    ? run.systemInfo.gpuNames.split(',')
+                    : run.systemInfo.gpuNames).map((gpu, i) => (
+                      <div key={i} className="flex gap-4 items-center text-xs mb-1">
+                        <span className="text-primary/40">GPU:{i}</span>
+                        <span className="text-foreground/70">{gpu.trim()}</span>
+                      </div>
+                    ))
+                  }
+                </div>
+              )}
             </div>
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="p-12 text-center border border-dashed border-border rounded-lg bg-muted/5">
+            <p className="text-sm text-muted-foreground">No detailed hardware specification available for this run.</p>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

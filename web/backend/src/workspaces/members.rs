@@ -1,19 +1,19 @@
 //! Workspace member management — invite, list, remove, and update roles.
 
 use axum::{
+    Json, Router,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{delete, get, post},
-    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 
+use super::{require_admin, resolve_workspace_id};
 use crate::auth::AuthUser;
 use crate::error::ApiError;
 use crate::state::AppState;
-use super::{require_admin, resolve_workspace_id};
 
 #[derive(Serialize)]
 struct MemberResponse {
@@ -38,7 +38,10 @@ pub(super) fn members_routes() -> Router<AppState> {
     Router::new()
         .route("/{slug}/invite", post(invite_member))
         .route("/{slug}/members", get(list_members))
-        .route("/{slug}/members/{user_id}", delete(remove_member).patch(update_member_role))
+        .route(
+            "/{slug}/members/{user_id}",
+            delete(remove_member).patch(update_member_role),
+        )
 }
 
 async fn invite_member(
@@ -58,24 +61,27 @@ async fn invite_member(
 
     let target_user_id: i64 = match target_user_row {
         Some(r) => r.get("id"),
-        None => return Err(ApiError::new(StatusCode::NOT_FOUND, "User with that email not found")),
+        None => {
+            return Err(ApiError::new(
+                StatusCode::NOT_FOUND,
+                "User with that email not found",
+            ));
+        }
     };
 
-    sqlx::query(
-        "INSERT INTO workspace_members (workspace_id, user_id, role) VALUES ($1, $2, $3)",
-    )
-    .bind(ws_id)
-    .bind(target_user_id)
-    .bind(&payload.role)
-    .execute(&state.pool)
-    .await
-    .map_err(|e| {
-        if e.to_string().contains("duplicate key value") {
-            ApiError::new(StatusCode::CONFLICT, "User is already a member")
-        } else {
-            ApiError::internal(e)
-        }
-    })?;
+    sqlx::query("INSERT INTO workspace_members (workspace_id, user_id, role) VALUES ($1, $2, $3)")
+        .bind(ws_id)
+        .bind(target_user_id)
+        .bind(&payload.role)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| {
+            if e.to_string().contains("duplicate key value") {
+                ApiError::new(StatusCode::CONFLICT, "User is already a member")
+            } else {
+                ApiError::internal(e)
+            }
+        })?;
 
     Ok(StatusCode::OK)
 }
@@ -126,14 +132,12 @@ async fn remove_member(
         ));
     }
 
-    sqlx::query(
-        "DELETE FROM workspace_members WHERE workspace_id = $1 AND user_id = $2",
-    )
-    .bind(ws_id)
-    .bind(target_user_id)
-    .execute(&state.pool)
-    .await
-    .map_err(ApiError::internal)?;
+    sqlx::query("DELETE FROM workspace_members WHERE workspace_id = $1 AND user_id = $2")
+        .bind(ws_id)
+        .bind(target_user_id)
+        .execute(&state.pool)
+        .await
+        .map_err(ApiError::internal)?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -148,7 +152,10 @@ async fn update_member_role(
     require_admin(&state, ws_id, auth_user.user_id).await?;
 
     if target_user_id == auth_user.user_id {
-        return Err(ApiError::new(StatusCode::BAD_REQUEST, "Cannot change your own role"));
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "Cannot change your own role",
+        ));
     }
 
     if payload.role != "admin" && payload.role != "member" {

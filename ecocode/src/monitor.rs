@@ -8,22 +8,38 @@ use nvml_wrapper::Nvml;
 use sqlx::types::chrono::Utc;
 use std::io;
 use std::process::Command;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use sysinfo::{Pid, ProcessesToUpdate, RefreshKind, System};
 use tokio::time::{self, Instant, MissedTickBehavior};
 
-use crate::sensor::RAPL_PATH;
-use crate::sensor::gpu::{get_all_gpu_devices, get_all_gpu_energies, get_all_gpu_energies_by_pid};
-use crate::sensor::rapl::{delta_cpu_energy_per_pid_j, get_all_energies, scan_rapl_files};
+/// Shared state updated by the Python SDK via Unix socket (attached mode).
+/// The main sampling loop reads these values on every tick and attaches them to the Record.
+#[derive(Debug, Default, Clone)]
+struct MarkerState {
+    current_phase: Option<String>,
+    tokens_processed: Option<i64>,
+    training_step: Option<i64>,
+    loss: Option<f64>,
+    learning_rate: Option<f64>,
+    sequence_length: Option<i32>,
+}
+
 use crate::exporter::csv::CsvExporter;
 use crate::exporter::dual::DualExporter;
 use crate::exporter::json::JsonExporter;
 use crate::exporter::local::SqliteExporter;
 use crate::exporter::logfile::LogFileExporter;
 use crate::exporter::online::OnlineExporter;
-use crate::exporter::terminal::TerminalExporter;
 use crate::exporter::prometheus::PrometheusExporter;
+use crate::exporter::terminal::TerminalExporter;
 use crate::exporter::{Exporter, ExporterType, GpuMetric, Record, SocketMetric};
+use ecocode_core::sensor::RAPL_PATH;
+use ecocode_core::sensor::get_process_tree_pids_from_sys;
+use ecocode_core::sensor::gpu::{
+    get_all_gpu_devices, get_all_gpu_energies, get_all_gpu_energies_by_pid,
+};
+use ecocode_core::sensor::rapl::{delta_cpu_energy_per_pid_j, get_all_energies, scan_rapl_files};
 
 use crate::cli::RunArgs;
 
@@ -81,7 +97,9 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
         Box::new(DualExporter::new(primary, online))
     };
     if output == "online" && args.collaborator.is_some() {
-        println!("Notice: In 'online' mode, the collaborator name is automatically linked to your EcoCode account. The provided --collaborator value will be ignored.");
+        println!(
+            "Notice: In 'online' mode, the collaborator name is automatically linked to your EcoCode account. The provided --collaborator value will be ignored."
+        );
     }
 
     println!("Exporter type: {:?}", exporter.exporter_type());
@@ -113,9 +131,9 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
     };
 
     let run_started_at = Utc::now().to_rfc3339();
-    let run_name = args.name.unwrap_or_else(|| {
-        format!("run_{}", Utc::now().format("%Y-%m-%d_%H-%M-%S"))
-    });
+    let run_name = args
+        .name
+        .unwrap_or_else(|| format!("run_{}", Utc::now().format("%Y-%m-%d_%H-%M-%S")));
     let full_command = args.command.join(" ");
     let run_id = exporter
         .create_run(
@@ -127,33 +145,128 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
         )
         .await?;
 
-    if args.intensity.is_some() || args.price.is_some() || args.address.is_some() || args.use_api_cost {
-        exporter.update_project_config(
-            project.id,
-            args.intensity,
-            args.price,
-            args.address.clone(),
-            if args.use_api_cost { Some(true) } else { None }
-        ).await?;
+    if args.intensity.is_some()
+        || args.price.is_some()
+        || args.address.is_some()
+        || args.use_api_cost
+    {
+        exporter
+            .update_project_config(
+                project.id,
+                args.intensity,
+                args.price,
+                args.address.clone(),
+                if args.use_api_cost { Some(true) } else { None },
+            )
+            .await?;
     }
 
     let carbon_config = exporter.get_carbon_config(project.id).await?;
 
-    if project.is_new || (carbon_config.manual_cost_per_kwh.is_none() && !carbon_config.use_api_for_cost) {
-        if carbon_config.manual_cost_per_kwh.is_none() && !carbon_config.use_api_for_cost && args.price.is_none() && !args.use_api_cost {
-            eprintln!("Error: Financial cost per kWh (--price or --cost) or --use-api-cost is required for new projects or if not already set.");
+    if project.is_new
+        || (carbon_config.manual_cost_per_kwh.is_none() && !carbon_config.use_api_for_cost)
+    {
+        if carbon_config.manual_cost_per_kwh.is_none()
+            && !carbon_config.use_api_for_cost
+            && args.price.is_none()
+            && !args.use_api_cost
+        {
+            eprintln!(
+                "Error: Financial cost per kWh (--price or --cost) or --use-api-cost is required for new projects or if not already set."
+            );
             std::process::exit(1);
         }
         if project.is_new && args.intensity.is_none() {
-            println!("Notice: No --intensity provided. Using default global average ({:.1} gCO2/kWh).", carbon_config.resolved_intensity_g_per_kwh);
+            println!(
+                "Notice: No --intensity provided. Using default global average ({:.1} gCO2/kWh).",
+                carbon_config.resolved_intensity_g_per_kwh
+            );
         }
     }
 
     let mut rapl_readers = scan_rapl_files()?;
 
+    // --- Python SDK socket listener (attached mode) ---
+    // Creates a Unix domain socket so the Python SDK running inside the child process
+    // can send semantic marker events (phase, tokens, step, loss, lr, seq_len).
+    let cli_pid = std::process::id();
+    let socket_path = format!("/tmp/ecocode_{}.sock", cli_pid);
+    let marker_state: Arc<Mutex<MarkerState>> = Arc::new(Mutex::new(MarkerState::default()));
+
+    // Remove any stale socket left by a previous crash
+    let _ = std::fs::remove_file(&socket_path);
+
+    let listener = tokio::net::UnixListener::bind(&socket_path)?;
+    let marker_state_for_task = Arc::clone(&marker_state);
+    let socket_path_for_task = socket_path.clone();
+
+    tokio::spawn(async move {
+        loop {
+            match listener.accept().await {
+                Ok((mut stream, _)) => {
+                    let ms = Arc::clone(&marker_state_for_task);
+                    tokio::spawn(async move {
+                        use tokio::io::{AsyncBufReadExt, BufReader};
+                        let reader = BufReader::new(&mut stream);
+                        let mut lines = reader.lines();
+                        while let Ok(Some(line)) = lines.next_line().await {
+                            let line = line.trim().to_string();
+                            if line.is_empty() {
+                                continue;
+                            }
+                            if let Ok(event) = serde_json::from_str::<serde_json::Value>(&line) {
+                                let mut state = ms.lock().unwrap();
+                                match event.get("event").and_then(|e| e.as_str()) {
+                                    Some("phase") => {
+                                        state.current_phase =
+                                            event["value"].as_str().map(|s| s.to_string());
+                                    }
+                                    Some("epoch") => {
+                                        let n = event["value"].as_i64().unwrap_or(0);
+                                        state.current_phase = Some(format!("epoch:{}", n));
+                                    }
+                                    Some("tokens") => {
+                                        state.tokens_processed = event["count"].as_i64();
+                                    }
+                                    Some("step") => {
+                                        state.training_step = event["value"].as_i64();
+                                    }
+                                    Some("loss") => {
+                                        state.loss = event["value"].as_f64();
+                                    }
+                                    Some("learning_rate") => {
+                                        state.learning_rate = event["value"].as_f64();
+                                    }
+                                    Some("sequence_length") => {
+                                        state.sequence_length =
+                                            event["value"].as_i64().map(|n| n as i32);
+                                    }
+                                    _ => {
+                                        eprintln!("[sdk] Unknown marker event: {}", line);
+                                    }
+                                }
+                            } else {
+                                eprintln!("[sdk] Failed to parse marker event: {}", line);
+                            }
+                        }
+                    });
+                }
+                Err(e) => {
+                    eprintln!("[sdk] Socket accept error: {}", e);
+                    break;
+                }
+            }
+        }
+        let _ = std::fs::remove_file(&socket_path_for_task);
+    });
+
     // --- Spawn the target process ---
+    // Inject ECOCODE_SOCKET and ECOCODE_RUN_ID so the Python SDK running inside
+    // the child process can attach to this run in attached mode.
     let mut child = Command::new(&args.command[0])
         .args(&args.command[1..])
+        .env("ECOCODE_SOCKET", &socket_path)
+        .env("ECOCODE_RUN_ID", run_id.to_string())
         .spawn()
         .expect("failed to execute process");
 
@@ -229,12 +342,24 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
         }
     }
 
-    println!("║  Exporter: {:38}║", format!("{:?}", exporter.exporter_type()));
+    println!(
+        "║  Exporter: {:38}║",
+        format!("{:?}", exporter.exporter_type())
+    );
     println!("║  Interval: {:38}║", format!("{:.1}s", args.interval));
     println!("╠════════════════════════════════════════════════════╣");
-    println!("║  Carbon Intensity: {:31}║", format!("{:.1} gCO2/kWh", carbon_config.resolved_intensity_g_per_kwh));
-    println!("║  Intensity Source: {:31}║", carbon_config.intensity_source);
-    println!("║  PUE Factor: {:36}║", format!("{:.2}", carbon_config.pue_factor));
+    println!(
+        "║  Carbon Intensity: {:31}║",
+        format!("{:.1} gCO2/kWh", carbon_config.resolved_intensity_g_per_kwh)
+    );
+    println!(
+        "║  Intensity Source: {:31}║",
+        carbon_config.intensity_source
+    );
+    println!(
+        "║  PUE Factor: {:36}║",
+        format!("{:.2}", carbon_config.pue_factor)
+    );
     println!("╚════════════════════════════════════════════════════╝");
     println!();
 
@@ -300,15 +425,34 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
 
             sys.refresh_processes(ProcessesToUpdate::All, true);
 
-            cpu_usage = if sys.process(pid).is_none() {
+            // Check the root process is still alive
+            if sys.process(pid).is_none() {
                 println!("Process {} finished", pid);
                 break;
-            } else {
-                // cpu_usage() returns total % across all cores; divide by num_cores
-                // to get a normalized 0–100% value for the whole system
-                sys.process(pid).unwrap().cpu_usage() / num_cores as f32
-            };
-            mem_usage = (sys.process(pid).unwrap().memory() as f64 / sys_memo as f64) * 100.0;
+            }
+
+            // Build the full process tree (root + all descendants) so that child
+            // processes (data-loader workers, torch.distributed ranks, etc.) are
+            // included in CPU, memory, and GPU attribution.
+            let tree_pids = get_process_tree_pids_from_sys(&sys, pid.as_u32());
+
+            // Sum CPU usage and take the max memory across the whole tree.
+            // cpu_usage() already returns the core-percentage; dividing by num_cores
+            // normalises to 0–100% of total machine capacity. Clamped to 100 to
+            // avoid over-attribution on machines where children can briefly spike.
+            let mut total_cpu_pct = 0.0_f32;
+            let mut max_mem_pct = 0.0_f64;
+            for &tpid in &tree_pids {
+                if let Some(proc_) = sys.process(Pid::from(tpid as usize)) {
+                    total_cpu_pct += proc_.cpu_usage() / num_cores as f32;
+                    let pmem = (proc_.memory() as f64 / sys_memo as f64) * 100.0;
+                    if pmem > max_mem_pct {
+                        max_mem_pct = pmem;
+                    }
+                }
+            }
+            cpu_usage = total_cpu_pct.min(100.0);
+            mem_usage = max_mem_pct.min(100.0);
 
             // --- CPU energy ---
             let cpu_energy_2 = get_all_energies(&mut rapl_readers)?;
@@ -346,7 +490,7 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
             let gpu_energies_2 = get_all_gpu_energies(&devices)?;
             let gpu_results = get_all_gpu_energies_by_pid(
                 &devices,
-                pid.as_u32(),
+                &tree_pids,
                 &gpu_energies_1,
                 &gpu_energies_2,
                 &gpu_timestamps,
@@ -385,12 +529,33 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
             cpu_energy_1 = cpu_energy_2;
             gpu_energies_1 = gpu_energies_2;
 
+            // --- Read SDK marker state ---
+            let (
+                current_phase,
+                current_tokens,
+                current_step,
+                current_loss,
+                current_lr,
+                current_seqlen,
+            ) = {
+                let state = marker_state.lock().unwrap();
+                (
+                    state.current_phase.clone(),
+                    state.tokens_processed,
+                    state.training_step,
+                    state.loss,
+                    state.learning_rate,
+                    state.sequence_length,
+                )
+            };
+
             // --- Export record ---
             let record = Record::new(
                 iteration,
                 run_id,
                 pid.as_u32(),
                 Utc::now().to_rfc3339(),
+                elapsed_secs,
                 cpu_usage as f64,
                 cpu_j,
                 avg_gpu_util,
@@ -401,6 +566,12 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
                 igpu_j,
                 gpu_metrics,
                 socket_metrics,
+                current_phase,
+                current_tokens,
+                current_step,
+                current_loss,
+                current_lr,
+                current_seqlen,
             );
 
             exporter.add_record(record).await?;
@@ -435,6 +606,10 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
         .complete_run(run_id, final_status, Some(run_ended_at.as_str()))
         .await?;
     exporter.run_summary(run_id).await?;
+
+    // Clean up the SDK socket file
+    let _ = std::fs::remove_file(&socket_path);
+
     execution_result?;
 
     Ok(())

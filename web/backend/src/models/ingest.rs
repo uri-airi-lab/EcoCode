@@ -3,7 +3,7 @@ use serde::Deserialize;
 /// Payload for starting a new run ingestion.
 #[derive(Deserialize)]
 pub struct IngestRunPayload {
-    pub project_id: i64,
+    pub project_id: Option<i64>,
     pub name: String,
     pub collaborator_name: Option<String>,
     pub started_at: Option<String>,
@@ -42,6 +42,15 @@ pub struct IngestRecordData {
     pub igpu_energy: Option<f64>,
     pub gpu_metrics: Vec<IngestGpuMetric>,
     pub socket_metrics: Vec<IngestSocketMetric>,
+    // ML semantic fields — sent by the Python SDK
+    pub phase: Option<String>,
+    pub tokens_processed: Option<i64>,
+    pub training_step: Option<i64>,
+    pub loss: Option<f64>,
+    pub learning_rate: Option<f64>,
+    pub sequence_length: Option<i32>,
+    pub accuracy: Option<f64>,
+    pub custom_metrics: Option<serde_json::Value>,
 }
 
 /// Payload for reporting system information during a run.

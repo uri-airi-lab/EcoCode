@@ -15,6 +15,15 @@ pub struct RecordPointRow {
     pub mem_energy: Option<f64>,
     pub igpu_usage: Option<f64>,
     pub igpu_energy: Option<f64>,
+    // ML semantic fields from the Python SDK
+    pub phase: Option<String>,
+    pub tokens_processed: Option<i64>,
+    pub training_step: Option<i64>,
+    pub loss: Option<f64>,
+    pub learning_rate: Option<f64>,
+    pub sequence_length: Option<i32>,
+    pub accuracy: Option<f64>,
+    pub custom_metrics: Option<sqlx::types::JsonValue>,
 }
 
 /// Represents a complete record point with nested GPU and Socket specific metrics.
@@ -34,6 +43,15 @@ pub struct RecordPoint {
     pub igpu_energy: Option<f64>,
     pub gpu_details: Vec<GpuRecordPoint>,
     pub socket_details: Vec<SocketRecordPoint>,
+    // ML semantic fields from the Python SDK
+    pub phase: Option<String>,
+    pub tokens_processed: Option<i64>,
+    pub training_step: Option<i64>,
+    pub loss: Option<f64>,
+    pub learning_rate: Option<f64>,
+    pub sequence_length: Option<i32>,
+    pub accuracy: Option<f64>,
+    pub custom_metrics: Option<serde_json::Value>,
 }
 
 /// Represents an individual GPU's metrics at a specific record point.

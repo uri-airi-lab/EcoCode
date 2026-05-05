@@ -2,19 +2,36 @@
 
 import React, { useMemo, useRef } from 'react'
 import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
   Tooltip,
   Legend,
-  ReferenceLine,
-} from 'recharts'
+  Filler,
+  ChartDataset,
+} from 'chart.js'
+import { Line } from 'react-chartjs-2'
+import annotationPlugin from 'chartjs-plugin-annotation'
 import { MetricRecord } from '@/lib/mock-data'
 import { ChartInfoTooltip } from '@/components/ChartInfoTooltip'
 import { formatChartTime, minIntervalMs } from '@/lib/utils'
 import { chartColor } from '@/lib/chart-colors'
+
+// Register ChartJS components
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler,
+  annotationPlugin
+)
 
 const PX_PER_POINT = 12
 const MIN_WIDTH = 600
@@ -30,24 +47,18 @@ interface CumulativePowerChartProps {
   data?: MetricRecord[]
 }
 
-function SeparatorLabel({ viewBox, runName }: { viewBox?: { x?: number; y?: number }; runName: string }) {
-  const x = (viewBox?.x ?? 0) + 6
-  const y = (viewBox?.y ?? 0) + 14
-  return (
-    <text x={x} y={y} fill="hsl(var(--muted-foreground))" fontSize={10} fontWeight={500}>
-      {runName}
-    </text>
-  )
-}
-
 export function CumulativePowerChart({ runs: runsProp, data }: CumulativePowerChartProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // Normalize: accept either runs[] (multi-run dashboard) or data[] (single-run detail)
   const runs: RunData[] = runsProp ?? (data ? [{ runId: 'single', runName: '', records: data }] : [])
 
-  const { chartData, separatorIndices } = useMemo(() => {
-    const data: Record<string, string | number>[] = []
+  const { chartLabels, datasets, separatorIndices } = useMemo(() => {
+    const labels: string[] = []
+    const cpuData: number[] = []
+    const gpuData: number[] = []
+    const memData: number[] = []
+    const igpuData: number[] = []
     const seps: { index: number; runName: string }[] = []
 
     const allTimestamps = runs.flatMap(r => r.records.map(rec => rec.timestamp))
@@ -56,8 +67,8 @@ export function CumulativePowerChart({ runs: runsProp, data }: CumulativePowerCh
     runs.forEach((run, runIdx) => {
       const records = run.records.length > 1 ? run.records.slice(1) : run.records
 
-      if (runIdx > 0 && data.length > 0) {
-        seps.push({ index: data.length, runName: run.runName })
+      if (runIdx > 0 && labels.length > 0) {
+        seps.push({ index: labels.length, runName: run.runName })
       }
 
       records.forEach((record, index) => {
@@ -67,87 +78,159 @@ export function CumulativePowerChart({ runs: runsProp, data }: CumulativePowerCh
         const deltaMs = prev ? record.timestamp - prev.timestamp : 1000
         const deltaS = (deltaMs / 1000) || 1
 
-        data.push({
-          time: formatChartTime(record.timestamp, intervalMs),
-          index: data.length,
-          cpu: Number(((record.cpu_energy ?? 0) / deltaS).toFixed(2)),
-          gpu: Number(((record.gpu_energy ?? 0) / deltaS).toFixed(2)),
-          mem: Number(((record.mem_energy ?? 0) / deltaS).toFixed(2)),
-          igpu: Number(((record.igpu_energy ?? 0) / deltaS).toFixed(2)),
-        })
+        labels.push(formatChartTime(record.timestamp, intervalMs))
+        cpuData.push(Number(((record.cpu_energy ?? 0) / deltaS).toFixed(2)))
+        gpuData.push(Number(((record.gpu_energy ?? 0) / deltaS).toFixed(2)))
+        memData.push(Number(((record.mem_energy ?? 0) / deltaS).toFixed(2)))
+        igpuData.push(Number(((record.igpu_energy ?? 0) / deltaS).toFixed(2)))
       })
     })
 
-    return { chartData: data, separatorIndices: seps }
+    const finalDatasets: ChartDataset<'line'>[] = [
+      {
+        label: 'CPU Power (W)',
+        data: cpuData,
+        borderColor: chartColor(1),
+        backgroundColor: chartColor(1, 0.4),
+        fill: true,
+        borderWidth: 1,
+        pointRadius: 0,
+        tension: 0.1,
+      },
+      {
+        label: 'GPU Power (W)',
+        data: gpuData,
+        borderColor: chartColor(2),
+        backgroundColor: chartColor(2, 0.4),
+        fill: true,
+        borderWidth: 1,
+        pointRadius: 0,
+        tension: 0.1,
+      },
+      {
+        label: 'Memory Power (W)',
+        data: memData,
+        borderColor: chartColor(3),
+        backgroundColor: chartColor(3, 0.4),
+        fill: true,
+        borderWidth: 1,
+        pointRadius: 0,
+        tension: 0.1,
+      },
+      {
+        label: 'iGPU Power (W)',
+        data: igpuData,
+        borderColor: chartColor(4),
+        backgroundColor: chartColor(4, 0.4),
+        fill: true,
+        borderWidth: 1,
+        pointRadius: 0,
+        tension: 0.1,
+      },
+    ]
+
+    return { chartLabels: labels, datasets: finalDatasets, separatorIndices: seps }
   }, [runs])
 
-  const chartWidth = Math.max(MIN_WIDTH, chartData.length * PX_PER_POINT)
+  const chartWidth = Math.max(MIN_WIDTH, chartLabels.length * PX_PER_POINT)
 
-  // Resolve border color for CartesianGrid
-  const borderColor = typeof window !== 'undefined'
-    ? getComputedStyle(document.documentElement).getPropertyValue('--border').trim()
-    : '0 0% 24%'
-  const gridStroke = `hsla(${borderColor}, 0.6)`
+  const options = {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: {
+      mode: 'index' as const,
+      intersect: false,
+    },
+    scales: {
+      x: {
+        grid: {
+          display: true,
+          color: 'rgba(255, 255, 255, 0.05)',
+        },
+        ticks: {
+          color: 'hsl(215 20.2% 65.1%)',
+          font: { size: 10 },
+          maxRotation: 0,
+          autoSkip: true,
+          maxTicksLimit: 10,
+        },
+      },
+      y: {
+        stacked: true,
+        grid: {
+          display: true,
+          color: 'rgba(255, 255, 255, 0.05)',
+        },
+        ticks: {
+          color: 'hsl(215 20.2% 65.1%)',
+          font: { size: 10 },
+        },
+        title: {
+          display: true,
+          text: 'Watts',
+          color: 'hsl(215 20.2% 65.1%)',
+          font: { size: 10 },
+        },
+      },
+    },
+    plugins: {
+      legend: {
+        position: 'bottom' as const,
+        labels: {
+          color: 'hsl(215 20.2% 65.1%)',
+          usePointStyle: true,
+          padding: 20,
+          font: { size: 11 },
+        },
+      },
+      tooltip: {
+        backgroundColor: 'hsl(222 47% 10%)',
+        borderColor: 'hsl(217.2 32.6% 17.5%)',
+        borderWidth: 1,
+        titleFont: { size: 12, family: 'var(--font-jetbrains-mono)' },
+        bodyFont: { size: 11, family: 'var(--font-jetbrains-mono)' },
+        padding: 12,
+        cornerRadius: 4,
+      },
+      annotation: {
+        annotations: separatorIndices.reduce((acc, sep) => {
+          acc[`sep-${sep.index}`] = {
+            type: 'line',
+            xMin: sep.index,
+            xMax: sep.index,
+            borderColor: 'rgba(255, 255, 255, 0.2)',
+            borderWidth: 1,
+            borderDash: [6, 6],
+            label: {
+              display: true,
+              content: sep.runName,
+              position: 'start',
+              backgroundColor: 'rgba(0,0,0,0.5)',
+              color: 'hsl(215 20.2% 65.1%)',
+              font: { size: 10, weight: 'bold' },
+              padding: 4,
+            }
+          }
+          return acc
+        }, {} as any)
+      }
+    },
+  }
 
   return (
     <div className="chart-container">
       <div className="flex flex-row items-center gap-2 mb-4">
         <h3 className="text-lg font-semibold text-foreground">
-          Total System Power Stack
+          Stacked Power Over Time
         </h3>
-        <ChartInfoTooltip content="A stacked area view of power consumption across all runs. Vertical markers separate individual runs." />
+        <ChartInfoTooltip content="A stacked area view of instantaneous power draw (Watts) per component across all runs. Vertical markers separate individual runs." />
       </div>
-      <div ref={scrollRef} className="overflow-x-auto">
-        <AreaChart width={chartWidth} height={300} data={chartData}>
-          <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} strokeOpacity={0.8} />
-          <XAxis
-            dataKey="index"
-            type="number"
-            domain={[0, chartData.length - 1]}
-            tickFormatter={(i) => {
-              const d = chartData[i]
-              return d ? String(d.time) : ''
-            }}
-            stroke="hsl(var(--border))"
-            tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-            interval={Math.max(0, Math.floor(chartData.length / 16) - 1)}
-          />
-          <YAxis
-            stroke="hsl(var(--border))"
-            tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-            label={{ value: 'Watts', angle: -90, position: 'insideLeft', style: { fill: 'hsl(var(--muted-foreground))', fontSize: '10px' } }}
-          />
-          <Tooltip
-            labelFormatter={(i) => {
-              const d = chartData[Number(i)]
-              return d ? String(d.time) : String(i)
-            }}
-            contentStyle={{
-              backgroundColor: 'hsl(var(--card))',
-              border: '1px solid hsl(var(--border))',
-              borderRadius: '4px',
-              fontSize: '12px',
-              color: 'hsl(var(--foreground))',
-            }}
-          />
-          <Legend />
-
-          {separatorIndices.map(({ index, runName }) => (
-            <ReferenceLine
-              key={`sep-${index}`}
-              x={index}
-              stroke="hsl(var(--muted-foreground))"
-              strokeWidth={2}
-              strokeDasharray="6 3"
-              label={<SeparatorLabel runName={runName} />}
-            />
-          ))}
-
-          <Area type="monotone" dataKey="cpu" stackId="1" stroke={chartColor(1)} fill={chartColor(1)} fillOpacity={0.6} name="CPU Power (W)" isAnimationActive={false} />
-          <Area type="monotone" dataKey="gpu" stackId="1" stroke={chartColor(2)} fill={chartColor(2)} fillOpacity={0.6} name="GPU Power (W)" isAnimationActive={false} />
-          <Area type="monotone" dataKey="mem" stackId="1" stroke={chartColor(3)} fill={chartColor(3)} fillOpacity={0.6} name="Memory Power (W)" isAnimationActive={false} />
-          <Area type="monotone" dataKey="igpu" stackId="1" stroke={chartColor(4)} fill={chartColor(4)} fillOpacity={0.6} name="iGPU Power (W)" isAnimationActive={false} />
-        </AreaChart>
+      <div className="relative h-[260px]">
+        <div ref={scrollRef} className="overflow-x-auto h-full">
+          <div style={{ width: chartWidth, height: '100%' }}>
+            <Line data={{ labels: chartLabels, datasets }} options={options as any} />
+          </div>
+        </div>
       </div>
     </div>
   )

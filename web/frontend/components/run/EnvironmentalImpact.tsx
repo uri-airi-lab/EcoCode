@@ -1,8 +1,7 @@
 'use client'
 
 import React from 'react'
-import { Smartphone, Zap, Car, TreePine, Globe, Coins } from 'lucide-react'
-
+import { Smartphone, Car, TreePine, Leaf } from 'lucide-react'
 import { MetricCard } from '../MetricCard'
 
 interface EnvironmentalImpactProps {
@@ -14,39 +13,65 @@ interface EnvironmentalImpactProps {
   className?: string
 }
 
-export function EnvironmentalImpact({ 
-  totalEnergyWh, 
-  totalCo2G, 
-  totalCost, 
+/** Format grams with auto-scaling: sub-milligram → μg, sub-gram → mg, else g */
+function formatCo2(grams: number): { value: string; unit: string } {
+  if (grams === 0) return { value: '0.000', unit: 'g CO₂' }
+  if (grams < 0.001)  return { value: (grams * 1_000_000).toFixed(2), unit: 'μg CO₂' }
+  if (grams < 1)      return { value: (grams * 1000).toFixed(3),     unit: 'mg CO₂' }
+  if (grams < 1000)   return { value: grams.toFixed(4),              unit: 'g CO₂' }
+  return               { value: (grams / 1000).toFixed(4),           unit: 'kg CO₂' }
+}
+
+export function EnvironmentalImpact({
+  totalEnergyWh,
+  totalCo2G,
+  carbonIntensity,
+  totalCost,
   currency,
   className = ""
 }: EnvironmentalImpactProps) {
-  // Use DB-stored CO2 if available, otherwise fallback to world average calculation
-  const co2G = totalCo2G != null ? totalCo2G : (totalEnergyWh / 1000) * 445
+  // Use DB-stored CO2 if available and non-zero, otherwise fall back to the project-configured
+  // carbon intensity, and finally to the world average (445 g CO₂/kWh).
+  const co2G = (totalCo2G != null && totalCo2G > 0)
+    ? totalCo2G
+    : (totalEnergyWh / 1000) * (carbonIntensity ?? 445)
+
+  const { value: co2Value, unit: co2Unit } = formatCo2(co2G)
 
   const equivalents = [
     {
-      label: 'Trees Offset',
-      value: (co2G / (22000 / 365)).toFixed(2),
-      unit: 'Trees',
-      icon: TreePine,
+      label: 'CO₂ Emissions',
+      value: co2Value,
+      unit: co2Unit,
+      icon: Leaf,
     },
     {
       label: 'Car Travel',
-      value: (co2G / 170).toFixed(2),
-      unit: 'km',
+      // avg car: 170 g CO2/km
+      value: co2G >= 0.17 ? (co2G / 170).toFixed(3) : `${((co2G / 170) * 1000).toFixed(2)} m`,
+      unit: co2G >= 0.17 ? 'km' : '',
       icon: Car,
     },
     {
+      label: 'Trees Offset',
+      // avg tree absorbs 22 kg CO2/year = ~60.27 g/day
+      value: (co2G / (22000 / 365)).toFixed(6),
+      unit: 'tree-days',
+      icon: TreePine,
+    },
+    {
       label: 'Device Charges',
-      value: (co2G / 8.2).toFixed(0),
-      unit: 'Charges',
+      // avg smartphone charge: 8.2 g CO2
+      value: co2G >= 0.082
+        ? (co2G / 8.2).toFixed(2)
+        : `${((co2G / 8.2) * 100).toFixed(2)}%`,
+      unit: co2G >= 0.082 ? 'charges' : 'of 1 charge',
       icon: Smartphone,
-    }
+    },
   ]
 
   return (
-    <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 ${className}`}>
+    <div className={`grid grid-cols-2 lg:grid-cols-4 gap-3 ${className}`}>
       {equivalents.map((m) => (
         <MetricCard
           key={m.label}
@@ -59,5 +84,3 @@ export function EnvironmentalImpact({
     </div>
   )
 }
-
-

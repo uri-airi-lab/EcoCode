@@ -5,10 +5,10 @@
 //! `calculate_run_summary_db` is invoked by the ingest completion endpoint to aggregate
 //! all records into a single summary row with CO2 and cost figures.
 
-use sqlx::PgPool;
 use crate::error::ApiError;
 use crate::models::run::{Run, RunSummary};
 use crate::state::AppState;
+use sqlx::PgPool;
 
 /// Fetches a paginated list of runs for a given project, verifying the user's access.
 pub async fn fetch_runs(
@@ -83,18 +83,17 @@ pub async fn fetch_run_summary(
 }
 
 /// Computes the final run summary from all its records and the project's carbon configuration.
-/// 
+///
 /// Sums up energy (Joules) across all components, converts to Watt-hours, and applies
 /// the carbon intensity (gCO2/kWh) and energy cost to calculate the final footprint and expense.
 pub async fn calculate_run_summary_db(
     run_id: i64,
     db: &PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let record_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM records WHERE run_id = $1")
-            .bind(run_id)
-            .fetch_one(db)
-            .await?;
+    let record_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM records WHERE run_id = $1")
+        .bind(run_id)
+        .fetch_one(db)
+        .await?;
 
     sqlx::query("DELETE FROM runsummary WHERE run_id = $1")
         .bind(run_id)
@@ -121,8 +120,10 @@ pub async fn calculate_run_summary_db(
             r.get::<f64, _>("resolved_intensity_g_per_kwh"),
             r.get::<f64, _>("pue_factor"),
             r.get::<String, _>("intensity_source"),
-            r.get::<Option<f64>, _>("manual_cost_per_kwh").unwrap_or(0.0),
-            r.get::<Option<String>, _>("manual_currency").unwrap_or_else(|| "USD".to_string()),
+            r.get::<Option<f64>, _>("manual_cost_per_kwh")
+                .unwrap_or(0.0),
+            r.get::<Option<String>, _>("manual_currency")
+                .unwrap_or_else(|| "USD".to_string()),
         )
     } else {
         // IEA Emissions Factors 2025: global average = 445 gCO2/kWh

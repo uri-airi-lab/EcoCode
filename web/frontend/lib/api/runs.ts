@@ -263,13 +263,16 @@ export async function fetchRunMeta(id: string): Promise<RunDetail> {
     totalMemEnergy = summary.total_mem_energy / 3600
     totalIgpuEnergy = summary.total_igpu_energy / 3600
   } else {
+    // No summary yet (run still in progress) — energies will be 0 until first poll lands records
     totalCpuEnergy = 0; totalGpuEnergy = 0; totalMemEnergy = 0; totalIgpuEnergy = 0
   }
   const totalEnergy = totalCpuEnergy + totalGpuEnergy + totalMemEnergy + totalIgpuEnergy
   const energyKwh = totalEnergy / 1000
-  const carbonFootprint = summary?.total_co2_g != null
+  // Use DB-stored CO2 if available and non-zero. Otherwise fall back to world average
+  // so the EnvironmentalImpact component always shows a reasonable estimate.
+  const carbonFootprint = (summary?.total_co2_g != null && summary.total_co2_g > 0)
     ? summary.total_co2_g
-    : energyKwh * WORLD_AVERAGE_INTENSITY_G_PER_KWH
+    : (energyKwh * WORLD_AVERAGE_INTENSITY_G_PER_KWH)
   const timestamp =
     parseTimestamp(backendRun.started_at) ??
     parseTimestamp(backendRun.ended_at) ??
@@ -433,16 +436,21 @@ export async function batchDeleteRuns(ids: string[]): Promise<void> {
 
 export async function exportRunAsCSV(id: string): Promise<Blob> {
   const run = await fetchRunDetail(id)
-  const headers = ['Timestamp', 'CPU Usage (%)', 'CPU Energy (W)', 'GPU Usage (%)', 'GPU Energy (W)', 'MEM Energy (W)', 'iGPU Energy (W)']
-  const rows = run.records.map(record => [
-    new Date(record.timestamp).toISOString(),
-    record.cpu_usage,
-    record.cpu_energy,
-    record.gpu_usage,
-    record.gpu_energy,
-    record.mem_energy,
-    record.igpu_energy,
-  ])
+  const headers = ['Timestamp', 'CPU Usage (%)', 'CPU Power (W)', 'GPU Usage (%)', 'GPU Power (W)', 'MEM Power (W)', 'iGPU Power (W)']
+  const rows = run.records.map((record, index) => {
+    const prev = index > 0 ? run.records[index - 1] : null
+    const deltaMs = prev ? record.timestamp - prev.timestamp : 1000
+    const deltaS = (deltaMs / 1000) || 1
+    return [
+      new Date(record.timestamp).toISOString(),
+      record.cpu_usage.toFixed(2),
+      (record.cpu_energy / deltaS).toFixed(4),
+      record.gpu_usage.toFixed(2),
+      (record.gpu_energy / deltaS).toFixed(4),
+      ((record.mem_energy ?? 0) / deltaS).toFixed(4),
+      ((record.igpu_energy ?? 0) / deltaS).toFixed(4),
+    ]
+  })
   const csv = [headers, ...rows].map(row => row.join(',')).join('\n')
   return new Blob([csv], { type: 'text/csv' })
 }

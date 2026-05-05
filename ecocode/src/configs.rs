@@ -1,5 +1,3 @@
-
-
 use crate::cli::ConfigAction;
 use crate::exporter::online::OnlineExporter;
 
@@ -29,7 +27,7 @@ pub fn handle_config_command(action: ConfigAction) -> Result<(), Box<dyn std::er
 
                 if let Some(api_key) = config.get("api_key").and_then(|v| v.as_str()) {
                     let masked = if api_key.len() > 8 {
-                        format!("{}...{}", &api_key[..4], &api_key[api_key.len()-4..])
+                        format!("{}...{}", &api_key[..4], &api_key[api_key.len() - 4..])
                     } else {
                         "***".to_string()
                     };
@@ -54,4 +52,3 @@ pub fn handle_config_command(action: ConfigAction) -> Result<(), Box<dyn std::er
         }
     }
 }
-

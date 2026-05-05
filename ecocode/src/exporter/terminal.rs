@@ -43,35 +43,36 @@ impl Exporter for TerminalExporter {
             "PID",
             "Timestamp",
             "CPU%",
-            "CPU(J)",
+            "CPU(W)",
             "GPU%",
-            "GPU(J)",
+            "GPU(W)",
             "MEM%",
-            "MEM(J)",
+            "MEM(W)",
             "IGPU%",
-            "IGPU(J)"
+            "IGPU(W)"
         );
         println!("{}", "-".repeat(128));
 
         for record in &self.records {
+            let es = record.elapsed_secs.max(0.001);
             let mem_energy_s = record
                 .mem_energy
-                .map_or_else(|| "N/A".to_string(), |v| format!("{:.3}", v));
+                .map_or_else(|| "N/A".to_string(), |v| format!("{:.3}", v / es));
             let igpu_usage_s = record
                 .igpu_usage
                 .map_or_else(|| "N/A".to_string(), |v| format!("{:.3}", v));
             let igpu_energy_s = record
                 .igpu_energy
-                .map_or_else(|| "N/A".to_string(), |v| format!("{:.3}", v));
+                .map_or_else(|| "N/A".to_string(), |v| format!("{:.3}", v / es));
             println!(
                 "{:<5} {:<8} {:<32} {:<10.2} {:<10.2} {:<12.3} {:<12.3} {:<12.3} {:<12} {:<12} {:<12}",
                 record.id,
                 record.pid,
                 record.timestamp,
                 record.cpu_usage,
-                record.cpu_energy,
+                record.cpu_energy / es,
                 record.gpu_usage,
-                record.gpu_energy,
+                record.gpu_energy / es,
                 record.mem_usage,
                 mem_energy_s,
                 igpu_usage_s,
@@ -79,14 +80,18 @@ impl Exporter for TerminalExporter {
             );
             for gm in &record.gpu_metrics {
                 println!(
-                    "      └─ GPU {}: Usage {:.1}%, Energy {:.3} J",
-                    gm.device_index, gm.gpu_usage, gm.gpu_energy
+                    "      └─ GPU {}: Usage {:.1}%, Power {:.3} W",
+                    gm.device_index,
+                    gm.gpu_usage,
+                    gm.gpu_energy / es
                 );
             }
             for sm in &record.socket_metrics {
                 println!(
-                    "      └─ Socket {} ({}): {:.4} J",
-                    sm.socket, sm.domain, sm.energy
+                    "      └─ Socket {} ({}): {:.4} W",
+                    sm.socket,
+                    sm.domain,
+                    sm.energy / es
                 );
             }
         }
@@ -106,27 +111,28 @@ impl Exporter for TerminalExporter {
                 "PID",
                 "Timestamp",
                 "CPU%",
-                "CPU(J)",
+                "CPU(W)",
                 "GPU%",
-                "GPU(J)",
+                "GPU(W)",
                 "MEM%",
-                "MEM(J)",
+                "MEM(W)",
                 "IGPU%",
-                "IGPU(J)"
+                "IGPU(W)"
             );
             println!("{}", "-".repeat(128));
             self.first_record = false;
         }
 
+        let es = r.elapsed_secs.max(0.001);
         let mem_energy_s = r
             .mem_energy
-            .map_or_else(|| "N/A".to_string(), |v| format!("{:.3}", v));
+            .map_or_else(|| "N/A".to_string(), |v| format!("{:.3}", v / es));
         let igpu_usage_s = r
             .igpu_usage
             .map_or_else(|| "N/A".to_string(), |v| format!("{:.3}", v));
         let igpu_energy_s = r
             .igpu_energy
-            .map_or_else(|| "N/A".to_string(), |v| format!("{:.3}", v));
+            .map_or_else(|| "N/A".to_string(), |v| format!("{:.3}", v / es));
 
         println!(
             "{:<5} {:<8} {:<40} {:<10.2} {:<10.2} {:<12.3} {:<12.3} {:<12.3} {:<12} {:<12} {:<12}",
@@ -134,9 +140,9 @@ impl Exporter for TerminalExporter {
             r.pid,
             r.timestamp,
             r.cpu_usage,
-            r.cpu_energy,
+            r.cpu_energy / es,
             r.gpu_usage,
-            r.gpu_energy,
+            r.gpu_energy / es,
             r.mem_usage,
             mem_energy_s,
             igpu_usage_s,
@@ -145,14 +151,18 @@ impl Exporter for TerminalExporter {
 
         for gm in &r.gpu_metrics {
             println!(
-                "      └─ GPU {}: Usage {:.1}%, Energy {:.3} J",
-                gm.device_index, gm.gpu_usage, gm.gpu_energy
+                "      └─ GPU {}: Usage {:.1}%, Power {:.3} W",
+                gm.device_index,
+                gm.gpu_usage,
+                gm.gpu_energy / es
             );
         }
         for sm in &r.socket_metrics {
             println!(
-                "      └─ Socket {} ({}): {:.4} J",
-                sm.socket, sm.domain, sm.energy
+                "      └─ Socket {} ({}): {:.4} W",
+                sm.socket,
+                sm.domain,
+                sm.energy / es
             );
         }
 

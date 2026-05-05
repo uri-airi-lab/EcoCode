@@ -49,7 +49,7 @@ export function EnergyBreakdownChart({ run }: EnergyBreakdownChartProps) {
       }
     })
 
-    // Assuming 1 second interval for energy calculation (W * s / 3600 = Wh)
+    // Convert accumulated Joules to Wh (1 Wh = 3600 J)
     const factor = 1 / 3600
 
     const point: Record<string, string | number> = {

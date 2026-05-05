@@ -60,6 +60,14 @@ interface BackendRecordPoint {
   mem_energy: number
   igpu_usage: number
   igpu_energy: number
+  phase?: string | null
+  tokens_processed?: number | null
+  training_step?: number | null
+  loss?: number | null
+  learning_rate?: number | null
+  sequence_length?: number | null
+  accuracy?: number | null
+  custom_metrics?: Record<string, number> | null
   gpu_details?: BackendGpuRecordPoint[]
   socket_details?: BackendSocketRecordPoint[]
 }
@@ -185,6 +193,14 @@ function mapRecord(r: BackendRecordPoint): MetricRecord {
       domain: s.domain,
       energy: s.energy,
     })),
+    phase: r.phase,
+    tokens_processed: r.tokens_processed,
+    training_step: r.training_step,
+    loss: r.loss,
+    learning_rate: r.learning_rate,
+    sequence_length: r.sequence_length,
+    accuracy: r.accuracy,
+    custom_metrics: r.custom_metrics ?? null,
   }
 }
 

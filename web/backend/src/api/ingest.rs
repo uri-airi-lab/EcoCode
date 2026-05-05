@@ -10,14 +10,21 @@
 //! All record insertions are transactional; GPU and socket breakdowns are inserted
 //! in the same transaction as the parent record.
 
-use axum::{extract::{Path, State}, http::StatusCode, Json, response::IntoResponse};
+use axum::{
+    Json,
+    extract::{Path, State},
+    http::StatusCode,
+    response::IntoResponse,
+};
 use serde_json::json;
 use tracing::{debug, info, warn};
 
-use crate::error::ApiError;
-use crate::models::ingest::{IngestRunPayload, IngestRecordData, IngestSystemInfo, IngestCompletePayload};
-use crate::state::AppState;
 use crate::auth;
+use crate::error::ApiError;
+use crate::models::ingest::{
+    IngestCompletePayload, IngestRecordData, IngestRunPayload, IngestSystemInfo,
+};
+use crate::state::AppState;
 
 /// Handles POST requests from the EcoCode CLI to register a new tracking run.
 /// Validates workspace access and links the run to the authenticated user.
@@ -27,26 +34,42 @@ pub async fn ingest_run(
     Json(payload): Json<IngestRunPayload>,
 ) -> Result<impl IntoResponse, ApiError> {
     use sqlx::Row;
-    
+
+    // Resolve project_id: API key scope takes priority over payload value.
+    let resolved_project_id = auth_user.project_id.or(payload.project_id).ok_or_else(|| {
+        ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "project_id is required when using a workspace-scoped API key",
+        )
+    })?;
+
     let project_workspace = sqlx::query("SELECT workspace_id FROM projects WHERE id = $1")
-        .bind(payload.project_id)
+        .bind(resolved_project_id)
         .fetch_optional(&state.pool)
         .await
         .map_err(ApiError::internal)?
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "Project not found"))?;
 
     let ws_id: i64 = project_workspace.get("workspace_id");
-    
-    let membership = sqlx::query("SELECT 1 FROM workspace_members WHERE workspace_id = $1 AND user_id = $2")
-        .bind(ws_id)
-        .bind(auth_user.user_id)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(ApiError::internal)?;
+
+    let membership =
+        sqlx::query("SELECT 1 FROM workspace_members WHERE workspace_id = $1 AND user_id = $2")
+            .bind(ws_id)
+            .bind(auth_user.user_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(ApiError::internal)?;
 
     if membership.is_none() {
-        warn!(user_id = auth_user.user_id, project_id = payload.project_id, "Ingest run denied: user not a member of project workspace");
-        return Err(ApiError::new(StatusCode::FORBIDDEN, "Access denied to project workspace"));
+        warn!(
+            user_id = auth_user.user_id,
+            project_id = payload.project_id,
+            "Ingest run denied: user not a member of project workspace"
+        );
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "Access denied to project workspace",
+        ));
     }
 
     let user_row = sqlx::query("SELECT email FROM users WHERE id = $1")
@@ -62,7 +85,7 @@ pub async fn ingest_run(
          RETURNING id",
     )
     .bind(&payload.name)
-    .bind(payload.project_id)
+    .bind(resolved_project_id)
     .bind(user_email)
     .bind(payload.started_at)
     .bind(payload.command)
@@ -87,8 +110,10 @@ pub async fn ingest_record(
 
     let record_id: i64 = sqlx::query_scalar(
         "INSERT INTO records
-            (run_id, pid, timestamp, cpu_usage, cpu_energy, gpu_usage, gpu_energy, mem_usage, mem_energy, igpu_usage, igpu_energy)
-         VALUES ($1, $2, $3::timestamptz, $4, $5, $6, $7, $8, $9, $10, $11)
+            (run_id, pid, timestamp, cpu_usage, cpu_energy, gpu_usage, gpu_energy,
+             mem_usage, mem_energy, igpu_usage, igpu_energy,
+             phase, tokens_processed, training_step, loss, learning_rate, sequence_length, accuracy, custom_metrics)
+         VALUES ($1, $2, $3::timestamptz, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
          RETURNING id",
     )
     .bind(run_id)
@@ -102,11 +127,19 @@ pub async fn ingest_record(
     .bind(payload.mem_energy)
     .bind(payload.igpu_usage)
     .bind(payload.igpu_energy)
+    .bind(&payload.phase)
+    .bind(payload.tokens_processed)
+    .bind(payload.training_step)
+    .bind(payload.loss)
+    .bind(payload.learning_rate)
+    .bind(payload.sequence_length)
+    .bind(payload.accuracy)
+    .bind(&payload.custom_metrics)
     .fetch_one(&mut *tx)
     .await
     .map_err(ApiError::internal)?;
 
-    for gm in payload.gpu_metrics {
+    for gm in &payload.gpu_metrics {
         sqlx::query("INSERT INTO gpu_records (record_id, device_index, gpu_usage, gpu_energy) VALUES ($1, $2, $3, $4)")
             .bind(record_id)
             .bind(gm.device_index)
@@ -117,7 +150,7 @@ pub async fn ingest_record(
             .map_err(ApiError::internal)?;
     }
 
-    for sm in payload.socket_metrics {
+    for sm in &payload.socket_metrics {
         sqlx::query("INSERT INTO socket_records (record_id, socket, domain, energy) VALUES ($1, $2, $3, $4)")
             .bind(record_id)
             .bind(sm.socket)
@@ -131,21 +164,57 @@ pub async fn ingest_record(
     tx.commit().await.map_err(ApiError::internal)?;
     debug!(run_id, record_id, "Record ingested");
 
-    // Manually trigger notification for SSE watcher (fallback for direct DB inserts)
-    let _ = sqlx::query("SELECT pg_notify('record_inserted', $1)")
-        .bind(record_id.to_string())
-        .execute(&state.pool)
-        .await;
-
     // Direct broadcast to internal SSE channel for immediate UI update
-    let state_clone = state.clone();
-    tokio::spawn(async move {
-        if let Ok(Some(record)) = crate::db::records::fetch_record_by_id_with_details(record_id, &state_clone).await {
-            if let Ok(json_payload) = serde_json::to_string(&record) {
-                let _ = state_clone.tx.send(json_payload);
-            }
-        }
-    });
+    let mut gpu_details = Vec::new();
+    for gm in &payload.gpu_metrics {
+        gpu_details.push(crate::models::record::GpuRecordPoint {
+            id: 0,
+            record_id,
+            device_index: gm.device_index,
+            gpu_usage: gm.gpu_usage,
+            gpu_energy: gm.gpu_energy,
+        });
+    }
+
+    let mut socket_details = Vec::new();
+    for sm in &payload.socket_metrics {
+        socket_details.push(crate::models::record::SocketRecordPoint {
+            id: 0,
+            record_id,
+            socket: sm.socket,
+            domain: sm.domain.clone(),
+            energy: sm.energy,
+        });
+    }
+
+    let record = crate::models::record::RecordPoint {
+        id: record_id,
+        run_id,
+        pid: payload.pid,
+        timestamp: payload.timestamp.clone(),
+        cpu_usage: Some(payload.cpu_usage),
+        cpu_energy: Some(payload.cpu_energy),
+        gpu_usage: Some(payload.gpu_usage),
+        gpu_energy: Some(payload.gpu_energy),
+        mem_usage: Some(payload.mem_usage),
+        mem_energy: payload.mem_energy,
+        igpu_usage: payload.igpu_usage,
+        igpu_energy: payload.igpu_energy,
+        gpu_details,
+        socket_details,
+        phase: payload.phase.clone(),
+        tokens_processed: payload.tokens_processed,
+        training_step: payload.training_step,
+        loss: payload.loss,
+        learning_rate: payload.learning_rate,
+        sequence_length: payload.sequence_length,
+        accuracy: payload.accuracy,
+        custom_metrics: payload.custom_metrics.clone(),
+    };
+
+    if let Ok(json_payload) = serde_json::to_string(&record) {
+        let _ = state.tx.send(json_payload);
+    }
 
     Ok(StatusCode::CREATED)
 }

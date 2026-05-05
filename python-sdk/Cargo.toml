@@ -1,0 +1,21 @@
+[package]
+name = "ecocode-python"
+version = "0.1.0"
+edition = "2021"
+description = "PyO3 extension module for the EcoCode Python SDK."
+
+[lib]
+name = "_core"
+crate-type = ["cdylib"]
+
+[features]
+default = ["gpu"]
+gpu = ["ecocode-core/gpu", "nvml-wrapper"]
+
+[dependencies]
+ecocode-core = { path = "../ecocode/crates/core" }
+pyo3 = { version = "0.23", features = ["extension-module"] }
+serde_json = "1.0"
+chrono = "0.4"
+sysinfo = "0.38.0"
+nvml-wrapper = { version = "0.11.0", optional = true }

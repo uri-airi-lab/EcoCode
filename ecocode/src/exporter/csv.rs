@@ -56,6 +56,12 @@ impl Exporter for CsvExporter {
                 header.push(format!("GPU{}%", gm.device_index));
                 header.push(format!("GPU{}(W)", gm.device_index));
             }
+            header.push("Phase".into());
+            header.push("TokensProcessed".into());
+            header.push("TrainingStep".into());
+            header.push("Loss".into());
+            header.push("LearningRate".into());
+            header.push("SequenceLength".into());
             self.writer.write_record(&header)?;
             self.first_record = false;
         }

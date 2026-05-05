@@ -2,19 +2,36 @@
 
 import { useMemo, useRef, useState, useEffect } from 'react'
 import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
   Tooltip,
   Legend,
-  ReferenceLine,
-} from 'recharts'
+  Filler,
+  ChartDataset,
+} from 'chart.js'
+import { Line } from 'react-chartjs-2'
+import annotationPlugin from 'chartjs-plugin-annotation'
 import { MetricRecord } from '@/lib/mock-data'
 import { ChartInfoTooltip } from '@/components/ChartInfoTooltip'
 import { formatChartTime, minIntervalMs } from '@/lib/utils'
 import { chartColor } from '@/lib/chart-colors'
+
+// Register ChartJS components
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler,
+  annotationPlugin
+)
 
 const GPU_COLORS = [1, 2, 3, 4, 5, 6].map(n => chartColor(n as 1 | 2 | 3 | 4 | 5 | 6))
 
@@ -32,22 +49,8 @@ interface EnergyChartProps {
   data?: MetricRecord[]
 }
 
-// Custom label rendered inside the ReferenceLine
-function SeparatorLabel({ viewBox, runName }: { viewBox?: { x?: number; y?: number; height?: number }; runName: string }) {
-  const x = (viewBox?.x ?? 0) + 6
-  const y = (viewBox?.y ?? 0) + 14
-  return (
-    <g>
-      <text x={x} y={y} fill="hsl(var(--muted-foreground))" fontSize={10} fontWeight={500}>
-        {runName}
-      </text>
-    </g>
-  )
-}
-
 export function EnergyChart({ runs: runsProp, data }: EnergyChartProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
-  const [visibleRange, setVisibleRange] = useState({ start: 0, end: 100 })
 
   // Normalize: accept either runs[] (multi-run dashboard) or data[] (single-run detail)
   const runs: RunData[] = runsProp ?? (data ? [{ runId: 'single', runName: '', records: data }] : [])
@@ -64,10 +67,15 @@ export function EnergyChart({ runs: runsProp, data }: EnergyChartProps) {
     return maxIdx + 1
   }, [runs])
 
-  // Build flat chart data; track separator indices (index of first point of each new run after the first)
-  const { chartData, separatorIndices } = useMemo(() => {
-    const data: Record<string, string | number | null>[] = []
-    // { index: number, runName: string } — index is the first point of the *next* run
+  // Build flat chart data
+  const { chartLabels, datasets, separatorIndices } = useMemo(() => {
+    const labels: string[] = []
+    const cpuData: number[] = []
+    const gpuData: number[] = []
+    const memData: number[] = []
+    const igpuData: number[] = []
+    const individualGpuData: number[][] = Array.from({ length: gpuCount }, () => [])
+    
     const seps: { index: number; runName: string }[] = []
 
     const allTimestamps = runs.flatMap(r => r.records.map(rec => rec.timestamp))
@@ -76,9 +84,8 @@ export function EnergyChart({ runs: runsProp, data }: EnergyChartProps) {
     runs.forEach((run, runIdx) => {
       const records = run.records.length > 1 ? run.records.slice(1) : run.records
 
-      if (runIdx > 0 && data.length > 0) {
-        // Record the index where this run starts
-        seps.push({ index: data.length, runName: run.runName })
+      if (runIdx > 0 && labels.length > 0) {
+        seps.push({ index: labels.length, runName: run.runName })
       }
 
       records.forEach((record, index) => {
@@ -88,77 +95,163 @@ export function EnergyChart({ runs: runsProp, data }: EnergyChartProps) {
         const deltaMs = prev ? record.timestamp - prev.timestamp : 1000
         const deltaS = (deltaMs / 1000) || 1
 
-        const point: Record<string, string | number | null> = {
-          time: formatChartTime(record.timestamp, intervalMs),
-          index: data.length,
-          cpu: Number(((record.cpu_energy ?? 0) / deltaS).toFixed(2)),
-          gpu: Number(((record.gpu_energy ?? 0) / deltaS).toFixed(2)),
-          mem: Number(((record.mem_energy ?? 0) / deltaS).toFixed(2)),
-          igpu: Number(((record.igpu_energy ?? 0) / deltaS).toFixed(2)),
-          total: Number((
-            ((record.cpu_energy ?? 0) + (record.gpu_energy ?? 0) +
-              (record.mem_energy ?? 0) + (record.igpu_energy ?? 0)) / deltaS
-          ).toFixed(2)),
-        }
+        labels.push(formatChartTime(record.timestamp, intervalMs))
+        cpuData.push(Number(((record.cpu_energy ?? 0) / deltaS).toFixed(2)))
+        gpuData.push(Number(((record.gpu_energy ?? 0) / deltaS).toFixed(2)))
+        memData.push(Number(((record.mem_energy ?? 0) / deltaS).toFixed(2)))
+        igpuData.push(Number(((record.igpu_energy ?? 0) / deltaS).toFixed(2)))
 
-        for (let i = 0; i < gpuCount; i++) point[`gpu${i}`] = 0
-        for (const g of record.gpu_details ?? []) {
-          point[`gpu${g.device_index}`] = Number(((g.gpu_energy ?? 0) / deltaS).toFixed(2))
+        for (let i = 0; i < gpuCount; i++) {
+          const g = record.gpu_details?.find(gd => gd.device_index === i)
+          individualGpuData[i].push(g ? Number(((g.gpu_energy ?? 0) / deltaS).toFixed(2)) : 0)
         }
-
-        data.push(point)
       })
     })
 
-    return { chartData: data, separatorIndices: seps }
+    const finalDatasets: ChartDataset<'line'>[] = [
+      {
+        label: 'CPU Power (W)',
+        data: cpuData,
+        borderColor: chartColor(1),
+        backgroundColor: chartColor(1, 0.05),
+        fill: true,
+        borderWidth: 2,
+        pointRadius: 0,
+        tension: 0.1,
+      },
+      {
+        label: 'GPU Power (W) (Total)',
+        data: gpuData,
+        borderColor: chartColor(2),
+        backgroundColor: chartColor(2, 0.05),
+        fill: true,
+        borderWidth: 2,
+        pointRadius: 0,
+        tension: 0.1,
+      },
+      {
+        label: 'Memory Power (W)',
+        data: memData,
+        borderColor: chartColor(3),
+        backgroundColor: chartColor(3, 0.05),
+        fill: true,
+        borderWidth: 2,
+        pointRadius: 0,
+        tension: 0.1,
+      },
+      {
+        label: 'iGPU Power (W)',
+        data: igpuData,
+        borderColor: chartColor(4),
+        backgroundColor: chartColor(4, 0.05),
+        fill: true,
+        borderWidth: 2,
+        pointRadius: 0,
+        tension: 0.1,
+      }
+    ]
+
+    if (gpuCount > 1) {
+      individualGpuData.forEach((data, i) => {
+        finalDatasets.push({
+          label: `GPU ${i}`,
+          data: data,
+          borderColor: GPU_COLORS[i % GPU_COLORS.length],
+          backgroundColor: 'transparent',
+          borderWidth: 1,
+          borderDash: [4, 4],
+          pointRadius: 0,
+          tension: 0.1,
+        })
+      })
+    }
+
+    return { chartLabels: labels, datasets: finalDatasets, separatorIndices: seps }
   }, [runs, gpuCount])
 
-  const chartWidth = Math.max(MIN_WIDTH, chartData.length * PX_PER_POINT)
+  const chartWidth = Math.max(MIN_WIDTH, chartLabels.length * PX_PER_POINT)
 
-  // Update visible range on scroll
-  useEffect(() => {
-    const handleScroll = () => {
-      if (!scrollRef.current) return
-      const container = scrollRef.current
-      const scrollLeft = container.scrollLeft
-      const containerWidth = container.clientWidth
-      const scrollWidth = container.scrollWidth
-      
-      const startPercent = scrollLeft / scrollWidth
-      const endPercent = (scrollLeft + containerWidth) / scrollWidth
-      
-      const start = Math.floor(startPercent * chartData.length)
-      const end = Math.ceil(endPercent * chartData.length)
-      
-      setVisibleRange({ start, end })
-    }
-
-    const container = scrollRef.current
-    if (container) {
-      handleScroll() // Initial call
-      container.addEventListener('scroll', handleScroll)
-      return () => container.removeEventListener('scroll', handleScroll)
-    }
-  }, [chartData.length])
-
-  // Calculate visible tick positions
-  const visibleTicks = useMemo(() => {
-    const tickCount = 8
-    const step = Math.max(1, Math.floor((visibleRange.end - visibleRange.start) / tickCount))
-    const ticks = []
-    for (let i = visibleRange.start; i < visibleRange.end; i += step) {
-      if (i < chartData.length) {
-        ticks.push(i)
+  const options = {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: {
+      mode: 'index' as const,
+      intersect: false,
+    },
+    scales: {
+      x: {
+        grid: {
+          display: true,
+          color: 'rgba(255, 255, 255, 0.05)',
+        },
+        ticks: {
+          color: 'hsl(215 20.2% 65.1%)',
+          font: { size: 10 },
+          maxRotation: 0,
+          autoSkip: true,
+          maxTicksLimit: 10,
+        },
+      },
+      y: {
+        grid: {
+          display: true,
+          color: 'rgba(255, 255, 255, 0.05)',
+        },
+        ticks: {
+          color: 'hsl(215 20.2% 65.1%)',
+          font: { size: 10 },
+        },
+        title: {
+          display: true,
+          text: 'Watts',
+          color: 'hsl(215 20.2% 65.1%)',
+          font: { size: 10 },
+        },
+      },
+    },
+    plugins: {
+      legend: {
+        position: 'bottom' as const,
+        labels: {
+          color: 'hsl(215 20.2% 65.1%)',
+          usePointStyle: true,
+          padding: 20,
+          font: { size: 11 },
+        },
+      },
+      tooltip: {
+        backgroundColor: 'hsl(222 47% 10%)',
+        borderColor: 'hsl(217.2 32.6% 17.5%)',
+        borderWidth: 1,
+        titleFont: { size: 12, family: 'var(--font-jetbrains-mono)' },
+        bodyFont: { size: 11, family: 'var(--font-jetbrains-mono)' },
+        padding: 12,
+        cornerRadius: 4,
+      },
+      annotation: {
+        annotations: separatorIndices.reduce((acc, sep) => {
+          acc[`sep-${sep.index}`] = {
+            type: 'line',
+            xMin: sep.index,
+            xMax: sep.index,
+            borderColor: 'rgba(255, 255, 255, 0.2)',
+            borderWidth: 1,
+            borderDash: [6, 6],
+            label: {
+              display: true,
+              content: sep.runName,
+              position: 'start',
+              backgroundColor: 'rgba(0,0,0,0.5)',
+              color: 'hsl(215 20.2% 65.1%)',
+              font: { size: 10, weight: 'bold' },
+              padding: 4,
+            }
+          }
+          return acc
+        }, {} as any)
       }
-    }
-    return ticks
-  }, [visibleRange, chartData.length])
-
-  // Resolve border color for CartesianGrid
-  const borderColor = typeof window !== 'undefined'
-    ? getComputedStyle(document.documentElement).getPropertyValue('--border').trim()
-    : '0 0% 24%'
-  const gridStroke = `hsla(${borderColor}, 0.6)`
+    },
+  }
 
   return (
     <div className="chart-container">
@@ -168,64 +261,11 @@ export function EnergyChart({ runs: runsProp, data }: EnergyChartProps) {
         </h3>
         <ChartInfoTooltip content="Shows a timeline of the raw power (Watts) being drawn by your hardware components. All runs are shown in sequence with vertical separators between them." />
       </div>
-      <div className="relative">
-        <div ref={scrollRef} className="overflow-x-auto">
-          <LineChart width={chartWidth} height={320} data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} strokeOpacity={0.8} />
-            <XAxis
-              dataKey="index"
-              type="number"
-              domain={[0, chartData.length - 1]}
-              ticks={visibleTicks}
-              tickFormatter={(i) => {
-                const d = chartData[i]
-                return d ? String(d.time) : ''
-              }}
-              stroke="hsl(var(--border))"
-              tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-            />
-            <YAxis
-              stroke="hsl(var(--border))"
-              tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
-              label={{ value: 'Watts', angle: -90, position: 'insideLeft' }}
-            />
-            <Tooltip
-              labelFormatter={(i) => {
-                const d = chartData[Number(i)]
-                return d ? String(d.time) : String(i)
-              }}
-              contentStyle={{
-                backgroundColor: 'hsl(var(--card))',
-                border: '1px solid hsl(var(--border))',
-                borderRadius: '4px',
-                fontSize: '12px',
-                color: 'hsl(var(--foreground))',
-              }}
-              itemStyle={{ padding: '2px 0' }}
-              cursor={{ stroke: 'hsl(var(--muted-foreground))' }}
-            />
-            <Legend />
-
-            {/* Run boundary separators */}
-            {separatorIndices.map(({ index, runName }) => (
-              <ReferenceLine
-                key={`sep-${index}`}
-                x={index}
-                stroke="hsl(var(--muted-foreground))"
-                strokeWidth={2}
-                strokeDasharray="6 3"
-                label={<SeparatorLabel runName={runName} />}
-              />
-            ))}
-
-            <Line type="monotone" dataKey="cpu" stroke={chartColor(1)} strokeWidth={2} dot={false} name="CPU Power (W)" isAnimationActive={false} connectNulls />
-            <Line type="monotone" dataKey="gpu" stroke={chartColor(2)} strokeWidth={2} dot={false} name="GPU Power (W) (Total)" isAnimationActive={false} connectNulls />
-            {gpuCount > 1 && Array.from({ length: gpuCount }, (_, i) => (
-              <Line key={`gpu${i}`} type="monotone" dataKey={`gpu${i}`} stroke={GPU_COLORS[i % GPU_COLORS.length]} strokeWidth={1} strokeDasharray="4 2" dot={false} name={`GPU ${i}`} isAnimationActive={false} connectNulls />
-            ))}
-            <Line type="monotone" dataKey="mem" stroke={chartColor(3)} strokeWidth={2} dot={false} name="Memory Power (W)" isAnimationActive={false} connectNulls />
-            <Line type="monotone" dataKey="igpu" stroke={chartColor(4)} strokeWidth={2} dot={false} name="iGPU Power (W)" isAnimationActive={false} connectNulls />
-          </LineChart>
+      <div className="relative h-[260px]">
+        <div ref={scrollRef} className="overflow-x-auto h-full">
+          <div style={{ width: chartWidth, height: '100%' }}>
+            <Line data={{ labels: chartLabels, datasets }} options={options as any} />
+          </div>
         </div>
       </div>
     </div>

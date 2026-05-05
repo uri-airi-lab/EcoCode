@@ -43,16 +43,24 @@ pub struct Record {
     pub run_id: i64,
     pub pid: u32,
     pub timestamp: String,                 // RFC3339 UTC timestamp
-    pub cpu_usage: f64,                    // percentage (0-100)
-    pub cpu_energy: f64,                   // Joules (Watt-seconds) (aggregate across sockets)
-    pub gpu_usage: f64,                    // percentage (0-100) (aggregate across GPUs)
-    pub gpu_energy: f64,                   // Joules (Watt-seconds) (aggregate across GPUs)
-    pub mem_usage: f64,                    // percentage (0-100), always available from sysinfo
+    pub elapsed_secs: f64, // seconds since previous sample (used by exporters to compute Watts)
+    pub cpu_usage: f64,    // percentage (0-100)
+    pub cpu_energy: f64,   // Joules (Watt-seconds) (aggregate across sockets)
+    pub gpu_usage: f64,    // percentage (0-100) (aggregate across GPUs)
+    pub gpu_energy: f64,   // Joules (Watt-seconds) (aggregate across GPUs)
+    pub mem_usage: f64,    // percentage (0-100), always available from sysinfo
     pub mem_energy: Option<f64>, // Joules (Watt-seconds) — None when DRAM RAPL domain absent on this system
     pub igpu_usage: Option<f64>, // None — no per-process iGPU sensor available
     pub igpu_energy: Option<f64>, // None when iGPU RAPL domain absent on this system
     pub gpu_metrics: Vec<GpuMetric>, // per-GPU breakdown
     pub socket_metrics: Vec<SocketMetric>, // per-socket RAPL breakdown
+    // ML semantic fields — populated by the Python SDK via Unix socket in attached mode
+    pub phase: Option<String>,
+    pub tokens_processed: Option<i64>,
+    pub training_step: Option<i64>,
+    pub loss: Option<f64>,
+    pub learning_rate: Option<f64>,
+    pub sequence_length: Option<i32>,
 }
 
 impl Record {
@@ -61,6 +69,7 @@ impl Record {
         run_id: i64,
         pid: u32,
         timestamp: String,
+        elapsed_secs: f64,
         cpu_usage: f64,
         cpu_energy: f64,
         gpu_usage: f64,
@@ -71,12 +80,19 @@ impl Record {
         igpu_energy: Option<f64>,
         gpu_metrics: Vec<GpuMetric>,
         socket_metrics: Vec<SocketMetric>,
+        phase: Option<String>,
+        tokens_processed: Option<i64>,
+        training_step: Option<i64>,
+        loss: Option<f64>,
+        learning_rate: Option<f64>,
+        sequence_length: Option<i32>,
     ) -> Record {
         Record {
             id,
             run_id,
             pid,
             timestamp,
+            elapsed_secs,
             cpu_usage,
             cpu_energy,
             gpu_usage,
@@ -87,30 +103,59 @@ impl Record {
             igpu_energy,
             gpu_metrics,
             socket_metrics,
+            phase,
+            tokens_processed,
+            training_step,
+            loss,
+            learning_rate,
+            sequence_length,
         }
     }
     pub fn to_vec(&self) -> Vec<String> {
+        // Divide Joule values by elapsed_secs to produce average Watts per interval.
+        let es = self.elapsed_secs.max(0.001);
         let mut v = vec![
             self.id.to_string(),
             self.run_id.to_string(),
             self.pid.to_string(),
             self.timestamp.clone(),
             self.cpu_usage.to_string(),
-            self.cpu_energy.to_string(),
+            (self.cpu_energy / es).to_string(),
             self.gpu_usage.to_string(),
-            self.gpu_energy.to_string(),
+            (self.gpu_energy / es).to_string(),
             self.mem_usage.to_string(),
             self.mem_energy
-                .map_or_else(|| "N/A".to_string(), |v| v.to_string()),
+                .map_or_else(|| "N/A".to_string(), |j| (j / es).to_string()),
             self.igpu_usage
                 .map_or_else(|| "N/A".to_string(), |v| v.to_string()),
             self.igpu_energy
-                .map_or_else(|| "N/A".to_string(), |v| v.to_string()),
+                .map_or_else(|| "N/A".to_string(), |j| (j / es).to_string()),
         ];
         for gm in &self.gpu_metrics {
             v.push(gm.gpu_usage.to_string());
-            v.push(gm.gpu_energy.to_string());
+            v.push((gm.gpu_energy / es).to_string());
         }
+        v.push(self.phase.clone().unwrap_or_else(|| "N/A".to_string()));
+        v.push(
+            self.tokens_processed
+                .map_or_else(|| "N/A".to_string(), |n| n.to_string()),
+        );
+        v.push(
+            self.training_step
+                .map_or_else(|| "N/A".to_string(), |n| n.to_string()),
+        );
+        v.push(
+            self.loss
+                .map_or_else(|| "N/A".to_string(), |n| n.to_string()),
+        );
+        v.push(
+            self.learning_rate
+                .map_or_else(|| "N/A".to_string(), |n| n.to_string()),
+        );
+        v.push(
+            self.sequence_length
+                .map_or_else(|| "N/A".to_string(), |n| n.to_string()),
+        );
         v
     }
 }

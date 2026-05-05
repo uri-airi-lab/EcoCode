@@ -5,13 +5,18 @@
 //! is geocoded so that a real-time carbon intensity can later be fetched via the
 //! Electricity Maps API.
 
-use axum::{extract::{State, Path}, http::StatusCode, Json, response::IntoResponse};
-use tracing::{info, warn};
-use crate::error::ApiError;
-use crate::models::project::{Project, CreateProjectPayload};
-use crate::state::AppState;
 use crate::auth;
+use crate::error::ApiError;
+use crate::models::project::{CreateProjectPayload, Project};
 use crate::services::carbon_api::geocode_address;
+use crate::state::AppState;
+use axum::{
+    Json,
+    extract::{Path, State},
+    http::StatusCode,
+    response::IntoResponse,
+};
+use tracing::{info, warn};
 
 /// Handles GET requests to list all projects accessible by the authenticated user.
 pub async fn get_projects(
@@ -33,17 +38,20 @@ pub async fn post_projects(
     State(state): State<AppState>,
     Json(payload): Json<CreateProjectPayload>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let membership = sqlx::query(
-        "SELECT role FROM workspace_members WHERE workspace_id = $1 AND user_id = $2",
-    )
-    .bind(payload.workspace_id)
-    .bind(auth_user.user_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(ApiError::internal)?;
+    let membership =
+        sqlx::query("SELECT role FROM workspace_members WHERE workspace_id = $1 AND user_id = $2")
+            .bind(payload.workspace_id)
+            .bind(auth_user.user_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(ApiError::internal)?;
 
     if membership.is_none() {
-        warn!(user_id = auth_user.user_id, workspace_id = payload.workspace_id, "Create project denied: user not a workspace member");
+        warn!(
+            user_id = auth_user.user_id,
+            workspace_id = payload.workspace_id,
+            "Create project denied: user not a workspace member"
+        );
         return Err(ApiError::new(
             StatusCode::FORBIDDEN,
             "You are not a member of this workspace",
@@ -112,7 +120,14 @@ pub async fn post_projects(
     let workspace_slug: String = slug_row.get("slug");
 
     info!(project_id = id, name = %name, workspace_id = payload.workspace_id, user_id = auth_user.user_id, "Project created");
-    Ok((StatusCode::CREATED, Json(Project { id, name, workspace_slug })))
+    Ok((
+        StatusCode::CREATED,
+        Json(Project {
+            id,
+            name,
+            workspace_slug,
+        }),
+    ))
 }
 
 /// Handles DELETE requests to delete a project.
@@ -136,15 +151,25 @@ pub async fn delete_project(
 
     match workspace_check {
         None => {
-            warn!(project_id, user_id = auth_user.user_id, "Delete project denied: not found or no access");
-            return Err(ApiError::new(StatusCode::NOT_FOUND, "Project not found or access denied"));
+            warn!(
+                project_id,
+                user_id = auth_user.user_id,
+                "Delete project denied: not found or no access"
+            );
+            return Err(ApiError::new(
+                StatusCode::NOT_FOUND,
+                "Project not found or access denied",
+            ));
         }
         Some(row) => {
             use sqlx::Row;
             let role: String = row.get("role");
             if role != "admin" {
                 warn!(project_id, user_id = auth_user.user_id, role = %role, "Delete project denied: not an admin");
-                return Err(ApiError::new(StatusCode::FORBIDDEN, "Only workspace admins can delete projects"));
+                return Err(ApiError::new(
+                    StatusCode::FORBIDDEN,
+                    "Only workspace admins can delete projects",
+                ));
             }
         }
     }

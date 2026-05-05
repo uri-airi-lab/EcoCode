@@ -1,7 +1,7 @@
 //! Online exporter — sends measurement records to the EcoCode web platform via REST API.
 //! Requires a workspace-scoped API key (`ecocode_...`) for authentication.
 
-use crate::exporter::{Exporter, ExporterType, ProjectInfo, Record, SystemInfo, CarbonConfig};
+use crate::exporter::{CarbonConfig, Exporter, ExporterType, ProjectInfo, Record, SystemInfo};
 use async_trait::async_trait;
 use reqwest::{Client, header};
 use serde::{Deserialize, Serialize};
@@ -79,7 +79,7 @@ impl OnlineExporter {
         // 2. Environment variable (ECOCODE_API_KEY)
         // 3. Stored config file (~/.ecocode/config.json)
         let config = Self::load_config().ok();
-        
+
         let api_key = api_key_arg.clone()
             .or_else(|| env::var("ECOCODE_API_KEY").ok())
             .or_else(|| config.as_ref().and_then(|c| c.api_key.clone()))
@@ -96,7 +96,9 @@ impl OnlineExporter {
             })?;
 
         // If API key was provided via command line, offer to save it
-        if api_key_arg.is_some() && config.as_ref().and_then(|c| c.api_key.as_ref()) != Some(&api_key) {
+        if api_key_arg.is_some()
+            && config.as_ref().and_then(|c| c.api_key.as_ref()) != Some(&api_key)
+        {
             println!("💡 Tip: Save your API key to avoid entering it each time:");
             println!("   ecocode config set-api-key {}", api_key);
         }
@@ -104,16 +106,19 @@ impl OnlineExporter {
         let base_url = env::var("ECOCODE_API_URL")
             .or_else(|_| config.and_then(|c| c.api_url).ok_or(""))
             .unwrap_or_else(|_| "http://localhost:3001".to_string());
-        
+
         let mut headers = header::HeaderMap::new();
         let auth_value = header::HeaderValue::from_str(&format!("Bearer {}", api_key))?;
         headers.insert(header::AUTHORIZATION, auth_value);
-        
-        let client = Client::builder()
-            .default_headers(headers)
-            .build()?;
-            
-        Ok(OnlineExporter { client, base_url, api_key, exporter_type_label: "online".to_string() })
+
+        let client = Client::builder().default_headers(headers).build()?;
+
+        Ok(OnlineExporter {
+            client,
+            base_url,
+            api_key,
+            exporter_type_label: "online".to_string(),
+        })
     }
 }
 
@@ -140,13 +145,10 @@ impl Exporter for OnlineExporter {
 
     async fn add_record(&mut self, record: Record) -> Result<(), Box<dyn std::error::Error>> {
         let url = format!("{}/api/ingest/run/{}/record", self.base_url, record.run_id);
-        
+
         // Convert Record to the ingestion payload format expected by the backend
-        let res = self.client.post(&url)
-            .json(&record)
-            .send()
-            .await?;
-            
+        let res = self.client.post(&url).json(&record).send().await?;
+
         if !res.status().is_success() {
             return Err(format!("Failed to ingest record: {}", res.status()).into());
         }
@@ -171,17 +173,17 @@ impl Exporter for OnlineExporter {
         // Actually, let's fetch projects and find by name.
         let url = format!("{}/api/projects", self.base_url);
         let res = self.client.get(&url).send().await?;
-        
+
         #[derive(Deserialize)]
         struct Project {
             id: i64,
             name: String,
         }
-        
+
         let projects: Vec<Project> = res.json().await?;
         let project = projects.into_iter().find(|p| p.name == project_name)
             .ok_or_else(|| format!("Project '{}' not found in your workspaces. Please create it first in the web app.", project_name))?;
-            
+
         Ok(ProjectInfo {
             id: project.id,
             selected_collaborator_name: collaborator_name.map(|s| s.to_string()),
@@ -207,16 +209,13 @@ impl Exporter for OnlineExporter {
             command: command.map(|s| s.to_string()),
             exporter_type: Some(self.exporter_type_label.clone()),
         };
-        
-        let res = self.client.post(&url)
-            .json(&payload)
-            .send()
-            .await?;
-            
+
+        let res = self.client.post(&url).json(&payload).send().await?;
+
         if !res.status().is_success() {
             return Err(format!("Failed to create run: {}", res.status()).into());
         }
-        
+
         let data: CreateRunResponse = res.json().await?;
         Ok(data.id)
     }
@@ -227,7 +226,7 @@ impl Exporter for OnlineExporter {
         info: SystemInfo,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let url = format!("{}/api/ingest/run/{}/system-info", self.base_url, run_id);
-        
+
         #[derive(Serialize)]
         struct SystemInfoPayload {
             cpu_name: String,
@@ -236,7 +235,7 @@ impl Exporter for OnlineExporter {
             gpu_count: i32,
             gpu_names: String,
         }
-        
+
         let payload = SystemInfoPayload {
             cpu_name: info.cpu_name,
             cpu_cores: info.cpu_cores as i32,
@@ -244,12 +243,9 @@ impl Exporter for OnlineExporter {
             gpu_count: info.gpu_count as i32,
             gpu_names: info.gpu_names.join(", "),
         };
-        
-        let res = self.client.post(&url)
-            .json(&payload)
-            .send()
-            .await?;
-            
+
+        let res = self.client.post(&url).json(&payload).send().await?;
+
         if !res.status().is_success() {
             return Err(format!("Failed to save system info: {}", res.status()).into());
         }
@@ -263,23 +259,20 @@ impl Exporter for OnlineExporter {
         ended_at: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let url = format!("{}/api/ingest/run/{}/complete", self.base_url, run_id);
-        
+
         #[derive(Serialize)]
         struct CompletePayload {
             status: String,
             ended_at: Option<String>,
         }
-        
+
         let payload = CompletePayload {
             status: status.to_string(),
             ended_at: ended_at.map(|s| s.to_string()),
         };
-        
-        let res = self.client.post(&url)
-            .json(&payload)
-            .send()
-            .await?;
-            
+
+        let res = self.client.post(&url).json(&payload).send().await?;
+
         if !res.status().is_success() {
             return Err(format!("Failed to complete run: {}", res.status()).into());
         }
@@ -297,7 +290,7 @@ impl Exporter for OnlineExporter {
     ) -> Result<CarbonConfig, Box<dyn std::error::Error>> {
         let url = format!("{}/api/project/{}/carbon-config", self.base_url, project_id);
         let res = self.client.get(&url).send().await?;
-        
+
         if !res.status().is_success() {
             return Ok(CarbonConfig {
                 resolved_intensity_g_per_kwh: 445.0, // IEA 2025 global average fallback
@@ -308,7 +301,7 @@ impl Exporter for OnlineExporter {
                 use_api_for_cost: false,
             });
         }
-        
+
         let config: CarbonConfig = res.json().await?;
         Ok(config)
     }

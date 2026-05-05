@@ -13,9 +13,13 @@ import { RunSystemInfo } from '@/components/run/RunSystemInfo'
 import { PowerDistributionChart } from '@/components/charts/PowerDistributionChart'
 import { CumulativePowerChart } from '@/components/charts/CumulativePowerChart'
 import { EnvironmentalImpact } from '@/components/run/EnvironmentalImpact'
+import { MLMetricsBar } from '@/components/run/MLMetricsBar'
+import { PhaseTimeline } from '@/components/charts/PhaseTimeline'
+import { TrainingMetricsChart } from '@/components/charts/TrainingMetricsChart'
 import { Run } from '@/lib/mock-data'
 import { fetchRunMeta, fetchRunRecords } from '@/lib/api'
 import { format } from 'date-fns'
+import { minIntervalMs } from '@/lib/utils'
 
 const POLL_INTERVAL_MS = 1000
 
@@ -78,9 +82,23 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
           setRun((prev) => {
             if (!prev) return null
             const count = records.length
+            // Recompute energy (J → Wh) and carbon from records so the panel
+            // shows real values even before the run summary is written.
+            const totalCpuEnergy  = records.reduce((s, r) => s + r.cpu_energy,  0) / 3600
+            const totalGpuEnergy  = records.reduce((s, r) => s + r.gpu_energy,  0) / 3600
+            const totalMemEnergy  = records.reduce((s, r) => s + r.mem_energy,  0) / 3600
+            const totalIgpuEnergy = records.reduce((s, r) => s + r.igpu_energy, 0) / 3600
+            const totalEnergy = totalCpuEnergy + totalGpuEnergy + totalMemEnergy + totalIgpuEnergy
+            const carbonFootprint = (totalEnergy / 1000) * (prev.carbonIntensityUsed ?? 445)
             return {
               ...prev,
               records,
+              totalEnergy,
+              totalCpuEnergy,
+              totalGpuEnergy,
+              totalMemEnergy,
+              totalIgpuEnergy,
+              carbonFootprint,
               avgCpuUsage: count > 0 ? records.reduce((s, r) => s + r.cpu_usage, 0) / count : 0,
               avgGpuUsage: count > 0 ? records.reduce((s, r) => s + r.gpu_usage, 0) / count : 0,
               avgMemUsage: count > 0 ? records.reduce((s, r) => s + r.mem_usage, 0) / count : 0,
@@ -125,9 +143,22 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
           if (!prev) return null
           const merged = [...prev.records, ...newRecords]
           const count = merged.length
+          // Keep live energy/carbon estimate in sync with arriving records
+          const totalCpuEnergy  = merged.reduce((s, r) => s + r.cpu_energy,  0) / 3600
+          const totalGpuEnergy  = merged.reduce((s, r) => s + r.gpu_energy,  0) / 3600
+          const totalMemEnergy  = merged.reduce((s, r) => s + r.mem_energy,  0) / 3600
+          const totalIgpuEnergy = merged.reduce((s, r) => s + r.igpu_energy, 0) / 3600
+          const totalEnergy = totalCpuEnergy + totalGpuEnergy + totalMemEnergy + totalIgpuEnergy
+          const carbonFootprint = (totalEnergy / 1000) * (prev.carbonIntensityUsed ?? 445)
           return {
             ...prev,
             records: merged,
+            totalEnergy,
+            totalCpuEnergy,
+            totalGpuEnergy,
+            totalMemEnergy,
+            totalIgpuEnergy,
+            carbonFootprint,
             avgCpuUsage: count > 0 ? merged.reduce((s, r) => s + r.cpu_usage, 0) / count : prev.avgCpuUsage,
             avgGpuUsage: count > 0 ? merged.reduce((s, r) => s + r.gpu_usage, 0) / count : prev.avgGpuUsage,
             avgMemUsage: count > 0 ? merged.reduce((s, r) => s + r.mem_usage, 0) / count : prev.avgMemUsage,
@@ -234,9 +265,21 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
                   {run.exporterType}
                 </span>
               )}
+              {run.records.length > 1 && (
+                <span className="inline-block px-3 py-1 rounded-lg text-xs font-medium font-mono bg-secondary text-secondary-foreground">
+                  Interval: {(minIntervalMs(run.records.map(r => r.timestamp)) / 1000).toFixed(2)}s
+                </span>
+              )}
             </div>
           </div>
         </div>
+
+        {/* ML Training Overview — shown only when ML fields are present */}
+        {run.records.length > 0 && (
+          <div className="mb-6">
+            <MLMetricsBar records={run.records} />
+          </div>
+        )}
 
         {/* Two Column Layout for System Info and Environmental Impact */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
@@ -275,6 +318,8 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
           </div>
         ) : run.records.length > 0 ? (
           <div className="mb-8 space-y-4 md:space-y-6">
+            <PhaseTimeline records={run.records} />
+            <TrainingMetricsChart records={run.records} />
             <EnergyChart data={run.records} />
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
               <CumulativePowerChart data={run.records} />

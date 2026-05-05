@@ -2,22 +2,24 @@
 
 use axum::{
     extract::{FromRef, FromRequestParts},
-    http::{header, request::Parts, StatusCode},
+    http::{StatusCode, header, request::Parts},
 };
 use axum_extra::extract::cookie::CookieJar;
-use jsonwebtoken::{decode, DecodingKey, Validation};
+use jsonwebtoken::{DecodingKey, Validation, decode};
 use sqlx::Row;
 
+use super::jwt::{Claims, get_jwt_secret};
+use super::password::hash_api_key;
 use crate::error::ApiError;
 use crate::state::AppState;
-use super::jwt::{get_jwt_secret, Claims};
-use super::password::hash_api_key;
 use tracing::{debug, warn};
 
 pub struct AuthUser {
     pub user_id: i64,
     /// Set when authenticated via a workspace-scoped API key; `None` for JWT auth.
     pub workspace_id: Option<i64>,
+    /// Set when authenticated via a project-scoped API key; `None` for JWT auth.
+    pub project_id: Option<i64>,
 }
 
 impl<S> FromRequestParts<S> for AuthUser
@@ -38,7 +40,7 @@ where
                     if token_or_key.starts_with("ecocode_") {
                         let key_hash = hash_api_key(token_or_key);
                         let row = sqlx::query(
-                            "SELECT user_id, workspace_id FROM api_keys WHERE key_hash = $1",
+                            "SELECT user_id, workspace_id, project_id FROM api_keys WHERE key_hash = $1",
                         )
                         .bind(&key_hash)
                         .fetch_optional(&app_state.pool)
@@ -51,6 +53,7 @@ where
                             return Ok(AuthUser {
                                 user_id,
                                 workspace_id: r.try_get("workspace_id").ok().flatten(),
+                                project_id: r.try_get("project_id").ok().flatten(),
                             });
                         } else {
                             warn!("API key not found in database");
@@ -61,10 +64,14 @@ where
                         if let Ok(token_data) =
                             decode::<Claims>(token_or_key, &decoding_key, &Validation::default())
                         {
-                            debug!(user_id = token_data.claims.sub, "Authenticated via JWT (Bearer header)");
+                            debug!(
+                                user_id = token_data.claims.sub,
+                                "Authenticated via JWT (Bearer header)"
+                            );
                             return Ok(AuthUser {
                                 user_id: token_data.claims.sub,
                                 workspace_id: None,
+                                project_id: None,
                             });
                         } else {
                             warn!("Invalid JWT token in Authorization header");
@@ -81,10 +88,14 @@ where
             if let Ok(token_data) =
                 decode::<Claims>(cookie.value(), &decoding_key, &Validation::default())
             {
-                debug!(user_id = token_data.claims.sub, "Authenticated via JWT cookie");
+                debug!(
+                    user_id = token_data.claims.sub,
+                    "Authenticated via JWT cookie"
+                );
                 return Ok(AuthUser {
                     user_id: token_data.claims.sub,
                     workspace_id: None,
+                    project_id: None,
                 });
             } else {
                 warn!("Invalid JWT token in auth_token cookie");

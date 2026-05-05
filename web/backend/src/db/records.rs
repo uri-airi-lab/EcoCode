@@ -1,5 +1,5 @@
 use crate::error::ApiError;
-use crate::models::record::{RecordPointRow, GpuRecordPoint, SocketRecordPoint, RecordPoint};
+use crate::models::record::{GpuRecordPoint, RecordPoint, RecordPointRow, SocketRecordPoint};
 use crate::state::AppState;
 
 /// Fetches all top-level record rows for a specific run.
@@ -9,7 +9,8 @@ pub async fn fetch_record_rows(
 ) -> Result<Vec<RecordPointRow>, ApiError> {
     sqlx::query_as::<_, RecordPointRow>(
         "SELECT id, run_id, pid, timestamp::text AS timestamp, cpu_usage, cpu_energy,
-                gpu_usage, gpu_energy, mem_usage, mem_energy, igpu_usage, igpu_energy
+                gpu_usage, gpu_energy, mem_usage, mem_energy, igpu_usage, igpu_energy,
+                phase, tokens_processed, training_step, loss, learning_rate, sequence_length, accuracy, custom_metrics
          FROM records
          WHERE run_id = $1
          ORDER BY timestamp ASC, id ASC",
@@ -29,7 +30,8 @@ pub async fn fetch_record_rows_paginated(
 ) -> Result<Vec<RecordPointRow>, ApiError> {
     sqlx::query_as::<_, RecordPointRow>(
         "SELECT id, run_id, pid, timestamp::text AS timestamp, cpu_usage, cpu_energy,
-                gpu_usage, gpu_energy, mem_usage, mem_energy, igpu_usage, igpu_energy
+                gpu_usage, gpu_energy, mem_usage, mem_energy, igpu_usage, igpu_energy,
+                phase, tokens_processed, training_step, loss, learning_rate, sequence_length, accuracy, custom_metrics
          FROM records
          WHERE run_id = $1
          ORDER BY timestamp ASC, id ASC
@@ -126,7 +128,8 @@ pub async fn fetch_latest_record_with_details(
 ) -> Result<Option<RecordPoint>, ApiError> {
     let latest_row = sqlx::query_as::<_, RecordPointRow>(
         "SELECT id, run_id, pid, timestamp::text AS timestamp, cpu_usage, cpu_energy,
-                gpu_usage, gpu_energy, mem_usage, mem_energy, igpu_usage, igpu_energy
+                gpu_usage, gpu_energy, mem_usage, mem_energy, igpu_usage, igpu_energy,
+                phase, tokens_processed, training_step, loss, learning_rate, sequence_length, accuracy, custom_metrics
          FROM records
          ORDER BY id DESC
          LIMIT 1",
@@ -174,6 +177,14 @@ pub async fn fetch_latest_record_with_details(
         igpu_energy: row.igpu_energy,
         gpu_details,
         socket_details,
+        phase: row.phase,
+        tokens_processed: row.tokens_processed,
+        training_step: row.training_step,
+        loss: row.loss,
+        learning_rate: row.learning_rate,
+        sequence_length: row.sequence_length,
+        accuracy: row.accuracy,
+        custom_metrics: row.custom_metrics,
     }))
 }
 
@@ -184,7 +195,8 @@ pub async fn fetch_record_by_id_with_details(
 ) -> Result<Option<RecordPoint>, ApiError> {
     let row = sqlx::query_as::<_, RecordPointRow>(
         "SELECT id, run_id, pid, timestamp::text AS timestamp, cpu_usage, cpu_energy,
-                gpu_usage, gpu_energy, mem_usage, mem_energy, igpu_usage, igpu_energy
+                gpu_usage, gpu_energy, mem_usage, mem_energy, igpu_usage, igpu_energy,
+                phase, tokens_processed, training_step, loss, learning_rate, sequence_length, accuracy, custom_metrics
          FROM records
          WHERE id = $1",
     )
@@ -232,5 +244,13 @@ pub async fn fetch_record_by_id_with_details(
         igpu_energy: row.igpu_energy,
         gpu_details,
         socket_details,
+        phase: row.phase,
+        tokens_processed: row.tokens_processed,
+        training_step: row.training_step,
+        loss: row.loss,
+        learning_rate: row.learning_rate,
+        sequence_length: row.sequence_length,
+        accuracy: row.accuracy,
+        custom_metrics: row.custom_metrics,
     }))
 }

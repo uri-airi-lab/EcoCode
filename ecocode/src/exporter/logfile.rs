@@ -15,7 +15,7 @@ pub struct LogFileExporter {
     first_record: bool,
 }
 
-impl LogFileExporter {  
+impl LogFileExporter {
     pub fn new(file_path: String) -> Result<LogFileExporter, Box<dyn std::error::Error>> {
         let file = File::create(&file_path)?;
         let mut writer = BufWriter::new(file);
@@ -77,19 +77,19 @@ impl Exporter for LogFileExporter {
                 + total_mem_energy.unwrap_or(0.0)
                 + total_igpu_energy.unwrap_or(0.0);
 
-            writeln!(self.writer, "Total CPU Energy:  {:.4} W", total_cpu_energy)?;
-            writeln!(self.writer, "Total GPU Energy:  {:.4} W", total_gpu_energy)?;
+            writeln!(self.writer, "Total CPU Energy:  {:.4} J", total_cpu_energy)?;
+            writeln!(self.writer, "Total GPU Energy:  {:.4} J", total_gpu_energy)?;
             writeln!(
                 self.writer,
                 "Total MEM Energy:  {}",
-                total_mem_energy.map_or_else(|| "N/A".to_string(), |v| format!("{:.4} W", v))
+                total_mem_energy.map_or_else(|| "N/A".to_string(), |v| format!("{:.4} J", v))
             )?;
             writeln!(
                 self.writer,
                 "Total iGPU Energy: {}",
-                total_igpu_energy.map_or_else(|| "N/A".to_string(), |v| format!("{:.4} W", v))
+                total_igpu_energy.map_or_else(|| "N/A".to_string(), |v| format!("{:.4} J", v))
             )?;
-            writeln!(self.writer, "Total Energy:      {:.4} W", total_energy)?;
+            writeln!(self.writer, "Total Energy:      {:.4} J", total_energy)?;
         }
 
         writeln!(self.writer, "{}", "=".repeat(140))?;
@@ -121,15 +121,16 @@ impl Exporter for LogFileExporter {
             self.first_record = false;
         }
 
+        let es = r.elapsed_secs.max(0.001);
         let mem_energy_s = r
             .mem_energy
-            .map_or_else(|| "N/A".to_string(), |v| format!("{:.3}", v));
+            .map_or_else(|| "N/A".to_string(), |j| format!("{:.3}", j / es));
         let igpu_usage_s = r
             .igpu_usage
             .map_or_else(|| "N/A".to_string(), |v| format!("{:.3}", v));
         let igpu_energy_s = r
             .igpu_energy
-            .map_or_else(|| "N/A".to_string(), |v| format!("{:.3}", v));
+            .map_or_else(|| "N/A".to_string(), |j| format!("{:.3}", j / es));
 
         writeln!(
             self.writer,
@@ -138,9 +139,9 @@ impl Exporter for LogFileExporter {
             r.pid,
             r.timestamp,
             r.cpu_usage,
-            r.cpu_energy,
+            r.cpu_energy / es,
             r.gpu_usage,
-            r.gpu_energy,
+            r.gpu_energy / es,
             r.mem_usage,
             mem_energy_s,
             igpu_usage_s,
@@ -151,8 +152,10 @@ impl Exporter for LogFileExporter {
         for gm in &r.gpu_metrics {
             writeln!(
                 self.writer,
-                "      └─ GPU {}: Usage {:.1}%, Energy {:.3} W",
-                gm.device_index, gm.gpu_usage, gm.gpu_energy
+                "      └─ GPU {}: Usage {:.1}%, Power {:.3} W",
+                gm.device_index,
+                gm.gpu_usage,
+                gm.gpu_energy / es
             )?;
         }
 
@@ -161,7 +164,9 @@ impl Exporter for LogFileExporter {
             writeln!(
                 self.writer,
                 "      └─ Socket {} ({}): {:.4} W",
-                sm.socket, sm.domain, sm.energy
+                sm.socket,
+                sm.domain,
+                sm.energy / es
             )?;
         }
 

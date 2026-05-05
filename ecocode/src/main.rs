@@ -15,7 +15,6 @@ mod cli;
 mod configs;
 mod exporter;
 mod monitor;
-mod sensor;
 
 use cli::{Cli, TopCommand};
 
@@ -27,4 +26,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         TopCommand::Config { action } => configs::handle_config_command(action),
     }
 }
-

@@ -25,7 +25,5 @@ export function minIntervalMs(timestamps: number[]): number {
  * Uses tenths-of-second precision when the sampling interval is sub-second.
  */
 export function formatChartTime(ts: number, intervalMs: number): string {
-  return intervalMs < 900
-    ? format(new Date(ts), 'HH:mm:ss.S')
-    : format(new Date(ts), 'HH:mm:ss')
+  return format(new Date(ts), 'HH:mm:ss.SSS')
 }
