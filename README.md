@@ -6,7 +6,7 @@
 
 **High-precision, multi-GPU energy monitoring for sustainable software development**
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-All%20Rights%20Reserved-red.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
 
 </div>
@@ -768,7 +768,7 @@ Contributions are welcome. Open an issue to discuss a change before submitting a
 
 ## License
 
-...
+Copyright (c) 2026 Mohamed Aziz Khezami. All Rights Reserved — see [LICENSE](LICENSE) for details.
 
 ---
 
