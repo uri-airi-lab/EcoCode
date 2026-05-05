@@ -27,8 +27,6 @@ EcoCode platform.
 - [Sensor Details](#sensor-details)
   - [RAPL (CPU + DRAM + iGPU)](#rapl-cpu--dram--igpu)
   - [NVML (GPU)](#nvml-gpu)
-- [TODO / Next Steps](#todo--next-steps)
-
 ---
 
 ## How It Works
@@ -373,32 +371,3 @@ NVML (`nvml_wrapper` Rust crate) provides:
 GPU energy is attributed proportionally: if a process has 40% SM utilisation on a GPU that consumed 100 J in the last second, it is attributed 40 J.
 
 ---
-
-## TODO / Next Steps
-
-### High Priority
-
-- **AMD GPU support:** NVML is NVIDIA-only. Integrate AMD ROCm SMI (`amdsmi`) for GPU energy on AMD GPUs. The `gpu.rs` sensor module needs an abstraction layer over both APIs.
-
-- **Windows support:** RAPL sysfs does not exist on Windows. The Windows counterpart is the Intel Energy Checker SDK or the `ENERGY_ESTIMATION_PROVIDER` in Windows 11. Adding this would enable native Windows support without WSL.
-
-- **Unit tests:** No automated tests exist. Priority test targets:
-  - `delta_cpu_energy_per_pid_j` with synthetic counter snapshots (especially wrap-around cases).
-  - `calculate_co2_g` with known inputs.
-  - `scan_rapl_files` against a mock sysfs tree.
-
-### Medium Priority
-
-- **`run_summary()` for CSV and JSON exporters:** These exporters currently leave `run_summary()` as a no-op. Add a totals footer row (CSV) or a `"summary"` key (JSON) with aggregate energy and CO2.
-
-- **Multi-node training coordination:** For `torch.distributed` jobs across multiple machines, each machine's CLI instance should contribute to a shared run. Implement a `--node-rank` flag and a coordinator endpoint that merges records.
-
-- **Sub-process attribution granularity:** Currently all child PIDs are pooled under one fraction. Add an optional `--per-process` mode that writes a separate record per child PID for detailed multi-process breakdowns.
-
-### Lower Priority
-
-- **Docker image:** Package the release binary into a `Dockerfile` (Debian slim + NVIDIA container runtime base) for containerized training workloads.
-
-- **`ecocode config show` improvements:** Display resolved API URL, detected RAPL sockets (count + domains), and GPU names — useful for debugging on unfamiliar machines.
-
-- **Accuracy field in CLI:** The `accuracy` field is defined in `Record` and stored in the DB, but the CLI monitor does not currently populate it. Add a `--accuracy` argument or a dedicated Unix socket event type so it can be logged from non-Python workloads.

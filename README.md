@@ -579,39 +579,14 @@ with ecocode.run("llama3-serving", api_key="eco_...", project_id=5) as r:
 
 ## TODO / Next Steps
 
-These are the highest-impact improvements to make the system more complete and production-ready.
-
-### High Priority
-
-- **Windows / AMD CPU support:** RAPL sysfs is Linux-only. Port CPU energy reading to the Windows Energy Meter API and add AMD RAPL support via the `amd_energy` kernel module. This is the largest gap for wider adoption.
-
-- **Per-process GPU attribution accuracy:** Current NVML `process_utilization_stats()` samples at ~100 ms granularity and misses short-lived kernels. Investigate the DCGM API for higher-fidelity per-process GPU energy attribution.
-
-- **Run comparison UI:** The backend stores multiple runs per project but the frontend has no multi-run chart overlay. Add a side-by-side energy time-series comparison view.
-
-- **Alert / budget system:** Add a configurable rule (e.g. "alert if total_energy > 500 Wh") that fires a webhook or email when a run exceeds a budget. The `runsummary` table already has the aggregates needed.
-
-- **Unit tests:** There are no automated tests yet. Priority: RAPL counter wrap-around (`delta_cpu_energy_per_pid_j`), carbon calculation (`calculate_co2_g`), and the `merge_record_points` assembler in the backend.
-
-### Medium Priority
-
-- **Multi-node distributed training:** When `torch.distributed` launches multiple ranks across nodes, each rank runs its own process. Add a coordination mechanism so multiple CLI instances can contribute records to a single run, tagged by `node_rank`.
-
-- **Frontend performance for long runs:** The run detail page fetches all records in a single request. Runs longer than a few hours produce thousands of records. Implement virtual scroll with paginated record fetching.
-
-- **CSV/JSON exporter summaries:** The terminal and logfile exporters print a final energy summary; CSV and JSON do not. Implement `run_summary()` for these exporters.
-
-- **SDK PyPI distribution:** Set up Maturin CI wheels for Linux (x86_64, aarch64) and publish the SDK to PyPI so users can install with `pip install ecocode` without a local Rust build.
-
-### Lower Priority
-
-- **Docker image for CLI:** Package the binary into a minimal Docker image (Debian slim + NVIDIA runtime) for containerized training environments.
-
-- **Electricity Maps auto-resolution:** The carbon refresh endpoint exists but requires manually setting a location per project. Add automatic location-to-intensity resolution on run creation using a geocoder.
-
-- **JWT refresh mechanism:** JWTs currently expire after 30 days with no refresh. Add a short-lived access token + refresh token flow.
-
-- **`ecocode config show` improvements:** Extend the config display to include resolved base URL, detected RAPL sockets, and GPU names — useful for debugging on new machines.
+- [ ] **Add Windows support**: A custom made driver is probably needed.
+- [ ] **Run comparison UI**: Side by side time-series comparison of multiple runs.
+- [ ] **Jupyter extension**: Add UI for running and viewing energy results in Jupyter notebooks.
+- [ ] **VSCode extension**: Add UI for running and viewing energy results in VSCode.
+- [ ] **Frontend performance for long runs**: The run detail page fetches all records in a single request. Runs longer than a few hours produce thousands of records. Implement virtual scroll with paginated record fetching.
+- [ ] **CSV/JSON exporter summaries**: The terminal and logfile exporters print a final energy summary; CSV and JSON do not. Implement `run_summary()` for these exporters.
+- [ ] **SDK PyPI distribution**: Set up Maturin CI wheels for Linux (x86_64, aarch64) and publish the SDK to PyPI so users can install with `pip install ecocode` without a local Rust build.
+- [ ] **A global map view**: of all the runs with circles centered at their location (for the runs that have a location). If the user is not logged in, show public runs only. If logged in, show all runs. Clicking a circle should show a popup with the run details.
 
 ---
 

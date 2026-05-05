@@ -78,7 +78,7 @@ pub fn get_all_gpu_energies(devices: &[Device]) -> Result<Vec<f64>, Box<dyn std:
 /// is derived from its share of SM utilization.
 pub fn get_gpu_energy_by_pid(
     device: &Device,
-    pids: &[u32],
+    pids: &[u32], // might be multiple PIDs for the same process e.g. torchrun spawned children
     energy_1: f64,
     energy_2: f64,
     timestamp: u64,

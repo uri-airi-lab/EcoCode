@@ -246,7 +246,7 @@ fn sampler_loop(
         sys.refresh_cpu_usage();
         sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
 
-        if last_tree_refresh.elapsed() > Duration::from_secs(2) {
+        if last_tree_refresh.elapsed() > Duration::from_secs(1) { // refresh pid tree once per second
             sys.refresh_all(); // Full refresh to find new children
             tree_pids = ecocode_core::sensor::get_process_tree_pids_from_sys(&sys, pid);
             last_tree_refresh = std::time::Instant::now();

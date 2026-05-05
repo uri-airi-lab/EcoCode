@@ -27,7 +27,7 @@ mod socket_client;
 use sampler::SamplerHandle;
 use socket_client::SocketClient;
 
-const DEFAULT_BASE_URL: &str = "http://localhost:3001";
+const DEFAULT_BASE_URL: &str = "https://backend.blacktree-5d3c8de6.eastus.azurecontainerapps.io";
 
 /// Operation mode — auto-detected from environment variables.
 #[derive(Debug, Clone, PartialEq)]

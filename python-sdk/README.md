@@ -13,9 +13,10 @@
   - [Execution Flow](#execution-flow)
 - [Architecture Deep Dive](#architecture-deep-dive)
   - [`__init__.py` — Public API surface](#initpy--public-api-surface)
-  - [`src/lib.rs` — The Rust extension (PyO3)](#src_librs--the-rust-extension-pyo3)
-  - [`src/sampler.rs` — High-precision sampling thread](#src_samplerrs--high-precision-sampling-thread)
+  - [`src/lib.rs` — The Rust extension (PyO3)](#srclibrs--the-rust-extension-pyo3)
+  - [`src/sampler.rs` — High-precision sampling thread](#srcsamplerrs--high-precision-sampling-thread)
   - [`ecocode-core` — Shared energy sensor logic](#ecocode-core--shared-energy-sensor-logic)
+  - [How Python calls into Rust](#how-python-calls-into-rust)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
   - [Standalone Mode (no sudo required)](#standalone-mode-no-sudo-required)
@@ -35,6 +36,7 @@
   - [Axolotl / Unsloth](#axolotl--unsloth)
 - [Environment Variables](#environment-variables)
 - [What Gets Measured](#what-gets-measured)
+- [Environmental Impact Equivalents](#environmental-impact-equivalents)
 - [Running the Demo](#running-the-demo)
 - [Package Metadata](#package-metadata)
 
@@ -42,7 +44,7 @@
 
 ## Overview
 
-The EcoCode Python SDK lets you instrument any ML training or inference script to measure real-time energy consumption and send structured telemetry to the [EcoCode backend](../web). It is designed to **never crash your training loop**: all HTTP failures and measurement errors are caught and emitted as Python warnings.
+The EcoCode Python SDK lets you instrument any ML training or inference script to measure real-time energy consumption and send structured telemetry to the [EcoCode backend](../web). It is designed to **never crash your training loop**: all HTTP failures and measurement errors are caught and printed to stderr.
 
 ```python
 import ecocode
@@ -52,6 +54,8 @@ with ecocode.run("llama-finetune", api_key="eco_...", project_id=42) as run:
     run.log_step(100)
     run.log_loss(1.45)
 ```
+
+The SDK is implemented as a native Rust extension compiled with [PyO3](https://pyo3.rs/) and [Maturin](https://maturin.rs/). There is no pure-Python measurement code — all sensor reads, threading, and HTTP calls happen in Rust.
 
 ---
 
@@ -68,17 +72,19 @@ The SDK operates in one of two mutually exclusive modes, **auto-detected at cons
 The SDK manages the entire run lifecycle itself:
 
 1. Creates a run record on the EcoCode backend via HTTP (`POST /api/ingest/run`).
-2. Collects system info (CPU, RAM, GPU names) and sends it via HTTP.
-3. Starts a **daemon background thread** (`Sampler`) that wakes up every `interval` seconds and:
-   - Reads **GPU energy** from NVIDIA's NVML library (real joule deltas, no root needed).
-   - Reads **CPU energy** directly from RAPL sysfs (`/sys/class/powercap/intel-rapl/*/energy_uj`). These files are **world-readable on most Linux distributions** — no root or sudo required. Energy is attributed to the process proportionally by its CPU usage %.
-   - Reads **DRAM energy** from the RAPL `dram` sub-domain, if your CPU exposes it.
-   - Reads **CPU % and process memory %** from `psutil`.
-   - Snapshots any ML state set by `log_*()` calls from the main thread.
-   - Posts a single structured JSON record to the backend.
-4. On `__exit__`, the sampler is stopped and the run is marked `finished` or `failed`.
+2. Collects system info (CPU, RAM, GPU names) via `sysinfo` and sends it via HTTP.
+3. Starts two **daemon background threads** in Rust:
+   - **Sampler thread** (`ecocode-sampler`): wakes up every `interval` seconds and reads hardware sensors.
+   - **Reporter thread** (`ecocode-reporter`): receives completed records from the sampler via an in-process channel and posts them to the backend over HTTP. Blocking HTTP is isolated here so the sampler thread is never stalled.
+4. The sampler reads:
+   - **GPU energy** from NVIDIA's NVML library (`nvmlDeviceGetTotalEnergyConsumption`) — real joule deltas, no root needed.
+   - **CPU energy** directly from RAPL sysfs (`/sys/class/powercap/intel-rapl/*/energy_uj`). These files are **world-readable on most Linux distributions**; no root required. If they are not readable, `cpu_energy` silently falls back to `0.0`.
+   - **DRAM energy** from the RAPL `dram` sub-domain, if the CPU exposes it.
+   - **CPU % and process memory %** via the `sysinfo` crate (Rust-native, replaces `psutil`).
+   - ML marker state set by `log_*()` calls from the Python thread, snapshotted under a `Mutex`.
+5. On `__exit__`, the sampler and reporter threads are stopped and the run is marked `finished` or `failed`.
 
-> If `/sys/class/powercap/intel-rapl/` is not readable (some hardened environments), `cpu_energy` silently falls back to `0.0` — training is never interrupted.
+> **Why no sudo?** The EcoCode CLI, which does require root, runs `sudo chmod -R +r /sys/class/powercap/intel-rapl/` once at startup. This makes the RAPL sysfs files world-readable for the session. The Python SDK (and any other unprivileged process) can then read them directly. On systems where the CLI was never run or where the files remain unreadable, CPU energy falls back to `0.0` without interrupting training.
 
 #### Attached Mode
 
@@ -89,14 +95,45 @@ sudo ecocode -o online --api-key eco_... -- python train.py
 ```
 
 The CLI (a separate Rust binary):
-- Reads RAPL registers (root = real CPU energy) and NVML for GPU.
+- Reads RAPL registers with root privileges (exact, unattributed machine-level energy) and NVML for GPU.
 - Creates the run record in the backend.
 - Binds a **Unix domain socket** and exports its path + the run ID as environment variables: `ECOCODE_SOCKET` and `ECOCODE_RUN_ID`.
+- Spawns the user's Python process as a child.
 
 The SDK sees these variables and switches to attached mode:
-- **No background thread.** All heavy measurement is done by the CLI.
+- **No background threads.** All heavy measurement is done by the CLI process.
 - **No HTTP calls.** The SDK only sends lightweight semantic markers (phase, step, tokens…) through the Unix socket as newline-delimited JSON.
-- Full CPU + GPU energy accuracy (root reads RAPL MSRs).
+- Full CPU + GPU energy accuracy (root-level RAPL reads).
+- Zero overhead on the training process beyond the socket writes.
+
+**When to use standalone:**
+
+- You are running on a cloud VM, a Jupyter notebook, a university cluster, or any environment where you do not have root access or cannot install system services.
+- You want the simplest possible setup: `pip install ecocode`, add three lines of code, and go.
+- You are prototyping or running one-off experiments where operational simplicity matters more than anything else.
+- You are running on a machine where RAPL sysfs files are already world-readable (common on Ubuntu, Fedora, and most cloud VM images).
+
+**When to use attached mode:**
+
+- You are running production or long-duration training jobs on a machine where you control the environment and have root access.
+- You need the RAPL files to be reliably readable regardless of OS configuration — the CLI's `chmod` guarantees this.
+- You want zero overhead on the training process itself — the SDK does nothing except send sub-millisecond socket writes; all measurement runs in a separate root process.
+- You need the `canceled` run status — if the job is killed with Ctrl+C, the CLI catches the signal, saves all data collected so far, and marks the run `canceled` cleanly. In standalone mode a SIGKILL kills the sampler threads instantly and the run is left open.
+- You are running multi-node or multi-GPU jobs where a single CLI process monitoring the root launcher is cleaner than embedding SDK threads inside each worker.
+
+**Mode comparison:**
+
+| | Standalone | Attached |
+|---|---|---|
+| Who reads RAPL | Rust sampler thread in Python process | CLI process running as root |
+| RAPL files used | Same `/sys/class/powercap/intel-rapl/*/energy_uj` sysfs files | Same `/sys/class/powercap/intel-rapl/*/energy_uj` sysfs files |
+| CPU energy attribution | Proportional by process CPU usage fraction (same algorithm as CLI) | Proportional by process CPU usage fraction (same algorithm as SDK) |
+| File access guaranteed | Requires CLI to have run `chmod -R +r` first, or a permissive distro | Yes — CLI runs as root |
+| Background threads | Two (sampler + reporter) in-process | None — CLI does all sampling |
+| HTTP calls | From the Python process | From the CLI |
+| Training process overhead | Small (native Rust threads, minimal) | Negligible — only tiny socket writes |
+| Run lifecycle management | SDK creates, records, and completes runs | CLI creates, records, and completes runs |
+| `canceled` status | Not applicable — SDK only knows `finished` / `failed` | Produced by CLI on Ctrl+C |
 
 ---
 
@@ -112,11 +149,11 @@ EcoCodeRun.__init__()
                                          (requires api_key)
 ```
 
-This detection happens in the Rust `EcoCodeRun` constructor:
+This detection happens in the Rust `EcoCodeRun` constructor (`src/lib.rs`):
 
 ```rust
 let socket_path = std::env::var("ECOCODE_SOCKET").ok();
-let env_run_id = std::env::var("ECOCODE_RUN_ID").ok();
+let env_run_id  = std::env::var("ECOCODE_RUN_ID").ok();
 
 if let (Some(path), Some(rid_str)) = (&socket_path, &env_run_id) {
     // Attached mode
@@ -132,29 +169,32 @@ if let (Some(path), Some(rid_str)) = (&socket_path, &env_run_id) {
 #### Standalone Mode — Step by Step
 
 ```
-Python script                    Sampler thread             EcoCode backend
-─────────────────────────────────────────────────────────────────────────────
+Python script                    Rust sampler/reporter threads     EcoCode backend
+────────────────────────────────────────────────────────────────────────────────────
 ecocode.run().__enter__()
   │
-  ├─ POST /api/ingest/run  ────────────────────────────────► creates run row
-  ├─ POST /api/ingest/run/{id}/system-info ───────────────► stores CPU/GPU info
+  ├─ POST /api/ingest/run  ──────────────────────────────────────► creates run row
+  ├─ POST /api/ingest/run/{id}/system-info  ────────────────────► stores CPU/GPU info
   │
-  ├─ Sampler.start()
+  ├─ SamplerHandle::start()
   │       │
-  │       │          (every interval seconds)
+  │       │  ecocode-sampler thread (every interval seconds):
   │       ├─ nvmlDeviceGetTotalEnergyConsumption()
-  │       ├─ psutil.Process.cpu_percent()
-  │       ├─ psutil.virtual_memory() / proc.memory_info()
-  │       ├─ acquire lock → snapshot ML state
-  │       └─ POST /api/ingest/run/{id}/record ──────────────► stores metric row
+  │       ├─ sysinfo::System::refresh_cpu_usage()
+  │       ├─ sysinfo::Process::memory()   (full process tree)
+  │       ├─ rapl::get_all_energies()     (RAPL sysfs)
+  │       ├─ Mutex::lock() → snapshot ML marker state
+  │       └─ mpsc::send(record) → ecocode-reporter thread
+  │                                   │
+  │                                   └─ POST /api/ingest/run/{id}/record ──────► stores metric row
   │
-run.mark("phase", "forward")     # updates sampler._current_phase (thread-safe)
-run.log_step(100)                # updates sampler._training_step  (thread-safe)
-run.log_loss(1.45)               # updates sampler._loss           (thread-safe)
+run.mark("phase", "forward")     # acquires Mutex, updates sampler marker state
+run.log_step(100)                # acquires Mutex, updates sampler marker state
+run.log_loss(1.45)               # acquires Mutex, updates sampler marker state
   │
 ecocode.run().__exit__()
-  ├─ Sampler.stop()              # sets stop event, joins thread
-  └─ POST /api/ingest/run/{id}/complete ─────────────────────► marks run done/failed
+  ├─ SamplerHandle::stop()       # sends stop signal, joins both threads
+  └─ POST /api/ingest/run/{id}/complete ──────────────────────────────────────► marks run done/failed
 ```
 
 #### Attached Mode — Step by Step
@@ -165,13 +205,13 @@ CLI (sudo, Rust)                 Python script              EcoCode backend
 ecocode CLI starts
   ├─ reads RAPL + NVML on its own timer
   ├─ POST /api/ingest/run ─────────────────────────────────► creates run
-  ├─ binds Unix socket at /tmp/ecocode-XXXX.sock
-  ├─ export ECOCODE_SOCKET=/tmp/ecocode-XXXX.sock
+  ├─ binds Unix socket at /tmp/ecocode-<pid>.sock
+  ├─ export ECOCODE_SOCKET=/tmp/ecocode-<pid>.sock
   ├─ export ECOCODE_RUN_ID=42
   └─ exec python train.py
 
                                  ecocode.run().__enter__()
-                                   └─ SocketClient.connect()
+                                   └─ SocketClient::connect()
 
                                  run.mark("phase", "forward")
                                    └─ socket.send({"event":"phase","value":"forward"}\n)
@@ -182,7 +222,7 @@ CLI receives marker event ──────►
                                  ecocode.run().__exit__()
                                    └─ socket.close()
 
-CLI detects EOF on socket, marks run complete
+CLI detects EOF on socket, marks run "canceled" (Ctrl+C) or "finished"/"failed"
 ```
 
 ---
@@ -210,75 +250,54 @@ def wrapper(*args, **kwargs):
 
 ---
 
-### `_run.py` — The EcoCodeRun context manager
+### `src/lib.rs` — The Rust extension (PyO3)
 
-The central object. Holds references to all sub-systems and routes every public method to the correct backend (socket vs sampler).
+The central object `EcoCodeRun` is defined here as a `#[pyclass]`. Its `#[pymethods]` implement:
 
-**Constructor (`__init__`)**
-- Reads `ECOCODE_SOCKET` and `ECOCODE_RUN_ID` from the environment to decide mode.
-- In standalone mode: resolves `api_key` (arg > env `ECOCODE_API_KEY`), creates `EcoCodeClient`.
-- In attached mode: creates `SocketClient` with the socket path.
-
-**`__enter__`** (standalone only)
-- POSTs to `/api/ingest/run` → receives `run_id`.
-- Calls `_save_system_info()` → POSTs CPU/RAM/GPU metadata.
-- Creates and starts the `Sampler` thread.
-
-**`__exit__`**
-- Standalone: stops the sampler, POSTs `complete` with status `"finished"` or `"failed"` depending on whether an exception propagated.
-- Attached: closes the socket (signals EOF to the CLI).
-- Returns `False` — exceptions from the training code are **never suppressed**.
-
-**Public marker methods** all follow the same pattern:
-
-```python
-def log_loss(self, loss: float) -> None:
-    if self._mode == "attached":
-        self._socket.send_event({"event": "loss", "value": loss})
-    elif self._mode == "standalone":
-        self._sampler.set_loss(loss)
-```
-
-In attached mode the value is sent over the socket to the CLI.  
-In standalone mode the sampler's in-memory state is updated (thread-safe via lock) and included in the next record POST.
+- `__new__`: mode detection, client initialisation.
+- `__enter__`: in standalone mode, creates the run via HTTP, saves system info, spawns `SamplerHandle`.
+- `__exit__`: stops the sampler, completes the run. Returns `False` — exceptions from the training code are **never suppressed**. The run status is `"finished"` (no exception) or `"failed"` (exception propagated). `"canceled"` is only produced by the CLI.
+- All `log_*()` / `mark()` methods: in standalone mode, they acquire a `Mutex` and update the shared `MarkerState`; in attached mode, they serialise a JSON event and write it to the Unix socket.
 
 ---
 
-### `_sampler.py` — Background measurement thread
+### `src/sampler.rs` — High-precision sampling thread
 
-A **daemon thread** (`threading.Thread(daemon=True)`) that runs a tight loop:
+Spawns two Rust threads:
 
-```python
-while not self._stop_event.wait(timeout=self._interval):
-    self._sample()
+**Sampler thread (`ecocode-sampler`)** — hardware reads only:
+
+```rust
+loop {
+    match stop_rx.recv_timeout(wait_time) {
+        Ok(()) => break,                           // stop signal
+        Err(RecvTimeoutError::Timeout) => {}       // normal tick
+        Err(RecvTimeoutError::Disconnected) => break,
+    }
+    // ... read RAPL, NVML, sysinfo ...
+    let _ = reporter_tx.send(record);              // non-blocking
+}
 ```
 
-Using `stop_event.wait(timeout=N)` instead of `time.sleep(N)` means the thread wakes up immediately when `stop()` is called.
+Using `recv_timeout` instead of `thread::sleep` means the thread wakes up immediately when `stop()` is called and always produces a final sample before exiting.
 
-**NVML energy measurement (GPU)**
+**Reporter thread (`ecocode-reporter`)** — blocking HTTP, isolated from the sampler:
 
-On init, the sampler:
-1. Calls `pynvml.nvmlInit()`.
-2. Iterates all GPUs, reads the initial `nvmlDeviceGetTotalEnergyConsumption()` value (in millijoules) and stores it as a baseline.
+```rust
+while let Ok(record) = reporter_rx.recv() {
+    client.add_record(run_id, &record)?;
+}
+```
 
-On each sample:
-1. Reads the new cumulative energy counter.
-2. Computes delta: `delta_mj = current - previous` (handles counter-reset with `if curr >= prev`).
-3. Converts to joules: `delta_j = delta_mj / 1000.0`.
-4. Updates the stored baseline.
+This two-thread design ensures that a slow network never stalls the hardware sensor reads.
 
-**CPU / Memory measurement**
+**Process tree tracking**
 
-Uses `psutil.Process(pid)`:
-- `cpu_percent(interval=None)` — non-blocking, returns % since last call (primed in `__init__`).
-- `memory_info().rss / virtual_memory().total * 100` — process RSS as % of total RAM.
+The sampler calls `get_process_tree_pids_from_sys()` to find the root PID and all its descendants (data-loader workers, `torch.distributed` ranks, etc.). CPU usage is summed across the whole tree; memory is the max-of-tree to avoid double-counting shared pages. The tree is refreshed every second.
 
 **Thread-safety**
 
-All `set_*()` methods (called from the main training thread) acquire `self._lock`.  
-The `_sample()` method also acquires `self._lock` to snapshot state before building the payload.
-
-This means the main thread and sampler thread never race on the ML state variables.
+All `set_*()` methods (called from the Python main thread) acquire a `Mutex<MarkerState>`. The sampler also acquires the same `Mutex` to snapshot state before building each record. The Python thread and sampler thread never race.
 
 **The payload shape posted every tick:**
 
@@ -287,15 +306,15 @@ This means the main thread and sampler thread never race on the ML state variabl
   "pid": 12345,
   "timestamp": "2026-05-04T12:00:00.000Z",
   "cpu_usage": 87.3,
-  "cpu_energy": 0.0,
+  "cpu_energy": 1.42,
   "gpu_usage": 0.0,
   "gpu_energy": 2.14,
   "mem_usage": 12.5,
-  "mem_energy": null,
+  "mem_energy": 0.18,
   "igpu_usage": null,
   "igpu_energy": null,
   "gpu_metrics": [{"device_index": 0, "gpu_usage": 0.0, "gpu_energy": 2.14}],
-  "socket_metrics": [],
+  "socket_metrics": [{"socket": 0, "domain": "cpu", "energy": 1.42}],
   "phase": "forward",
   "tokens_processed": 102400,
   "training_step": 500,
@@ -305,40 +324,49 @@ This means the main thread and sampler thread never race on the ML state variabl
 }
 ```
 
-> `cpu_energy` is always `0.0` — RAPL requires root.  
-> `gpu_usage` (per-process utilisation) is always `0.0` — NVML process-level util stats require extra privileges; only total GPU energy (which is process-agnostic) is reported.
+> `cpu_energy` is non-zero when RAPL sysfs files are world-readable (either after the CLI's `chmod` or on distributions that expose them by default).
+> `gpu_usage` reflects per-process GPU utilisation attributed from NVML process utilisation stats.
 
 ---
 
-### `_http_client.py` — REST API client
+### `ecocode-core` — Shared energy sensor logic
 
-A thin wrapper over `requests.Session` with four methods mapping directly to the four EcoCode ingest endpoints:
+`ecocode-core` is a Rust library crate at `ecocode/crates/core/`. Both the CLI binary and the Python SDK `.so` link against it statically. It provides:
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `create_run(project_id, name, ...)` | `POST /api/ingest/run` | Creates a run, returns its integer `id` |
-| `save_system_info(run_id, payload)` | `POST /api/ingest/run/{id}/system-info` | Stores CPU/GPU hardware metadata |
-| `add_record(run_id, payload)` | `POST /api/ingest/run/{id}/record` | Stores a single time-series metric point |
-| `complete_run(run_id, status, ended_at)` | `POST /api/ingest/run/{id}/complete` | Marks a run finished or failed |
-
-All requests use `Bearer <api_key>` authentication and set `Content-Type: application/json`. Errors raise `requests.HTTPError` — caught upstream by `EcoCodeRun.__exit__` and the sampler loop, which emit `warnings.warn` instead of crashing.
+- `sensor::rapl` — RAPL sysfs file handles, energy reads, delta computation with wrap-around correction.
+- `sensor::gpu` — NVML device enumeration, energy delta computation, per-process GPU utilisation.
+- `sensor::get_process_tree_pids_from_sys` — recursive PID-tree walker using `sysinfo`.
+- `http_client::EcoCodeHttpClient` — blocking HTTP client wrapping `ureq` for the four ingest endpoints.
 
 ---
 
-### `_socket_client.py` — Unix socket for attached mode
+### How Python calls into Rust
 
-A thread-safe UNIX domain socket (`AF_UNIX / SOCK_STREAM`) writer.
+Maturin compiles `python-sdk/src/lib.rs` into a native shared library:
 
-**Connection**: On construction, tries to connect up to 3 times with 50 ms between attempts. This handles the race condition where the CLI needs a moment to bind the socket after injecting the environment variable.
+```
+_core.cpython-3xx-linux-gnu.so
+```
 
-**Sending**: Each event is serialised as JSON + `\n` and sent with `socket.sendall()` under a `threading.Lock()`. If any send fails, the socket is set to `None` and future calls silently no-op (training is never interrupted).
+The `#[pymodule]` macro on `_core()` and `#[pyclass]`/`#[pymethods]` on `EcoCodeRun` generate the CPython ABI glue automatically at compile time. When Python executes `from ecocode._core import EcoCodeRun`, it calls `dlopen()` on that `.so` — there is no subprocess, no IPC, no marshalling overhead. It is a native Python extension, identical in mechanism to NumPy or PyTorch's C extensions. The `ecocode-core` crate is linked as a static library directly into the `.so`.
 
-**Protocol**: Newline-delimited JSON (NDJSON). The CLI reads lines from the socket and associates each marker event with the next hardware metric record it collects.
-
-```json
-{"event": "phase", "value": "forward"}
-{"event": "step", "value": 42}
-{"event": "loss", "value": 1.23}
+```
+Python: import ecocode
+           └── ecocode/__init__.py
+                   └── from ecocode._core import EcoCodeRun
+                               │
+                        _core.cpython-3xx.so  (PyO3, compiled by Maturin)
+                               │
+                    ┌──────────┴──────────────────────────┐
+                    │  python-sdk/src/lib.rs               │
+                    │  python-sdk/src/sampler.rs           │
+                    │  python-sdk/src/socket_client.rs     │
+                    │                                      │
+                    │  → links ecocode-core (static)       │
+                    │       sensor::rapl                   │
+                    │       sensor::gpu  (NVML)            │
+                    │       http_client                    │
+                    └──────────────────────────────────────┘
 ```
 
 ---
@@ -368,18 +396,13 @@ pip install -e ".[all]"
 pip install -e ".[dev]"
 ```
 
-**Core runtime dependencies** (always installed):
+**Build requirement**: [Maturin](https://maturin.rs/) and a Rust toolchain (`rustup`) must be installed. `pip install -e .` invokes Maturin automatically.
 
-| Package | Why |
-|---------|-----|
-| `requests >= 2.28` | HTTP calls to the EcoCode backend |
-| `psutil >= 5.9` | Process CPU % and memory usage |
-
-**Optional**:
+**Optional runtime extras**:
 
 | Extra | Package | Why |
 |-------|---------|-----|
-| `gpu` | `pynvml >= 11.5` | NVIDIA GPU energy via NVML |
+| `gpu` | `nvml-wrapper` (Rust) | NVIDIA GPU energy via NVML |
 | `hf` | `transformers >= 4.30` | HuggingFace `TrainerCallback` base class |
 | `trl` | `trl >= 0.7` | TRL SFT / DPO / GRPO trainers |
 | `lightning` | `pytorch-lightning >= 2.0` | PyTorch Lightning `Callback` base class |
@@ -390,6 +413,10 @@ pip install -e ".[dev]"
 
 ## Quick Start
 
+> **Not sure which mode to use?**
+> - No root access, cloud VM, notebook, or just getting started → use **Standalone**.
+> - Own the machine, need guaranteed RAPL reads, or running production jobs → use **Attached**.
+
 ### Standalone Mode (no sudo required)
 
 ```python
@@ -399,7 +426,7 @@ with ecocode.run(
     "my-experiment",
     api_key="eco_...",          # or set ECOCODE_API_KEY env var
     project_id=42,              # optional if API key is project-scoped
-    base_url="http://localhost:3001",  # default
+    base_url="http://localhost:3001",  # default; override with ECOCODE_API_URL
     interval=1.0,               # seconds between metric samples
 ) as run:
 
@@ -626,7 +653,7 @@ for token in decode_loop():
 tracker.on_generation_end(total_tokens=1124)   # logs token count
 ```
 
-> **Why the prefill/decode split matters:** Prefill processes all prompt tokens in parallel (compute-bound, energy ∝ prompt_length²). Decode generates one token at a time (memory-bandwidth-bound). Tracking both separately helps optimise prompt length, batching strategies, and speculative decoding.
+> **Why the prefill/decode split matters:** Prefill processes all prompt tokens in parallel (compute-bound, energy proportional to prompt_length²). Decode generates one token at a time (memory-bandwidth-bound). Tracking both separately helps optimise prompt length, batching strategies, and speculative decoding.
 
 ---
 
@@ -727,22 +754,34 @@ See `demo_axolotl.py` and `demo_unsloth.py` for complete examples.
 
 | Metric | Standalone | Attached (CLI) | Notes |
 |--------|-----------|----------------|-------|
-| GPU energy (J) | ✅ Real (NVML) | ✅ Real (NVML) | Requires `pynvml`, NVIDIA GPU |
-| CPU energy (J) | ✅ Real (RAPL sysfs) | ✅ Real (RAPL) | Readable without root on most Linux distros. `0.0` if `/sys/class/powercap/intel-rapl/` is unreadable. |
-| RAM energy (J) | ✅ Real if DRAM domain present | ✅ Real (RAPL) | RAPL DRAM domain; `null` if not exposed by hardware |
-| CPU usage (%) | ✅ psutil | ✅ CLI | Process-level |
-| Memory usage (%) | ✅ psutil RSS | ✅ CLI | Process RSS / total RAM |
-| Training phase | ✅ | ✅ | Set via `run.mark("phase", ...)` |
-| Loss | ✅ | ✅ | Set via `run.log_loss(...)` |
-| Learning rate | ✅ | ✅ | Set via `run.log_lr(...)` |
-| Gradient step | ✅ | ✅ | Set via `run.log_step(...)` |
-| Token count | ✅ | ✅ | Set via `run.log_tokens(...)` |
-| Sequence length | ✅ | ✅ | Set via `run.log_sequence_length(...)` |
-| Accuracy | ✅ | ✅ | Set via `run.log_accuracy(...)` |
-| Custom metrics | ✅ | ✅ | Set via `run.log_custom(key, value)` |
-| CPU name / cores | ✅ (platform + psutil) | ✅ | Sent once at run start |
-| RAM total (GB) | ✅ (psutil) | ✅ | Sent once at run start |
-| GPU names | ✅ (pynvml) | ✅ | Sent once at run start |
+| GPU energy (J) | Real (NVML) | Real (NVML) | Requires `gpu` feature, NVIDIA GPU |
+| CPU energy (J) | RAPL sysfs, proportional attribution | RAPL sysfs, proportional attribution | Same sysfs files, same algorithm. SDK requires files to be world-readable (CLI chmod or permissive distro). `0.0` if unreadable. |
+| RAM energy (J) | Real if DRAM domain present | Real (RAPL) | RAPL DRAM domain; `null` if not exposed by hardware |
+| CPU usage (%) | `sysinfo` (Rust) | `sysinfo` (Rust) | Full process tree, normalised to 0–100% of machine |
+| Memory usage (%) | `sysinfo` RSS (max of tree) | `sysinfo` (max of tree) | Max across process tree to avoid double-counting |
+| Training phase | Set via `run.mark("phase", ...)` | Set via `run.mark("phase", ...)` | — |
+| Loss | Set via `run.log_loss(...)` | Set via `run.log_loss(...)` | — |
+| Learning rate | Set via `run.log_lr(...)` | Set via `run.log_lr(...)` | — |
+| Gradient step | Set via `run.log_step(...)` | Set via `run.log_step(...)` | — |
+| Token count | Set via `run.log_tokens(...)` | Set via `run.log_tokens(...)` | — |
+| Sequence length | Set via `run.log_sequence_length(...)` | Set via `run.log_sequence_length(...)` | — |
+| Accuracy | Set via `run.log_accuracy(...)` | Set via `run.log_accuracy(...)` | — |
+| Custom metrics | Set via `run.log_custom(key, value)` | Set via `run.log_custom(key, value)` | — |
+| CPU name / cores | `sysinfo` | `sysinfo` | Sent once at run start |
+| RAM total (GB) | `sysinfo` | `sysinfo` | Sent once at run start |
+| GPU names | NVML | NVML | Sent once at run start |
+
+---
+
+## Environmental Impact Equivalents
+
+The dashboard converts each run's total CO2 figure into three everyday equivalents to make the impact tangible:
+
+| Equivalent | Conversion factor | Source |
+|---|---|---|
+| Car distance | 170 gCO2/km | IEA Global EV Outlook 2023 — global average passenger car fleet |
+| Smartphone charges | 8.22 gCO2/charge | 16.5 Wh battery (iPhone 15 Pro Max) × world-average grid intensity (498 gCO2/kWh, IEA 2022) |
+| Trees needed (1 day) | 22 kg CO2/year per tree | One Tree Planted / EcoTree species-averaged absorption rate |
 
 ---
 
@@ -791,46 +830,3 @@ EPOCHS=30 BATCH_SIZE=256 LR=3e-4 API_KEY=eco_... python demo_training.py
 | License | MIT |
 | Build backend | [Maturin](https://maturin.rs/) |
 | Keywords | energy, carbon, ml, llm, monitoring, sustainability, rlhf, training |
-
----
-
-## TODO / Next Steps
-
-These are the highest-impact improvements to make the Python SDK more complete.
-
-### High Priority
-
-- **`cpu_energy` in standalone mode:** RAPL sysfs files are world-readable on most Linux distributions, but some hardened environments (`/sys/class/powercap/intel-rapl/` not accessible) silently fall back to `0.0`. Add a clear startup warning when RAPL is unavailable, and document how to fix it (`sudo chmod -R +r /sys/class/powercap/intel-rapl/`).
-
-- **Per-process GPU attribution in standalone mode:** The current implementation uses NVML `total_energy_consumption()` for GPU energy (whole-device, not per-process). The per-process GPU attribution path uses `process_utilization_stats()` which requires specific NVML privileges. Add a runtime check and fallback path that degrades gracefully with a clear log message.
-
-- **PyPI distribution:** The SDK is currently installed via `pip install -e .` from source, which requires a local Rust toolchain and Maturin. Set up GitHub Actions CI to build `manylinux` wheels for Linux x86_64 and aarch64 and publish them to PyPI so users can install with `pip install ecocode` without a Rust build environment.
-
-- **macOS support:** The current sampler uses RAPL (Linux-only) and NVML (NVIDIA-only). For Apple Silicon Macs, CPU/GPU power can be read from the `powermetrics` command or the `IOPMPowerSource` framework. Add a macOS sensor backend that reads from these sources.
-
-### Medium Priority
-
-- **`log_custom()` in attached mode:** In standalone mode, `log_custom(key, value)` stores the value in a `HashMap` that is included with each record. In attached mode, it sends a `{"event": "custom", "key": ..., "value": ...}` JSON event via the socket, but the CLI monitor's `MarkerState` struct does not currently have a `custom_metrics` field — the event is silently dropped. Add `custom_metrics: Option<HashMap<String, f64>>` to `MarkerState` in `monitor.rs` and handle the `"custom"` event type in the socket listener.
-
-- **Decorator with return value:** The `@ecocode.track()` decorator currently calls the wrapped function but discards its return value. Fix the wrapper to return whatever the decorated function returns:
-
-  ```python
-  # Current behavior (broken for non-None return values):
-  @ecocode.track("my-run", api_key="eco_...")
-  def evaluate() -> float:
-      return 0.95   # ← this is currently lost
-  ```
-
-- **Context manager nesting:** Using two `with ecocode.run()` blocks nested inside each other will create two independent runs. Document this behavior explicitly and add a warning when nested instantiation is detected (e.g. `ECOCODE_RUN_ID` already set in the environment when a new `EcoCodeRun` is created in standalone mode).
-
-- **`interval` sub-second validation:** Passing `interval=0.05` to standalone mode will cause the sampling loop to warn on nearly every tick since hardware reads (RAPL + NVML + sysinfo) typically take 50–100 ms. Add a minimum interval check and a clearer warning message with a suggested minimum.
-
-### Lower Priority
-
-- **`ecocode.integrations.axolotl` dedicated callback:** The README recommends using `EcoCodeCallback` (HuggingFace) with Axolotl, which works because Axolotl uses HuggingFace Trainer internally. However, Axolotl has its own plugin protocol. A dedicated `EcoCodeAxolotlPlugin` would be more idiomatic and resilient to Axolotl API changes.
-
-- **Async context manager support:** Some users run async training loops (e.g. with `asyncio`). Add `__aenter__` / `__aexit__` support to `EcoCodeRun` so it can be used as `async with ecocode.run(...) as run:`.
-
-- **Sampling interval jitter measurement:** The sampler loop already logs a warning when a tick is slower than the interval. Add a jitter metric (`actual_elapsed - target_interval`) to the record payload so users can see sampling precision in the dashboard.
-
-- **Windows support:** The sampler uses RAPL (Linux-only) for CPU energy. On Windows, consider integrating with the Intel Power Gadget SDK or Windows `ENERGY_ESTIMATION_PROVIDER` for CPU energy estimation. GPU energy via NVML already works cross-platform.

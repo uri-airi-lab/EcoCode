@@ -53,8 +53,8 @@ from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
-API_KEY     = os.environ.get("API_KEY", "ecocode_SvB6ETEjqwdJVjd6x2QkfdBZqXObta0F")
-BASE_URL    = os.environ.get("ECOCODE_URL", "http://localhost:3001")
+API_KEY     = os.environ.get("ECOCODE_API_KEY") or os.environ.get("API_KEY")
+BASE_URL    = os.environ.get("ECOCODE_API_URL", "https://backend.blacktree-5d3c8de6.eastus.azurecontainerapps.io")
 EPOCHS      = int(os.environ.get("EPOCHS", 20))
 BATCH_SIZE  = int(os.environ.get("BATCH_SIZE", 128))
 LR          = float(os.environ.get("LR", 1e-3))
