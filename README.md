@@ -70,122 +70,158 @@ Scaphandre is the closest alternative on the measurement side — it is also RAP
 
 ## Architecture
 
-The system has three independent layers: a Rust CLI that wraps any process and reads hardware energy counters, an Axum REST backend that stores and serves measurements, and a Next.js frontend that visualises runs in real time via Server-Sent Events.
+The system has four independent layers: a Rust CLI that wraps any process and reads hardware energy counters, a Python SDK (Rust extension via PyO3) that instruments ML scripts from inside, an Axum REST backend that stores and serves measurements, and a Next.js frontend that visualises runs in real time via Server-Sent Events.
 
 ```mermaid
 flowchart TD
-    User(["User\nsudo ecocode -- python train.py"])
+    UserCLI(["User — CLI mode\nsudo ecocode -- python train.py"])
+    UserSDK(["User — SDK mode\npython train.py"])
+
+    subgraph Core["ecocode/crates/core/ — Shared sensor library"]
+        direction TB
+        core_rapl["sensor/rapl.rs\nRAPL sysfs reader\nPer-socket energy in μJ\nWrap-around correction"]
+        core_gpu["sensor/gpu.rs\nNVML GPU reader\nPer-device energy + utilisation\nPer-process attribution"]
+        core_http["http_client.rs\nBlocking HTTP client\nUsed by SDK sampler thread\nto POST records to backend"]
+        core_pid["sensor/mod.rs\nget_process_tree_pids()\nRecursive child PID walker\nshared by CLI and SDK"]
+    end
 
     subgraph CLI["EcoCode CLI — ecocode/src/"]
         direction TB
-        cli["cli.rs\nDefines all CLI flags via clap:\n--output  --interval  --project\n--api-key  --intensity  --price"]
-        main_cli["main.rs\nEntry point: routes to monitor loop\nor config subcommands\n(set-api-key / clear-api-key / show)"]
-        monitor["monitor.rs\nSpawns target process\nRuns per-tick sampling loop\nAttributes energy to monitored PID\nWrites final run summary"]
-        carbon_tbl["carbon.rs\n50-country static CO2 table\n(IEA 2025 gCO2eq/kWh)\nLookup by ISO 3166-1 alpha-2 code"]
-
-        subgraph Sensors["sensor/"]
-            rapl["rapl.rs\nReads /sys/class/powercap/intel-rapl/\nPer-socket energy in μJ:\ncpu · dram · uncore (iGPU domains)\nHandles counter wrap-around"]
-            nvml["gpu.rs\nNVML wrapper — all NVIDIA GPUs\nPer-GPU total energy + utilisation\nPer-process GPU attribution"]
-        end
-
-        exp_mod["exporter/mod.rs\nDefines the Record struct:\ncpu_energy · gpu_energy · mem_energy\nper_socket[] · per_gpu[]\nco2_g · timestamp · pid"]
+        cli["cli.rs\nAll CLI flags via clap:\n--output  --interval  --project\n--api-key  --intensity  --price"]
+        main_cli["main.rs\nEntry point: routes to monitor loop\nor config subcommands"]
+        monitor["monitor.rs\nSpawns target process\nPer-tick sampling loop\nUnix socket listener for SDK markers\nWrites final run summary"]
+        carbon_tbl["carbon.rs\n50-country static CO2 table\n(IEA 2025 gCO2eq/kWh)"]
 
         subgraph Exporters["exporter/"]
-            exp_t["terminal.rs\nFormatted table to stdout"]
-            exp_c["csv.rs\nAppend rows to CSV file"]
-            exp_j["json.rs\nWrite JSON array to file"]
-            exp_l["local.rs\nInsert into local SQLite database"]
-            exp_o["online.rs\nHTTP POST to /api/ingest\nAuthenticated with Bearer API key"]
-            exp_p["prometheus.rs\nExpose /metrics on HTTP port 9091"]
-            exp_f["logfile.rs\nWrite formatted log file"]
+            exp_t["terminal.rs"]
+            exp_c["csv.rs"]
+            exp_j["json.rs"]
+            exp_l["local.rs — SQLite"]
+            exp_o["online.rs\nHTTP POST to /api/ingest\nBearer API key"]
+            exp_p["prometheus.rs\n/metrics on :9091"]
+            exp_f["logfile.rs"]
+        end
+    end
+
+    subgraph SDK["Python SDK — python-sdk/src/"]
+        direction TB
+        lib_rs["lib.rs — EcoCodeRun PyO3 class\nContext manager + all log_* methods\nMode detection: Standalone vs Attached"]
+
+        subgraph StandaloneMode["Standalone mode"]
+            sampler["sampler.rs\necocode-sampler thread:\nreads RAPL + NVML + sysinfo\nevery interval seconds\nFull process tree tracking"]
+            reporter["ecocode-reporter thread\nReceives Record via mpsc channel\nPOSTs to backend (blocking HTTP)"]
+            markers["Arc<Mutex<MarkerState>>\nphase · loss · step · tokens\nlr · seq_len · accuracy\nUpdated from Python thread"]
+            sampler --> |"mpsc::send(Record)"| reporter
+            markers --> |"Mutex::lock() snapshot"| sampler
+        end
+
+        subgraph AttachedMode["Attached mode"]
+            socket_cli["socket_client.rs\nUnixStream to CLI socket\nSends NDJSON marker events\n{event, value} per log_* call"]
         end
     end
 
     subgraph Backend["Web Backend — web/backend/src/"]
         direction TB
-        main_be["main.rs\nAxum server on :3001\nConnects PostgreSQL pool\nRuns schema migrations\nRegisters CORS + all routes\nSpawns SSE broadcast task"]
+        main_be["main.rs\nAxum server on :3001\nPostgreSQL pool + migrations\nSSE broadcast task"]
 
         subgraph BAuth["auth/"]
-            a_mod["mod.rs\nRoutes: POST /register · POST /login\nGET/POST /api-keys\nSets 30-day HttpOnly JWT cookie"]
-            a_jwt["jwt.rs\nSign and verify JWT tokens"]
-            a_mw["middleware.rs\nAuthUser extractor:\naccepts JWT cookie or Bearer API key"]
-            a_pw["password.rs\nArgon2id password hashing\nSHA-256 API key hashing"]
+            a_mod["mod.rs\nPOST /register · POST /login\nGET/POST /api-keys\n30-day HttpOnly JWT cookie"]
+            a_jwt["jwt.rs — JWT sign/verify"]
+            a_mw["middleware.rs\nAuthUser extractor:\nJWT cookie or Bearer API key"]
+            a_pw["password.rs\nArgon2id + SHA-256"]
         end
 
         subgraph BAPI["api/"]
-            ingest["ingest.rs\nPOST /api/ingest/run — create run\nPOST /run/{id}/record — append tick\nPOST /run/{id}/system-info — hardware\nPOST /run/{id}/complete — finalise"]
-            runs_api["runs.rs\nGET runs · records · summaries\nfor a workspace or project"]
-            proj_api["projects.rs\nCRUD endpoints for projects\n(workspace-scoped)"]
-            sse_h["sse.rs\nGET /api/sse\nBroadcasts each new Record\nto all connected clients"]
-            carbon_h["carbon.rs\nFetch / save carbon config\nProxy to Electricity Maps API\nfor live grid intensity"]
-            admin_h["admin.rs\nAdmin-only: list runs\nacross all workspaces"]
+            ingest["ingest.rs\nPOST /api/ingest/run\nPOST /run/{id}/record\nPOST /run/{id}/system-info\nPOST /run/{id}/complete"]
+            runs_api["runs.rs\nGET runs · records · summaries"]
+            proj_api["projects.rs — project CRUD"]
+            sse_h["sse.rs\nGET /api/sse\nSSE stream of new records"]
+            carbon_h["carbon.rs\nCarbon config + Electricity Maps proxy"]
         end
 
         subgraph BDB["db/"]
-            schema_db["schema.rs\nCreates all tables on startup:\nusers · workspaces · workspace_members\napi_keys · projects · runs · records\nrecord_gpu_metrics · record_socket_metrics\nrun_summaries"]
-            rec_db["records.rs\nInsert measurement records\nwith GPU and socket breakdowns\nQuery records for a run"]
-            run_db["runs.rs\nRun CRUD: create · update status\nfetch by id / workspace / project"]
+            schema_db["schema.rs — migrations at startup"]
+            rec_db["records.rs — insert + query"]
+            run_db["runs.rs — run CRUD + summaries"]
         end
     end
 
     subgraph Frontend["Web Frontend — web/frontend/"]
         direction TB
-        subgraph FPages["app/ — Pages (Next.js App Router)"]
-            run_pg["runs/[id]/page.tsx\nLive run dashboard:\ncharts + system info + carbon summary"]
-            runs_list["runs/page.tsx\nPaginated run list with filters"]
-            proj_pg["projects/[id]/page.tsx\nProject detail and run history"]
-            auth_pg["login/page.tsx + register/page.tsx\nJWT authentication forms"]
-            ws_pg["[workspaceSlug]/page.tsx\nWorkspace home: recent runs\nand summary stats"]
-            settings_pg["settings/developer/page.tsx\nCreate and revoke API keys"]
+        subgraph FPages["app/"]
+            run_pg["runs/[id]/page.tsx\nLive run dashboard"]
+            runs_list["runs/page.tsx — run list"]
+            auth_pg["login/ + register/"]
+            settings_pg["settings/developer/ — API keys"]
         end
 
         subgraph FCharts["components/charts/"]
-            ec["EnergyChart.tsx\nCumulative energy over time\n(Recharts line chart)"]
-            pd["PowerDistributionChart.tsx\nCPU vs GPU vs RAM split\n(stacked area)"]
-            sc["SocketEnergyChart.tsx\nPer-socket RAPL breakdown"]
-            uc["UtilizationChart.tsx\nCPU + GPU utilisation % over time"]
-            cc["CumulativePowerChart.tsx\nRunning total power draw"]
+            ec["CumulativePowerChart"]
+            sc["SocketEnergyChart"]
+            uc["EnergyBreakdownChart"]
         end
 
-        sse_hook["hooks/use-sse.ts\nSubscribes to GET /api/sse\nAppends incoming records to\nchart state in real time"]
-
-        api_lib["lib/api/\nruns.ts · projects.ts · carbon.ts · admin.ts\nTyped fetch wrappers — all calls\nsend the JWT cookie automatically"]
+        sse_hook["hooks/use-sse.ts\nOpen SSE connection\nAppends records to chart state"]
+        api_lib["lib/api/ — typed fetch wrappers\nJWT cookie sent automatically"]
     end
 
-    DB[("PostgreSQL — Neon / TimescaleDB\nruns · records\nrecord_gpu_metrics\nrecord_socket_metrics\nrun_summaries\nworkspaces · users · api_keys · projects")]
+    DB[("PostgreSQL\nruns · records · gpu_metrics\nsocket_metrics · run_summaries\nworkspaces · users · api_keys · projects")]
 
-    User --> cli --> main_cli --> monitor
-    monitor --> rapl & nvml
+    %% CLI path
+    UserCLI --> cli --> main_cli --> monitor
+    monitor --> core_rapl & core_gpu & core_pid
     monitor --> carbon_tbl
-    rapl & nvml --> exp_mod
-    carbon_tbl --> exp_mod
-    exp_mod --> exp_t & exp_c & exp_j & exp_l & exp_o & exp_p & exp_f
+    monitor --> Exporters
+    exp_o -- "POST /api/ingest\nBearer API key" --> ingest
 
-    exp_o -- "POST /api/ingest/{id}/record\nBearer API key" --> ingest
-    ingest --> rec_db --> DB
-    ingest --> run_db --> DB
+    %% SDK standalone path
+    UserSDK --> lib_rs --> sampler
+    sampler --> core_rapl & core_gpu & core_pid
+    reporter --> core_http --> ingest
 
+    %% SDK attached path
+    lib_rs --> |"Attached mode\nlog_* calls"| socket_cli
+    socket_cli -- "NDJSON over\nUnix socket" --> monitor
+
+    %% Backend → DB
+    ingest --> rec_db & run_db --> DB
     schema_db -. "runs once at startup" .-> DB
 
-    sse_h -- "SSE stream\n(new records)" --> sse_hook
-    sse_hook --> run_pg
-    run_pg --> ec & pd & sc & uc & cc
-
-    api_lib -- "REST + JWT cookie" --> runs_api & proj_api & carbon_h
+    %% SSE → Frontend
+    sse_h -- "SSE stream" --> sse_hook --> run_pg
+    run_pg --> ec & sc & uc
+    api_lib -- "REST + JWT" --> runs_api & proj_api & carbon_h
     runs_api --> run_db
-    proj_api --> run_db
 
+    %% Auth
     auth_pg --> a_mod --> a_jwt & a_pw
-    a_mw -. "validates every\nprotected request" .-> BAPI
+    a_mw -. "validates every protected request" .-> BAPI
+
+    %% Core shared by both CLI and SDK
+    Core -. "statically linked into\nboth CLI binary and SDK .so" .-> CLI
+    Core -. "statically linked into\nboth CLI binary and SDK .so" .-> SDK
 ```
 
 ### Data flow summary
 
-1. The user runs `ecocode -- <command>`. `cli.rs` parses flags; `monitor.rs` spawns the child process and starts sampling.
-2. On every tick, `rapl.rs` reads RAPL sysfs counters and `gpu.rs` queries NVML. `exporter/mod.rs` assembles a `Record` struct and optionally enriches it with CO2 via `carbon.rs`.
-3. The selected exporter writes the record. With `--output online`, `online.rs` sends it to the backend via an authenticated HTTP POST.
-4. The Axum backend (`ingest.rs`) inserts the record and its per-GPU and per-socket breakdowns into PostgreSQL, then broadcasts it to `sse.rs`.
-5. The Next.js frontend holds an open SSE connection (`use-sse.ts`). Each incoming record is appended to chart state, so the run dashboard updates live without polling.
+**CLI path**
+1. `ecocode -- python train.py` — `cli.rs` parses flags, `monitor.rs` spawns the child and starts the tick loop.
+2. On every tick, the CLI calls `ecocode-core` (`rapl.rs`, `gpu.rs`) for sensor reads, builds a `Record`, and routes it to the selected exporter.
+3. With `--output online`, `online.rs` POSTs the record to the backend (`/api/ingest/run/{id}/record`) authenticated with a Bearer API key.
+
+**Python SDK standalone path**
+1. `ecocode.run().__enter__()` POSTs to create a run, then spawns two Rust threads: `ecocode-sampler` (sensor reads via `ecocode-core`) and `ecocode-reporter` (blocking HTTP POSTs).
+2. `run.log_loss(1.45)` acquires a `Mutex` and updates `MarkerState` in shared memory — zero IPC cost.
+3. The sampler snapshots marker state on each tick, sends the `Record` over an `mpsc` channel to the reporter, which POSTs it to the backend.
+
+**Python SDK attached path**
+1. The CLI runs as root, creates the run, binds a Unix socket, and injects `ECOCODE_SOCKET` + `ECOCODE_RUN_ID` into the child process environment.
+2. The SDK detects those variables, connects to the socket, and sends no HTTP. All sensor reads are done by the CLI.
+3. `run.log_loss(1.45)` serialises `{"event":"loss","value":1.45}\n` and writes it over the Unix socket. The CLI reads it and attaches it to the next hardware record it collects.
+
+**Backend → Frontend**
+4. The Axum backend inserts each record into PostgreSQL and broadcasts it via `sse.rs`.
+5. The Next.js frontend holds an open SSE connection (`use-sse.ts`). Each incoming record is appended to chart state — the run dashboard updates live without polling.
 
 ---
 
