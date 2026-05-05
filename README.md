@@ -191,56 +191,92 @@ flowchart TD
 
 ## Getting Started
 
-### Prerequisites
+EcoCode has two independent tools you can use together or separately:
 
-| Requirement | Details |
-|-------------|---------|
-| **OS** | Linux (kernel 3.10+) |
-| **Rust** | 1.70+ (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh`) |
-| **NVIDIA Drivers** | Required for GPU monitoring (NVML must be available) |
-| **sudo** | Required to read RAPL energy counters |
+| Tool | What it is | Who should use it |
+|------|-----------|-------------------|
+| **CLI** | Wraps any process (`python`, `./simulation`, `node server.js`) and monitors its energy from the outside. Requires `sudo`. | Anyone who wants to measure energy without modifying code, or who wants attached mode with higher RAPL accuracy |
+| **Python SDK** | A native Rust extension imported directly inside a Python script. No `sudo` required. | ML researchers and engineers who want in-code control over phases, loss, steps, tokens, and other training metrics |
+
+Both tools report to the same [web dashboard](https://blacktree-5d3c8de6.eastus.azurecontainerapps.io) and use the same API key.
 
 ---
 
-### Step 1: Build the CLI Tool
+### Prerequisites
+
+| Requirement | CLI | Python SDK |
+|-------------|:---:|:----------:|
+| Linux (kernel 3.10+) | Required | Required |
+| Rust 1.70+ | Required (to build) | Required (to build) |
+| `sudo` / root access | Required | Not required |
+| NVIDIA drivers (NVML) | Optional — GPU monitoring | Optional — GPU monitoring |
+| Python 3.9+ | Not required | Required |
+| Maturin | Not required | Required (build backend) |
+
+Install Rust if you do not have it:
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+---
+
+### Option 1 — CLI
+
+**Use this when:** you want to monitor any process without changing its code, or you want attached mode.
+
+**Step 1: Build**
 
 ```bash
 git clone https://github.com/MohamedAziz-Khezami/EcoCode.git
 cd EcoCode/ecocode
 cargo build --release
+# Binary is at: ecocode/target/release/ecocode
 ```
 
-### Step 2: Run the CLI Tool
+**Step 2: Get an API key**
 
-The tool wraps any command and monitors its energy consumption for the duration of execution.
+1. Go to the [dashboard](https://blacktree-5d3c8de6.eastus.azurecontainerapps.io) and create an account.
+2. Navigate to Settings → Developer → select a project → Generate Key.
+3. Save the key once so you do not have to pass it on every run:
 
 ```bash
-# Live output to terminal
+./target/release/ecocode config set-api-key eco_...
+```
+
+**Step 3: Run**
+
+```bash
+# Monitor any process — live output to terminal
 sudo ./target/release/ecocode -- python train.py
 
-# Save to local SQLite database
-sudo ./target/release/ecocode -o local --collaborator "alice" -- python train.py
+# Send results to the web dashboard
+sudo ./target/release/ecocode -o online -p "my-project" -- python train.py
 
-# Save to CSV file
+# Save to CSV
 sudo ./target/release/ecocode -o csv -f results.csv -- python train.py
 
-# Save to JSON file
+# Save to JSON
 sudo ./target/release/ecocode -o json -f results.json -- python train.py
 
 # Write a formatted log file
 sudo ./target/release/ecocode -o logfile -f run.log -- python train.py
 
+# Save locally to SQLite (no backend needed)
+sudo ./target/release/ecocode -o local --collaborator "alice" -- python train.py
+
 # Expose a Prometheus /metrics endpoint on port 9091
 sudo ./target/release/ecocode -o prometheus -- python train.py
 
-# Send data to the premium web platform
-sudo ./target/release/ecocode -o online --api-key <KEY> -- python train.py
-
 # Custom sampling interval (default: 1 second)
-sudo ./target/release/ecocode -i 0.5 -o terminal -- python train.py
+sudo ./target/release/ecocode -i 0.5 -o online -- python train.py
+
+# Monitor any executable, not just Python
+sudo ./target/release/ecocode -o online -- ./my_simulation
+sudo ./target/release/ecocode -o online -- node server.js
 ```
 
-**CLI reference:**
+**CLI flag reference:**
 
 | Flag | Description | Default |
 |------|-------------|---------|
@@ -254,18 +290,99 @@ sudo ./target/release/ecocode -i 0.5 -o terminal -- python train.py
 | `--address` | Location for automatic carbon intensity lookup | — |
 | `--api-key` | API key for the `online` exporter | — |
 
-**API key management:**
+**Config subcommands:**
 
 ```bash
-# Save your API key once (avoids passing it on every run)
-ecocode config set-api-key <KEY>
-
-# View current configuration
-ecocode config show
-
-# Remove saved API key
-ecocode config clear-api-key
+ecocode config set-api-key <KEY>   # save API key once
+ecocode config show                # view current config
+ecocode config clear-api-key       # remove saved key
 ```
+
+---
+
+### Option 2 — Python SDK
+
+**Use this when:** you are writing a Python ML training or inference script and want to log phases, loss, learning rate, tokens, and other training metrics alongside energy data. No `sudo` required.
+
+**Step 1: Install**
+
+```bash
+git clone https://github.com/MohamedAziz-Khezami/EcoCode.git
+cd EcoCode/python-sdk
+
+pip install maturin                # build backend — needed once
+pip install -e ".[gpu]"            # with GPU energy tracking (recommended)
+pip install -e ".[all]"            # with all framework callbacks
+pip install -e "."                 # core only (CPU + memory, no GPU)
+```
+
+**Step 2: Get an API key**
+
+Same as above — dashboard → Settings → Developer → Generate Key.
+
+**Step 3: Add three lines to your script**
+
+```python
+import ecocode
+
+with ecocode.run("my-experiment", api_key="eco_...") as run:
+    # your existing training code goes here, unchanged
+    for epoch in range(epochs):
+        run.log_epoch(epoch)
+        for batch in loader:
+            loss = model(batch)
+            run.log_loss(loss.item())
+            run.log_step(global_step)
+```
+
+The run appears on the dashboard automatically. No other configuration needed — the backend URL is built into the SDK.
+
+**Step 4 (optional): Use a framework callback**
+
+If you use HuggingFace Trainer, TRL, PyTorch Lightning, Keras, DeepSpeed, vLLM, or ONNX Runtime, a dedicated callback handles all marker calls automatically:
+
+```python
+# HuggingFace Trainer
+from ecocode.integrations.huggingface import EcoCodeCallback
+
+with ecocode.run("sft-llama3", api_key="eco_...") as eco_run:
+    trainer = Trainer(model=model, callbacks=[EcoCodeCallback(eco_run)])
+    trainer.train()
+```
+
+```python
+# TRL — SFT / DPO / GRPO
+from ecocode.integrations.trl import EcoCodeSFTCallback
+
+with ecocode.run("grpo-qwen", api_key="eco_...") as eco_run:
+    trainer = GRPOTrainer(model=model, callbacks=[EcoCodeGRPOCallback(eco_run)])
+    trainer.train()
+```
+
+See `python-sdk/README.md` for the full callback list and ML marker API reference.
+
+---
+
+### Option 3 — CLI + Python SDK together (attached mode)
+
+**Use this when:** you want both the CLI's guaranteed RAPL file access (root) and the SDK's in-code marker API (phase, loss, step, tokens), with zero measurement overhead on the training process.
+
+```bash
+# 1. Start the CLI as root — it creates the run and starts sampling
+sudo ./target/release/ecocode -o online -p "my-project" -- python train.py
+```
+
+```python
+# train.py — SDK auto-detects attached mode from the env vars the CLI injected
+import ecocode
+
+with ecocode.run() as run:   # no api_key needed
+    run.mark("phase", "forward")
+    run.log_step(100)
+    run.log_loss(1.23)
+```
+
+The CLI injects `ECOCODE_SOCKET` and `ECOCODE_RUN_ID` into the child process environment. The SDK detects them and switches to attached mode automatically — no code change needed beyond importing ecocode.
 
 ---
 
@@ -605,7 +722,7 @@ Contributions are welcome. Open an issue to discuss a change before submitting a
 
 ## License
 
-MIT License — see [LICENSE](LICENSE) for details.
+...
 
 ---
 
