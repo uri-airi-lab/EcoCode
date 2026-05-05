@@ -225,7 +225,17 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 **Use this when:** you want to monitor any process without changing its code, or you want attached mode.
 
-**Step 1: Build**
+**Step 1: Download or build the binary**
+
+The easiest way is to download the pre-built binary from the latest GitHub Release — no Rust toolchain needed:
+
+```bash
+wget https://github.com/MohamedAziz-Khezami/EcoCode/releases/latest/download/ecocode-linux-x86_64
+chmod +x ecocode-linux-x86_64
+sudo mv ecocode-linux-x86_64 /usr/local/bin/ecocode
+```
+
+Or build from source if you prefer:
 
 ```bash
 git clone https://github.com/MohamedAziz-Khezami/EcoCode.git
