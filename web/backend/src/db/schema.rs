@@ -20,10 +20,18 @@ pub async fn ensure_postgres_schema(db: &PgPool) -> Result<(), Box<dyn std::erro
     .await?;
 
     // Migrate existing databases that are missing the profile columns
-    sqlx::query("ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name TEXT").execute(db).await?;
-    sqlx::query("ALTER TABLE users ADD COLUMN IF NOT EXISTS institution TEXT NOT NULL DEFAULT ''").execute(db).await?;
-    sqlx::query("ALTER TABLE users ADD COLUMN IF NOT EXISTS position TEXT NOT NULL DEFAULT ''").execute(db).await?;
-    sqlx::query("ALTER TABLE users ADD COLUMN IF NOT EXISTS use_case TEXT").execute(db).await?;
+    sqlx::query("ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name TEXT")
+        .execute(db)
+        .await?;
+    sqlx::query("ALTER TABLE users ADD COLUMN IF NOT EXISTS institution TEXT NOT NULL DEFAULT ''")
+        .execute(db)
+        .await?;
+    sqlx::query("ALTER TABLE users ADD COLUMN IF NOT EXISTS position TEXT NOT NULL DEFAULT ''")
+        .execute(db)
+        .await?;
+    sqlx::query("ALTER TABLE users ADD COLUMN IF NOT EXISTS use_case TEXT")
+        .execute(db)
+        .await?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS workspaces (
@@ -44,7 +52,7 @@ pub async fn ensure_postgres_schema(db: &PgPool) -> Result<(), Box<dyn std::erro
            ) THEN
              ALTER TABLE workspaces DROP CONSTRAINT workspaces_slug_key;
            END IF;
-         END $$"
+         END $$",
     )
     .execute(db)
     .await?;
@@ -88,7 +96,7 @@ pub async fn ensure_postgres_schema(db: &PgPool) -> Result<(), Box<dyn std::erro
            ) THEN
              ALTER TABLE projects DROP CONSTRAINT projects_name_key;
            END IF;
-         END $$"
+         END $$",
     )
     .execute(db)
     .await?;
@@ -239,10 +247,18 @@ pub async fn ensure_postgres_schema(db: &PgPool) -> Result<(), Box<dyn std::erro
     .await?;
 
     // Ensure existing databases have the usage columns
-    sqlx::query("ALTER TABLE runsummary ADD COLUMN IF NOT EXISTS avg_cpu_usage DOUBLE PRECISION").execute(db).await?;
-    sqlx::query("ALTER TABLE runsummary ADD COLUMN IF NOT EXISTS avg_gpu_usage DOUBLE PRECISION").execute(db).await?;
-    sqlx::query("ALTER TABLE runsummary ADD COLUMN IF NOT EXISTS avg_mem_usage DOUBLE PRECISION").execute(db).await?;
-    sqlx::query("ALTER TABLE runs ADD COLUMN IF NOT EXISTS exporter_type TEXT").execute(db).await?;
+    sqlx::query("ALTER TABLE runsummary ADD COLUMN IF NOT EXISTS avg_cpu_usage DOUBLE PRECISION")
+        .execute(db)
+        .await?;
+    sqlx::query("ALTER TABLE runsummary ADD COLUMN IF NOT EXISTS avg_gpu_usage DOUBLE PRECISION")
+        .execute(db)
+        .await?;
+    sqlx::query("ALTER TABLE runsummary ADD COLUMN IF NOT EXISTS avg_mem_usage DOUBLE PRECISION")
+        .execute(db)
+        .await?;
+    sqlx::query("ALTER TABLE runs ADD COLUMN IF NOT EXISTS exporter_type TEXT")
+        .execute(db)
+        .await?;
 
     // 6. Maintenance & Data Backfill
     // Backfill usage averages for existing runs that were created before these columns existed
@@ -261,23 +277,41 @@ pub async fn ensure_postgres_schema(db: &PgPool) -> Result<(), Box<dyn std::erro
             FROM records 
             GROUP BY run_id
          ) sub
-         WHERE rs.run_id = sub.run_id AND rs.avg_cpu_usage IS NULL"
+         WHERE rs.run_id = sub.run_id AND rs.avg_cpu_usage IS NULL",
     )
     .execute(db)
     .await?;
 
     // SDK ML fields — phase labels, token counts, optimizer steps, loss, lr, sequence length
-    sqlx::query("ALTER TABLE records ADD COLUMN IF NOT EXISTS phase TEXT").execute(db).await?;
-    sqlx::query("ALTER TABLE records ADD COLUMN IF NOT EXISTS tokens_processed BIGINT").execute(db).await?;
-    sqlx::query("ALTER TABLE records ADD COLUMN IF NOT EXISTS training_step BIGINT").execute(db).await?;
-    sqlx::query("ALTER TABLE records ADD COLUMN IF NOT EXISTS loss DOUBLE PRECISION").execute(db).await?;
-    sqlx::query("ALTER TABLE records ADD COLUMN IF NOT EXISTS learning_rate DOUBLE PRECISION").execute(db).await?;
-    sqlx::query("ALTER TABLE records ADD COLUMN IF NOT EXISTS sequence_length INT").execute(db).await?;
-    sqlx::query("ALTER TABLE records ADD COLUMN IF NOT EXISTS accuracy DOUBLE PRECISION").execute(db).await?;
-    sqlx::query("ALTER TABLE records ADD COLUMN IF NOT EXISTS custom_metrics JSONB").execute(db).await?;
+    sqlx::query("ALTER TABLE records ADD COLUMN IF NOT EXISTS phase TEXT")
+        .execute(db)
+        .await?;
+    sqlx::query("ALTER TABLE records ADD COLUMN IF NOT EXISTS tokens_processed BIGINT")
+        .execute(db)
+        .await?;
+    sqlx::query("ALTER TABLE records ADD COLUMN IF NOT EXISTS training_step BIGINT")
+        .execute(db)
+        .await?;
+    sqlx::query("ALTER TABLE records ADD COLUMN IF NOT EXISTS loss DOUBLE PRECISION")
+        .execute(db)
+        .await?;
+    sqlx::query("ALTER TABLE records ADD COLUMN IF NOT EXISTS learning_rate DOUBLE PRECISION")
+        .execute(db)
+        .await?;
+    sqlx::query("ALTER TABLE records ADD COLUMN IF NOT EXISTS sequence_length INT")
+        .execute(db)
+        .await?;
+    sqlx::query("ALTER TABLE records ADD COLUMN IF NOT EXISTS accuracy DOUBLE PRECISION")
+        .execute(db)
+        .await?;
+    sqlx::query("ALTER TABLE records ADD COLUMN IF NOT EXISTS custom_metrics JSONB")
+        .execute(db)
+        .await?;
 
     sqlx::query("ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS project_id BIGINT REFERENCES projects(id) ON DELETE SET NULL").execute(db).await?;
-    sqlx::query("ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS key_prefix TEXT").execute(db).await?;
+    sqlx::query("ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS key_prefix TEXT")
+        .execute(db)
+        .await?;
 
     create_performance_indexes(db).await?;
     // Note: We avoid database-level triggers for SSE notifications due to sqlx connection issues.
@@ -295,7 +329,7 @@ async fn ensure_sse_notify_triggers(db: &PgPool) -> Result<(), Box<dyn std::erro
            PERFORM pg_notify('record_inserted', NEW.id::text);
            RETURN NEW;
          END;
-         $$ LANGUAGE plpgsql;"
+         $$ LANGUAGE plpgsql;",
     )
     .execute(db)
     .await?;
@@ -308,7 +342,7 @@ async fn ensure_sse_notify_triggers(db: &PgPool) -> Result<(), Box<dyn std::erro
              AFTER INSERT ON records
              FOR EACH ROW EXECUTE FUNCTION notify_record_inserted();
            END IF;
-         END $$;"
+         END $$;",
     )
     .execute(db)
     .await?;
@@ -319,10 +353,22 @@ async fn ensure_sse_notify_triggers(db: &PgPool) -> Result<(), Box<dyn std::erro
 /// Creates database indexes to improve query performance.
 async fn create_performance_indexes(db: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_runs_project_started ON runs(project_id, started_at DESC, id DESC)").execute(db).await?;
-    sqlx::query("CREATE INDEX IF NOT EXISTS idx_runs_workspace_access ON runs(started_at DESC, id DESC)").execute(db).await?;
-    sqlx::query("CREATE INDEX IF NOT EXISTS idx_records_run_timestamp ON records(run_id, timestamp)").execute(db).await?;
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_runs_workspace_access ON runs(started_at DESC, id DESC)",
+    )
+    .execute(db)
+    .await?;
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_records_run_timestamp ON records(run_id, timestamp)",
+    )
+    .execute(db)
+    .await?;
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_workspace_members_user ON workspace_members(user_id, workspace_id)").execute(db).await?;
-    sqlx::query("CREATE INDEX IF NOT EXISTS idx_projects_workspace ON projects(workspace_id)").execute(db).await?;
-    sqlx::query("CREATE INDEX IF NOT EXISTS idx_runsummary_run ON runsummary(run_id)").execute(db).await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_projects_workspace ON projects(workspace_id)")
+        .execute(db)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_runsummary_run ON runsummary(run_id)")
+        .execute(db)
+        .await?;
     Ok(())
 }

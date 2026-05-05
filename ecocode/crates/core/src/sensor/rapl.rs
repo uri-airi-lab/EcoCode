@@ -10,7 +10,7 @@
 use crate::sensor::RAPL_PATH;
 use regex::Regex;
 use std::error::Error;
-use std::fs::{File, read_dir};
+use std::fs::{read_dir, File};
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::Path;
 

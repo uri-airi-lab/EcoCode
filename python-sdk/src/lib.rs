@@ -14,8 +14,8 @@
 //!     run.log_loss(1.45)
 //! ```
 
-use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
+use pyo3::prelude::*;
 use std::sync::Arc;
 
 use ecocode_core::http_client::{EcoCodeHttpClient, SystemInfo};
@@ -122,8 +122,9 @@ impl EcoCodeRun {
             .or_else(|| std::env::var("ECOCODE_API_URL").ok())
             .unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
 
-        let client = EcoCodeHttpClient::new(&resolved_url, &resolved_key)
-            .map_err(|e| PyValueError::new_err(format!("[ecocode] HTTP client init failed: {}", e)))?;
+        let client = EcoCodeHttpClient::new(&resolved_url, &resolved_key).map_err(|e| {
+            PyValueError::new_err(format!("[ecocode] HTTP client init failed: {}", e))
+        })?;
 
         Ok(Self {
             name: name.to_string(),
@@ -141,7 +142,11 @@ impl EcoCodeRun {
     fn __enter__(mut slf: PyRefMut<'_, Self>) -> PyRefMut<'_, Self> {
         if slf.mode == Mode::Standalone {
             // Clone the Arc so we don't hold an immutable borrow on `slf` while mutating it.
-            let client = Arc::clone(slf.client.as_ref().expect("client must be set in standalone mode"));
+            let client = Arc::clone(
+                slf.client
+                    .as_ref()
+                    .expect("client must be set in standalone mode"),
+            );
             let project_id = slf.project_id.unwrap_or(0);
             let name = slf.name.clone();
             let interval = slf.interval;
@@ -151,13 +156,7 @@ impl EcoCodeRun {
             let args: Vec<String> = std::env::args().collect();
             let command = args.join(" ");
 
-            match client.create_run(
-                project_id,
-                &name,
-                None,
-                Some(&started_at),
-                Some(&command),
-            ) {
+            match client.create_run(project_id, &name, None, Some(&started_at), Some(&command)) {
                 Ok(run_id) => {
                     slf.run_id = Some(run_id);
 
@@ -168,12 +167,7 @@ impl EcoCodeRun {
 
                     // Start sampler thread
                     let pid = std::process::id();
-                    let sampler = SamplerHandle::start(
-                        client,
-                        run_id,
-                        interval,
-                        pid,
-                    );
+                    let sampler = SamplerHandle::start(client, run_id, interval, pid);
                     slf.sampler = Some(sampler);
                 }
                 Err(e) => {
@@ -200,7 +194,11 @@ impl EcoCodeRun {
             self.sampler = None;
 
             // Complete the run
-            let status = if exc_type.is_some() { "failed" } else { "finished" };
+            let status = if exc_type.is_some() {
+                "failed"
+            } else {
+                "finished"
+            };
             let ended_at = chrono::Utc::now().to_rfc3339();
 
             if let (Some(client), Some(run_id)) = (&self.client, self.run_id) {
@@ -219,7 +217,10 @@ impl EcoCodeRun {
 
     /// Send a semantic phase marker.
     fn mark(&self, key: &str, value: &Bound<'_, PyAny>) {
-        let value_str = value.str().map(|s| s.to_string()).unwrap_or_default();
+        let value_str = value.str().map(|s| s.to_string()).unwrap_or_else(|_| {
+            eprintln!("[ecocode warning] run.mark(\"{}\", ...) could not convert value to string, using empty string", key);
+            String::new()
+        });
 
         match &self.mode {
             Mode::Attached { .. } => {

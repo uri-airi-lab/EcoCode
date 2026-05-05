@@ -328,14 +328,294 @@ Environmental equivalents derived from the run's CO2 figure:
 
 ---
 
+## Repository Structure
+
+```
+ecocode/
+├── ecocode/             # Rust CLI binary + exporters
+│   ├── src/
+│   │   ├── main.rs          # Entry point; routes to monitor loop or config subcommands
+│   │   ├── cli.rs           # clap argument definitions (all CLI flags)
+│   │   ├── monitor.rs       # Core sampling loop; process spawning; Unix socket listener
+│   │   ├── carbon.rs        # CO2 calculation formula + 50-country static table (IEA 2025)
+│   │   ├── configs.rs       # `ecocode config` subcommand handler
+│   │   └── exporter/
+│   │       ├── mod.rs           # Exporter trait + Record / GpuMetric / SocketMetric types
+│   │       ├── terminal.rs      # Live table to stdout
+│   │       ├── csv.rs           # Append rows to CSV
+│   │       ├── json.rs          # Write JSON array file
+│   │       ├── local.rs         # SQLite (local database)
+│   │       ├── online.rs        # HTTP POST to web backend (Bearer API key)
+│   │       ├── prometheus.rs    # Prometheus /metrics endpoint on :9091
+│   │       ├── logfile.rs       # Human-readable log file
+│   │       └── dual.rs          # Fan-out: sends to both primary + online simultaneously
+│   └── crates/core/         # Shared sensor library (CLI and Python SDK both depend on this)
+│       └── src/
+│           ├── sensor/rapl.rs   # RAPL sysfs reader (scan, read, delta, wrap-around)
+│           ├── sensor/gpu.rs    # NVML GPU reader (per-device + per-process attribution)
+│           └── http_client.rs   # Blocking HTTP client for Python SDK sampler thread
+│
+├── python-sdk/          # Python SDK (Rust extension via PyO3 + Maturin)
+│   ├── src/
+│   │   ├── lib.rs           # EcoCodeRun PyO3 class — context manager and all log_* methods
+│   │   ├── sampler.rs       # Background sampling + reporter threads (standalone mode)
+│   │   └── socket_client.rs # Unix domain socket client for attached mode
+│   ├── ecocode/             # Pure-Python public API layer
+│   │   ├── __init__.py      # run() and track() factory functions
+│   │   └── integrations/    # Callbacks: HuggingFace, TRL, Lightning, DeepSpeed, vLLM, Keras, ONNX
+│   └── demo_*.py            # End-to-end examples for each supported framework
+│
+└── web/                 # Web platform
+    ├── backend/         # Axum REST + SSE server (Rust, listens on :3001)
+    │   └── src/
+    │       ├── main.rs          # App init, DB pool, route registration, SSE watcher
+    │       ├── api/
+    │       │   ├── ingest.rs    # Ingestion endpoints called by CLI/SDK
+    │       │   ├── runs.rs      # Run + record retrieval with nested GPU/socket details
+    │       │   ├── projects.rs  # Project CRUD (workspace-scoped)
+    │       │   ├── sse.rs       # SSE handler + PostgreSQL LISTEN/NOTIFY watcher
+    │       │   ├── carbon.rs    # Carbon config + Electricity Maps API proxy
+    │       │   └── admin.rs     # Admin-only cross-workspace queries
+    │       ├── auth/            # JWT auth, Argon2id password hashing, API key management
+    │       ├── db/
+    │       │   ├── schema.rs    # Idempotent schema migrations applied at startup
+    │       │   ├── records.rs   # Record insert + query helpers
+    │       │   └── runs.rs      # Run summary calculation
+    │       ├── models/          # Serde structs for DB rows and API payloads
+    │       ├── services/        # Carbon API integration (Electricity Maps proxy)
+    │       ├── workspaces/      # Workspace + member management endpoints
+    │       └── state.rs         # AppState: PG pool + SSE broadcast sender
+    │
+    └── frontend/        # Next.js 14 dashboard (TypeScript + Tailwind + react-chartjs-2)
+        ├── app/
+        │   ├── login/ + register/       # Authentication pages
+        │   └── [workspaceSlug]/
+        │       ├── page.tsx             # Workspace home (recent runs, summary stats)
+        │       ├── runs/[id]/page.tsx   # Live run detail: charts, system info, carbon
+        │       ├── projects/            # Project list + per-project run history
+        │       └── settings/            # Account, API keys, team member management
+        ├── components/
+        │   ├── charts/          # EnergyChart, UtilizationChart, SocketEnergyChart,
+        │   │                    # PowerDistributionChart, PhaseTimeline, TrainingMetrics
+        │   ├── run/             # RunSystemInfo, EnvironmentalImpact, MLMetricsBar
+        │   ├── tables/          # RunsTable, ProjectsTable
+        │   ├── layout/          # DashboardLayout, Sidebar, WorkspaceProvider context
+        │   └── ui/              # shadcn/ui base components (button, card, dialog, table…)
+        ├── lib/
+        │   ├── api/             # Typed fetch wrappers (runs.ts, projects.ts, carbon.ts)
+        │   ├── mock-data.ts     # Frontend type definitions (MetricRecord, Run, GpuMetric…)
+        │   └── utils.ts         # Chart time formatting, min interval calculation
+        └── hooks/
+            └── use-sse.ts       # SSE subscription hook — live record updates to charts
+```
+
+---
+
+## Python SDK
+
+The Python SDK provides a context manager and decorator API for instrumenting ML training scripts. It is a Rust extension module built with PyO3 and Maturin, using the same RAPL and NVML sensor code as the CLI.
+
+### Installation
+
+```bash
+cd python-sdk
+pip install -e ".[gpu]"          # with GPU support (recommended)
+pip install -e ".[all]"          # with all framework integrations
+```
+
+### Standalone Mode
+
+No CLI required. The SDK manages run creation and hardware sampling internally.
+
+```python
+import ecocode
+
+with ecocode.run(
+    "llama3-finetune",
+    api_key="eco_...",            # or set ECOCODE_API_KEY
+    project_id=42,
+    interval=1.0,
+) as run:
+
+    run.mark("phase", "data_loading")
+
+    for epoch in range(10):
+        run.log_epoch(epoch)
+        for step, batch in enumerate(loader):
+            run.mark("phase", "forward")
+            output = model(batch)
+
+            run.mark("phase", "backward")
+            output.loss.backward()
+
+            run.mark("phase", "optimizer_step")
+            optimizer.step()
+
+            run.log_step(step)
+            run.log_loss(output.loss.item())
+            run.log_lr(scheduler.get_last_lr()[0])
+            run.log_tokens(tokens_seen)
+```
+
+### Attached Mode (CLI + sudo)
+
+The CLI handles energy sampling; the SDK sends only semantic markers via a Unix socket.
+
+```bash
+sudo ecocode -o online --api-key eco_... -p my-project -- python train.py
+```
+
+```python
+# train.py — no api_key needed; ECOCODE_SOCKET + ECOCODE_RUN_ID are injected by CLI
+import ecocode
+
+with ecocode.run() as run:
+    run.mark("phase", "forward")
+    run.log_step(100)
+    run.log_loss(1.23)
+```
+
+### Framework Integrations
+
+| Framework | Import | Works with |
+|-----------|--------|-----------|
+| HuggingFace Transformers | `ecocode.integrations.huggingface.EcoCodeCallback` | `Trainer` |
+| TRL | `ecocode.integrations.trl.EcoCodeSFTCallback` | `SFTTrainer`, `DPOTrainer`, `GRPOTrainer` |
+| PyTorch Lightning | `ecocode.integrations.lightning.EcoCodeCallback` | `pl.Trainer` |
+| DeepSpeed | `ecocode.integrations.deepspeed.EcoCodeDeepSpeedCallback` | Manual hooks |
+| vLLM | `ecocode.integrations.vllm.EcoCodeVLLMMiddleware` | `AsyncLLMEngine` |
+| Keras | `ecocode.integrations.keras.EcoCodeCallback` | `model.fit()` |
+| ONNX Runtime | `ecocode.integrations.onnxruntime.EcoCodeORTWrapper` | `InferenceSession` |
+
+```python
+# HuggingFace example
+from ecocode.integrations.huggingface import EcoCodeCallback
+
+with ecocode.run("sft-llama3", api_key="eco_...", project_id=42) as r:
+    trainer = Trainer(model=model, callbacks=[EcoCodeCallback(r)])
+    trainer.train()
+```
+
+See `python-sdk/README.md` for the full ML marker API reference and integration details.
+
+---
+
+## Use Cases
+
+### Research — Comparing Experiment Energy Cost
+
+```bash
+# Run baseline and optimized variants back-to-back
+sudo ecocode -o online --project "efficiency-study" --name "fp32-baseline" \
+    -- python train.py --precision fp32
+
+sudo ecocode -o online --project "efficiency-study" --name "bf16-amp" \
+    -- python train.py --precision bf16
+
+# The dashboard's run comparison panel shows side-by-side energy and CO2 figures
+```
+
+### CI/CD — Per-Commit Energy Regression Tracking
+
+```bash
+# In GitHub Actions or similar CI:
+sudo ecocode -o online \
+    --project "ci-energy" \
+    --name "commit-${GITHUB_SHA:0:8}" \
+    -- python run_benchmarks.py
+```
+
+### Local Analysis Without a Backend
+
+```bash
+# Write to CSV and open in pandas / Excel
+sudo ecocode -o csv -f results.csv -- python train.py
+
+# Query with pandas
+import pandas as pd
+df = pd.read_csv("results.csv")
+print(f"Total GPU energy: {df['gpu_energy'].sum():.2f} J")
+print(f"Peak CPU usage:   {df['cpu_usage'].max():.1f}%")
+```
+
+### Prometheus + Grafana Integration
+
+```bash
+# Expose metrics
+sudo ecocode -o prometheus -- python train.py
+# Prometheus scrapes http://localhost:9091/metrics
+# Import the EcoCode Grafana dashboard JSON from web/grafana/
+```
+
+### Inference Energy Profiling (vLLM)
+
+```python
+import ecocode
+from ecocode.integrations.vllm import EcoCodeVLLMMiddleware
+
+with ecocode.run("llama3-serving", api_key="eco_...", project_id=5) as r:
+    engine = EcoCodeVLLMMiddleware(AsyncLLMEngine.from_engine_args(args), r)
+    # Automatically marks prefill / decode phases and logs cumulative tokens
+    async for output in engine.generate(prompt, sampling_params, request_id):
+        yield output
+```
+
+---
+
+## Environment Variables
+
+| Variable | Component | Description |
+|----------|-----------|-------------|
+| `ECOCODE_API_KEY` | CLI, SDK | API key for the online exporter |
+| `ECOCODE_API_URL` | CLI, SDK | Backend base URL (default: `http://localhost:3001`) |
+| `ECOCODE_SOCKET` | SDK | Unix socket path injected by CLI in attached mode |
+| `ECOCODE_RUN_ID` | SDK | Run ID injected by CLI in attached mode |
+| `DATABASE_URL` | Backend | PostgreSQL connection string |
+| `CORS_ORIGIN` | Backend | Allowed frontend origin (default: `http://localhost:3000`) |
+| `RUST_LOG` | Backend | Log level: `trace` / `debug` / `info` / `warn` / `error` |
+| `NEXT_PUBLIC_API_URL` | Frontend | Backend base URL seen by the browser |
+
+---
+
+## TODO / Next Steps
+
+These are the highest-impact improvements to make the system more complete and production-ready.
+
+### High Priority
+
+- **Windows / AMD CPU support:** RAPL sysfs is Linux-only. Port CPU energy reading to the Windows Energy Meter API and add AMD RAPL support via the `amd_energy` kernel module. This is the largest gap for wider adoption.
+
+- **Per-process GPU attribution accuracy:** Current NVML `process_utilization_stats()` samples at ~100 ms granularity and misses short-lived kernels. Investigate the DCGM API for higher-fidelity per-process GPU energy attribution.
+
+- **Run comparison UI:** The backend stores multiple runs per project but the frontend has no multi-run chart overlay. Add a side-by-side energy time-series comparison view.
+
+- **Alert / budget system:** Add a configurable rule (e.g. "alert if total_energy > 500 Wh") that fires a webhook or email when a run exceeds a budget. The `runsummary` table already has the aggregates needed.
+
+- **Unit tests:** There are no automated tests yet. Priority: RAPL counter wrap-around (`delta_cpu_energy_per_pid_j`), carbon calculation (`calculate_co2_g`), and the `merge_record_points` assembler in the backend.
+
+### Medium Priority
+
+- **Multi-node distributed training:** When `torch.distributed` launches multiple ranks across nodes, each rank runs its own process. Add a coordination mechanism so multiple CLI instances can contribute records to a single run, tagged by `node_rank`.
+
+- **Frontend performance for long runs:** The run detail page fetches all records in a single request. Runs longer than a few hours produce thousands of records. Implement virtual scroll with paginated record fetching.
+
+- **CSV/JSON exporter summaries:** The terminal and logfile exporters print a final energy summary; CSV and JSON do not. Implement `run_summary()` for these exporters.
+
+- **SDK PyPI distribution:** Set up Maturin CI wheels for Linux (x86_64, aarch64) and publish the SDK to PyPI so users can install with `pip install ecocode` without a local Rust build.
+
+### Lower Priority
+
+- **Docker image for CLI:** Package the binary into a minimal Docker image (Debian slim + NVIDIA runtime) for containerized training environments.
+
+- **Electricity Maps auto-resolution:** The carbon refresh endpoint exists but requires manually setting a location per project. Add automatic location-to-intensity resolution on run creation using a geocoder.
+
+- **JWT refresh mechanism:** JWTs currently expire after 30 days with no refresh. Add a short-lived access token + refresh token flow.
+
+- **`ecocode config show` improvements:** Extend the config display to include resolved base URL, detected RAPL sockets, and GPU names — useful for debugging on new machines.
+
+---
+
 ## Contributing
-
-Contributions are welcome. Key areas for improvement:
-
-- AMD GPU support via ROCm SMI
-- Windows RAPL / Intel PCM integration
-- Extended test coverage for multi-socket systems
-- Containerised deployment (Docker Compose)
 
 ```bash
 # Development workflow
@@ -343,6 +623,8 @@ cargo fmt       # format code
 cargo clippy    # lint
 cargo build     # compile
 ```
+
+Contributions are welcome. Open an issue to discuss a change before submitting a pull request.
 
 ---
 

@@ -43,12 +43,7 @@ pub struct SamplerHandle {
 
 impl SamplerHandle {
     /// Spawn the sampler and reporter daemon threads.
-    pub fn start(
-        client: Arc<EcoCodeHttpClient>,
-        run_id: i64,
-        interval: f64,
-        pid: u32,
-    ) -> Self {
+    pub fn start(client: Arc<EcoCodeHttpClient>, run_id: i64, interval: f64, pid: u32) -> Self {
         let (stop_tx, stop_rx) = mpsc::channel();
         let (reporter_tx, reporter_rx) = mpsc::channel::<Record>();
         let markers = Arc::new(Mutex::new(MarkerState::default()));
@@ -71,7 +66,15 @@ impl SamplerHandle {
         let handle = thread::Builder::new()
             .name("ecocode-sampler".into())
             .spawn(move || {
-                sampler_loop(client, run_id, interval, pid, stop_rx, markers_clone, reporter_tx);
+                sampler_loop(
+                    client,
+                    run_id,
+                    interval,
+                    pid,
+                    stop_rx,
+                    markers_clone,
+                    reporter_tx,
+                );
             })
             .expect("failed to spawn sampler thread");
 
@@ -156,7 +159,10 @@ fn sampler_loop(
 
     // ── Energy reading state ────────────────────────────────────────────────────
     let mut rapl_readers = rapl::scan_rapl_files().unwrap_or_else(|e| {
-        eprintln!("[ecocode] RAPL init failed: {}. CPU energy will not be tracked.", e);
+        eprintln!(
+            "[ecocode] RAPL init failed: {}. CPU energy will not be tracked.",
+            e
+        );
         Vec::new()
     });
     let rapl_available = !rapl_readers.is_empty();
@@ -185,10 +191,7 @@ fn sampler_loop(
     let mut gpu_timestamps: Vec<u64> = vec![0; gpu_count];
 
     #[cfg(feature = "gpu")]
-    let mut gpu_energies_prev = devices
-        .iter()
-        .map(|_| 0.0f64)
-        .collect::<Vec<_>>();
+    let mut gpu_energies_prev = devices.iter().map(|_| 0.0f64).collect::<Vec<_>>();
 
     #[cfg(feature = "gpu")]
     let mut gpu_max_energies = gpu_energies_prev.clone();
@@ -218,7 +221,7 @@ fn sampler_loop(
         let wait_time = next_tick.saturating_duration_since(now);
 
         match stop_rx.recv_timeout(wait_time) {
-            Ok(()) => break,           // stop signal received
+            Ok(()) => break,                           // stop signal received
             Err(mpsc::RecvTimeoutError::Timeout) => {} // normal tick
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
@@ -232,12 +235,13 @@ fn sampler_loop(
         // Calculate a perfectly accurate timestamp based on the monotonic real-time passage.
         // This ensures both monotonicity (no negative values) and physical accuracy.
         let elapsed = _start_instant.elapsed();
-        let ts_duration = chrono::Duration::from_std(elapsed).unwrap_or_else(|_| chrono::Duration::zero());
+        let ts_duration =
+            chrono::Duration::from_std(elapsed).unwrap_or_else(|_| chrono::Duration::zero());
         let timestamp = (base_utc + ts_duration).to_rfc3339();
 
         // ── Refresh process metrics for the entire tree ──────────────
         let work_start = std::time::Instant::now();
-        
+
         // Refresh sysinfo (targeted for performance)
         sys.refresh_cpu_usage();
         sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
@@ -247,7 +251,7 @@ fn sampler_loop(
             tree_pids = ecocode_core::sensor::get_process_tree_pids_from_sys(&sys, pid);
             last_tree_refresh = std::time::Instant::now();
         }
-        
+
         let mut total_cpu_usage = 0.0f64;
         let mut max_mem_usage = 0.0f64;
         let num_cpus = sys.cpus().len().max(1) as f64;
@@ -256,17 +260,10 @@ fn sampler_loop(
             if let Some(proc_) = sys.process(Pid::from(*p_id as usize)) {
                 // CPU: Sum across cores (already normalized by num_cpus)
                 total_cpu_usage += proc_.cpu_usage() as f64 / num_cpus;
-                
+
                 // Memory: Use Max RSS to avoid double-counting shared memory
                 if total_mem > 0.0 {
-                    let mut p_mem = proc_.memory() as f64;
-                    
-                    // HEURISTIC: If memory looks like it's in KB but we expect Bytes, 
-                    // or it's just plain impossible (>100% by a factor of 1000), adjust.
-                    if p_mem > total_mem * 10.0 {
-                        p_mem /= 1024.0; 
-                    }
-
+                    let p_mem = proc_.memory() as f64;
                     let proc_mem_pct = (p_mem / total_mem) * 100.0;
                     if proc_mem_pct > max_mem_usage {
                         max_mem_usage = proc_mem_pct;
@@ -274,7 +271,7 @@ fn sampler_loop(
                 }
             }
         }
-        
+
         let cpu_usage = total_cpu_usage.min(100.0);
         let mem_usage = max_mem_usage.min(100.0);
 
@@ -290,18 +287,18 @@ fn sampler_loop(
             if let Ok(rapl_curr) = rapl::get_all_energies(&mut rapl_readers) {
                 if let Some(ref prev) = rapl_prev {
                     let deltas = rapl::delta_cpu_energy_per_pid_j(
-                        prev,
-                        &rapl_curr,
-                        interval,
-                        cpu_usage,
-                        mem_usage,
+                        prev, &rapl_curr, interval, cpu_usage, mem_usage,
                         cpu_usage, // igpu proxy
                     );
                     for d in &deltas {
                         match d.domain.as_str() {
                             "cpu" => cpu_energy_j += d.delta_energy,
-                            "dram" => mem_energy_j = Some(mem_energy_j.unwrap_or(0.0) + d.delta_energy),
-                            "igpu" => igpu_energy_j = Some(igpu_energy_j.unwrap_or(0.0) + d.delta_energy),
+                            "dram" => {
+                                mem_energy_j = Some(mem_energy_j.unwrap_or(0.0) + d.delta_energy)
+                            }
+                            "igpu" => {
+                                igpu_energy_j = Some(igpu_energy_j.unwrap_or(0.0) + d.delta_energy)
+                            }
                             _ => {}
                         }
                         socket_metrics.push(SocketMetric {
@@ -369,7 +366,7 @@ fn sampler_loop(
         // ── Build and send record ────────────────────────────────────
         // We use the timestamp captured right after the sleep to avoid jitter
         // caused by the variable duration of the sensor reads.
-        
+
         let record = Record {
             pid,
             timestamp,

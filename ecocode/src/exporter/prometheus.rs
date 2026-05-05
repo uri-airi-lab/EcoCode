@@ -144,22 +144,24 @@ impl Exporter for PrometheusExporter {
     }
 
     /// Updates the Prometheus gauge values with the latest measurement.
+    /// Energy fields are converted from Joules to average Watts (J / elapsed_secs).
     async fn add_record(&mut self, record: Record) -> Result<(), Box<dyn Error>> {
+        let es = record.elapsed_secs.max(0.001);
         self.cpu_usage.set(record.cpu_usage);
-        self.cpu_energy.set(record.cpu_energy);
+        self.cpu_energy.set(record.cpu_energy / es);
         self.gpu_usage.set(record.gpu_usage);
-        self.gpu_energy.set(record.gpu_energy);
+        self.gpu_energy.set(record.gpu_energy / es);
         self.mem_usage.set(record.mem_usage);
         // Only update optional gauges when the domain is present on this system.
         // Absent domains leave the gauge at its last value (or 0.0 on first run).
-        if let Some(v) = record.mem_energy {
-            self.mem_energy.set(v);
+        if let Some(j) = record.mem_energy {
+            self.mem_energy.set(j / es);
         }
         if let Some(v) = record.igpu_usage {
             self.igpu_usage.set(v);
         }
-        if let Some(v) = record.igpu_energy {
-            self.igpu_energy.set(v);
+        if let Some(j) = record.igpu_energy {
+            self.igpu_energy.set(j / es);
         }
         for gm in &record.gpu_metrics {
             let idx = gm.device_index.to_string();
@@ -168,13 +170,13 @@ impl Exporter for PrometheusExporter {
                 .set(gm.gpu_usage);
             self.gpu_energy_per_device
                 .with_label_values(&[&idx])
-                .set(gm.gpu_energy);
+                .set(gm.gpu_energy / es);
         }
         for sm in &record.socket_metrics {
             let socket_str = sm.socket.to_string();
             self.socket_energy_per_domain
                 .with_label_values(&[&socket_str, &sm.domain])
-                .set(sm.energy);
+                .set(sm.energy / es);
         }
         Ok(())
     }

@@ -50,7 +50,11 @@ export function SocketEnergyChart({ data }: SocketEnergyChartProps) {
     const records = data
     const intervalMs = minIntervalMs(data.map(r => r.timestamp))
 
-    return records.map((record) => {
+    return records.map((record, index) => {
+      const prev = index > 0 ? records[index - 1] : null
+      const deltaMs = prev ? record.timestamp - prev.timestamp : 1000
+      const deltaS = (deltaMs / 1000) || 1
+
       const point: Record<string, string | number> = {
         time: formatChartTime(record.timestamp, intervalMs),
       }
@@ -61,7 +65,7 @@ export function SocketEnergyChart({ data }: SocketEnergyChartProps) {
       }
 
       for (const s of record.socket_details ?? []) {
-        point[`s${s.socket}_${s.domain}`] = Number((s.energy ?? 0).toFixed(2))
+        point[`s${s.socket}_${s.domain}`] = Number(((s.energy ?? 0) / deltaS).toFixed(2))
       }
 
       return point

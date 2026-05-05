@@ -2,7 +2,7 @@ use sqlx::PgPool;
 use tokio::sync::broadcast;
 
 /// Shared application state injected into Axum handlers.
-/// 
+///
 /// Contains:
 /// - `pool`: PostgreSQL database connection pool.
 /// - `tx`: Broadcast sender for SSE (Server-Sent Events) notifications.

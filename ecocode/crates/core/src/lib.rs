@@ -5,5 +5,5 @@
 //! - **GPU sensor** — reads NVIDIA GPU energy and per-process utilisation via NVML
 //! - **HTTP client** — blocking HTTP client for the EcoCode web backend (4 endpoints)
 
-pub mod sensor;
 pub mod http_client;
+pub mod sensor;

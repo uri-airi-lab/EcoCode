@@ -2,16 +2,16 @@
 
 use axum::{
     extract::{FromRef, FromRequestParts},
-    http::{header, request::Parts, StatusCode},
+    http::{StatusCode, header, request::Parts},
 };
 use axum_extra::extract::cookie::CookieJar;
-use jsonwebtoken::{decode, DecodingKey, Validation};
+use jsonwebtoken::{DecodingKey, Validation, decode};
 use sqlx::Row;
 
+use super::jwt::{Claims, get_jwt_secret};
+use super::password::hash_api_key;
 use crate::error::ApiError;
 use crate::state::AppState;
-use super::jwt::{get_jwt_secret, Claims};
-use super::password::hash_api_key;
 use tracing::{debug, warn};
 
 pub struct AuthUser {
@@ -64,7 +64,10 @@ where
                         if let Ok(token_data) =
                             decode::<Claims>(token_or_key, &decoding_key, &Validation::default())
                         {
-                            debug!(user_id = token_data.claims.sub, "Authenticated via JWT (Bearer header)");
+                            debug!(
+                                user_id = token_data.claims.sub,
+                                "Authenticated via JWT (Bearer header)"
+                            );
                             return Ok(AuthUser {
                                 user_id: token_data.claims.sub,
                                 workspace_id: None,
@@ -85,7 +88,10 @@ where
             if let Ok(token_data) =
                 decode::<Claims>(cookie.value(), &decoding_key, &Validation::default())
             {
-                debug!(user_id = token_data.claims.sub, "Authenticated via JWT cookie");
+                debug!(
+                    user_id = token_data.claims.sub,
+                    "Authenticated via JWT cookie"
+                );
                 return Ok(AuthUser {
                     user_id: token_data.claims.sub,
                     workspace_id: None,

@@ -1,7 +1,7 @@
 //! JWT generation and validation.
 
 use chrono::{Duration, Utc};
-use jsonwebtoken::{encode, Header, EncodingKey};
+use jsonwebtoken::{EncodingKey, Header, encode};
 use serde::{Deserialize, Serialize};
 
 use crate::error::ApiError;
@@ -30,6 +30,10 @@ pub(super) fn generate_jwt(user_id: i64) -> Result<String, ApiError> {
     };
 
     let secret = get_jwt_secret();
-    encode(&Header::default(), &claims, &EncodingKey::from_secret(secret.as_bytes()))
-        .map_err(|e| ApiError::internal(e))
+    encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(secret.as_bytes()),
+    )
+    .map_err(|e| ApiError::internal(e))
 }

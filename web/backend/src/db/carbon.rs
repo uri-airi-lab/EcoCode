@@ -1,7 +1,7 @@
-use axum::http::StatusCode;
 use crate::error::ApiError;
 use crate::models::carbon::CarbonConfigRow;
 use crate::state::AppState;
+use axum::http::StatusCode;
 
 /// Fetches the carbon footprint configuration settings associated with a specific project.
 pub async fn get_project_carbon_config(

@@ -15,11 +15,15 @@ use crate::error::ApiError;
 use crate::state::AppState;
 
 /// Looks up a workspace by slug within the authenticated user's memberships.
-pub(super) async fn resolve_workspace_id(state: &AppState, slug: &str, user_id: i64) -> Result<i64, ApiError> {
+pub(super) async fn resolve_workspace_id(
+    state: &AppState,
+    slug: &str,
+    user_id: i64,
+) -> Result<i64, ApiError> {
     let row = sqlx::query(
         "SELECT w.id FROM workspaces w
          JOIN workspace_members m ON m.workspace_id = w.id
-         WHERE w.slug = $1 AND m.user_id = $2"
+         WHERE w.slug = $1 AND m.user_id = $2",
     )
     .bind(slug)
     .bind(user_id)
@@ -40,20 +44,22 @@ pub(super) async fn require_admin(
     workspace_id: i64,
     user_id: i64,
 ) -> Result<(), ApiError> {
-    let role_row = sqlx::query(
-        "SELECT role FROM workspace_members WHERE workspace_id = $1 AND user_id = $2",
-    )
-    .bind(workspace_id)
-    .bind(user_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(ApiError::internal)?;
+    let role_row =
+        sqlx::query("SELECT role FROM workspace_members WHERE workspace_id = $1 AND user_id = $2")
+            .bind(workspace_id)
+            .bind(user_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(ApiError::internal)?;
 
     match role_row {
         Some(r) => {
             let role: String = r.get("role");
             if role != "admin" {
-                Err(ApiError::new(StatusCode::FORBIDDEN, "Only admins can perform this action"))
+                Err(ApiError::new(
+                    StatusCode::FORBIDDEN,
+                    "Only admins can perform this action",
+                ))
             } else {
                 Ok(())
             }

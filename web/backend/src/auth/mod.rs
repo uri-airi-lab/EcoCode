@@ -12,19 +12,19 @@ mod password;
 
 pub use middleware::AuthUser;
 
+use argon2::{
+    Argon2,
+    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString, rand_core::OsRng},
+};
 use axum::{
+    Json, Router,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{delete, post},
-    Json, Router,
 };
 use axum_extra::extract::cookie::{Cookie, CookieJar};
-use argon2::{
-    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
-    Argon2,
-};
-use rand::{distributions::Alphanumeric, Rng};
+use rand::{Rng, distributions::Alphanumeric};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 
@@ -71,10 +71,16 @@ async fn register(
     Json(payload): Json<RegisterPayload>,
 ) -> Result<impl IntoResponse, ApiError> {
     if payload.institution.trim().is_empty() {
-        return Err(ApiError::new(StatusCode::UNPROCESSABLE_ENTITY, "Institution is required"));
+        return Err(ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Institution is required",
+        ));
     }
     if payload.position.trim().is_empty() {
-        return Err(ApiError::new(StatusCode::UNPROCESSABLE_ENTITY, "Position is required"));
+        return Err(ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Position is required",
+        ));
     }
 
     let salt = SaltString::generate(&mut OsRng);
@@ -107,7 +113,11 @@ async fn register(
     let user_id: i64 = res.get("id");
     let token = generate_jwt(user_id)?;
     let jar = build_auth_cookie(token.clone());
-    Ok((StatusCode::CREATED, jar, Json(AuthResponse { token, user_id })))
+    Ok((
+        StatusCode::CREATED,
+        jar,
+        Json(AuthResponse { token, user_id }),
+    ))
 }
 
 async fn login(
@@ -122,16 +132,24 @@ async fn login(
 
     let (user_id, hash) = match row {
         Some(r) => (r.get::<i64, _>("id"), r.get::<String, _>("password_hash")),
-        None => return Err(ApiError::new(StatusCode::UNAUTHORIZED, "Invalid credentials")),
+        None => {
+            return Err(ApiError::new(
+                StatusCode::UNAUTHORIZED,
+                "Invalid credentials",
+            ));
+        }
     };
 
-    let parsed_hash = PasswordHash::new(&hash)
-        .map_err(|_| ApiError::internal("Invalid hash format in DB"))?;
+    let parsed_hash =
+        PasswordHash::new(&hash).map_err(|_| ApiError::internal("Invalid hash format in DB"))?;
     if Argon2::default()
         .verify_password(payload.password.as_bytes(), &parsed_hash)
         .is_err()
     {
-        return Err(ApiError::new(StatusCode::UNAUTHORIZED, "Invalid credentials"));
+        return Err(ApiError::new(
+            StatusCode::UNAUTHORIZED,
+            "Invalid credentials",
+        ));
     }
 
     let token = generate_jwt(user_id)?;
@@ -180,7 +198,10 @@ async fn change_password(
         .verify_password(payload.current_password.as_bytes(), &parsed_hash)
         .is_err()
     {
-        return Err(ApiError::new(StatusCode::UNAUTHORIZED, "Current password is incorrect"));
+        return Err(ApiError::new(
+            StatusCode::UNAUTHORIZED,
+            "Current password is incorrect",
+        ));
     }
 
     let salt = SaltString::generate(&mut OsRng);

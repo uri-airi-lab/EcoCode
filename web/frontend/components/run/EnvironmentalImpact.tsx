@@ -22,17 +22,19 @@ function formatCo2(grams: number): { value: string; unit: string } {
   return               { value: (grams / 1000).toFixed(4),           unit: 'kg CO₂' }
 }
 
-export function EnvironmentalImpact({ 
-  totalEnergyWh, 
-  totalCo2G, 
-  totalCost, 
+export function EnvironmentalImpact({
+  totalEnergyWh,
+  totalCo2G,
+  carbonIntensity,
+  totalCost,
   currency,
   className = ""
 }: EnvironmentalImpactProps) {
-  // Use DB-stored CO2 if available and non-zero, otherwise fall back to world average (445 g/kWh)
+  // Use DB-stored CO2 if available and non-zero, otherwise fall back to the project-configured
+  // carbon intensity, and finally to the world average (445 g CO₂/kWh).
   const co2G = (totalCo2G != null && totalCo2G > 0)
     ? totalCo2G
-    : (totalEnergyWh / 1000) * 445
+    : (totalEnergyWh / 1000) * (carbonIntensity ?? 445)
 
   const { value: co2Value, unit: co2Unit } = formatCo2(co2G)
 

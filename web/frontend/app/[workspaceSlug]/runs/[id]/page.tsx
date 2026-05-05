@@ -89,7 +89,7 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
             const totalMemEnergy  = records.reduce((s, r) => s + r.mem_energy,  0) / 3600
             const totalIgpuEnergy = records.reduce((s, r) => s + r.igpu_energy, 0) / 3600
             const totalEnergy = totalCpuEnergy + totalGpuEnergy + totalMemEnergy + totalIgpuEnergy
-            const carbonFootprint = (totalEnergy / 1000) * 445
+            const carbonFootprint = (totalEnergy / 1000) * (prev.carbonIntensityUsed ?? 445)
             return {
               ...prev,
               records,
@@ -149,7 +149,7 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
           const totalMemEnergy  = merged.reduce((s, r) => s + r.mem_energy,  0) / 3600
           const totalIgpuEnergy = merged.reduce((s, r) => s + r.igpu_energy, 0) / 3600
           const totalEnergy = totalCpuEnergy + totalGpuEnergy + totalMemEnergy + totalIgpuEnergy
-          const carbonFootprint = (totalEnergy / 1000) * 445
+          const carbonFootprint = (totalEnergy / 1000) * (prev.carbonIntensityUsed ?? 445)
           return {
             ...prev,
             records: merged,

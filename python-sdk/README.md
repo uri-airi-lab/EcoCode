@@ -791,3 +791,46 @@ EPOCHS=30 BATCH_SIZE=256 LR=3e-4 API_KEY=eco_... python demo_training.py
 | License | MIT |
 | Build backend | [Maturin](https://maturin.rs/) |
 | Keywords | energy, carbon, ml, llm, monitoring, sustainability, rlhf, training |
+
+---
+
+## TODO / Next Steps
+
+These are the highest-impact improvements to make the Python SDK more complete.
+
+### High Priority
+
+- **`cpu_energy` in standalone mode:** RAPL sysfs files are world-readable on most Linux distributions, but some hardened environments (`/sys/class/powercap/intel-rapl/` not accessible) silently fall back to `0.0`. Add a clear startup warning when RAPL is unavailable, and document how to fix it (`sudo chmod -R +r /sys/class/powercap/intel-rapl/`).
+
+- **Per-process GPU attribution in standalone mode:** The current implementation uses NVML `total_energy_consumption()` for GPU energy (whole-device, not per-process). The per-process GPU attribution path uses `process_utilization_stats()` which requires specific NVML privileges. Add a runtime check and fallback path that degrades gracefully with a clear log message.
+
+- **PyPI distribution:** The SDK is currently installed via `pip install -e .` from source, which requires a local Rust toolchain and Maturin. Set up GitHub Actions CI to build `manylinux` wheels for Linux x86_64 and aarch64 and publish them to PyPI so users can install with `pip install ecocode` without a Rust build environment.
+
+- **macOS support:** The current sampler uses RAPL (Linux-only) and NVML (NVIDIA-only). For Apple Silicon Macs, CPU/GPU power can be read from the `powermetrics` command or the `IOPMPowerSource` framework. Add a macOS sensor backend that reads from these sources.
+
+### Medium Priority
+
+- **`log_custom()` in attached mode:** In standalone mode, `log_custom(key, value)` stores the value in a `HashMap` that is included with each record. In attached mode, it sends a `{"event": "custom", "key": ..., "value": ...}` JSON event via the socket, but the CLI monitor's `MarkerState` struct does not currently have a `custom_metrics` field — the event is silently dropped. Add `custom_metrics: Option<HashMap<String, f64>>` to `MarkerState` in `monitor.rs` and handle the `"custom"` event type in the socket listener.
+
+- **Decorator with return value:** The `@ecocode.track()` decorator currently calls the wrapped function but discards its return value. Fix the wrapper to return whatever the decorated function returns:
+
+  ```python
+  # Current behavior (broken for non-None return values):
+  @ecocode.track("my-run", api_key="eco_...")
+  def evaluate() -> float:
+      return 0.95   # ← this is currently lost
+  ```
+
+- **Context manager nesting:** Using two `with ecocode.run()` blocks nested inside each other will create two independent runs. Document this behavior explicitly and add a warning when nested instantiation is detected (e.g. `ECOCODE_RUN_ID` already set in the environment when a new `EcoCodeRun` is created in standalone mode).
+
+- **`interval` sub-second validation:** Passing `interval=0.05` to standalone mode will cause the sampling loop to warn on nearly every tick since hardware reads (RAPL + NVML + sysinfo) typically take 50–100 ms. Add a minimum interval check and a clearer warning message with a suggested minimum.
+
+### Lower Priority
+
+- **`ecocode.integrations.axolotl` dedicated callback:** The README recommends using `EcoCodeCallback` (HuggingFace) with Axolotl, which works because Axolotl uses HuggingFace Trainer internally. However, Axolotl has its own plugin protocol. A dedicated `EcoCodeAxolotlPlugin` would be more idiomatic and resilient to Axolotl API changes.
+
+- **Async context manager support:** Some users run async training loops (e.g. with `asyncio`). Add `__aenter__` / `__aexit__` support to `EcoCodeRun` so it can be used as `async with ecocode.run(...) as run:`.
+
+- **Sampling interval jitter measurement:** The sampler loop already logs a warning when a tick is slower than the interval. Add a jitter metric (`actual_elapsed - target_interval`) to the record payload so users can see sampling precision in the dashboard.
+
+- **Windows support:** The sampler uses RAPL (Linux-only) for CPU energy. On Windows, consider integrating with the Intel Power Gadget SDK or Windows `ENERGY_ESTIMATION_PROVIDER` for CPU energy estimation. GPU energy via NVML already works cross-platform.

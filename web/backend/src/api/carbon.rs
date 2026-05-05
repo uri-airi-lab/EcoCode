@@ -8,20 +8,30 @@
 //! On each PUT or refresh, the resolved intensity is stored so the CLI can read it
 //! when calculating CO2 during a monitoring run.
 
-use axum::{extract::{Path, State}, http::StatusCode, Json, response::IntoResponse};
-use tracing::{info, warn};
 use crate::error::ApiError;
-use crate::models::carbon::{CarbonConfigUpdate, CarbonConfigResponse, CarbonConfigRow, CarbonRegion};
-use crate::state::AppState;
-use crate::services::carbon_api::{
-    fetch_electricity_maps_intensity, fetch_electricity_maps_price, geocode_address,
-    static_intensity, CARBON_REGIONS,
+use crate::models::carbon::{
+    CarbonConfigResponse, CarbonConfigRow, CarbonConfigUpdate, CarbonRegion,
 };
+use crate::services::carbon_api::{
+    CARBON_REGIONS, fetch_electricity_maps_intensity, fetch_electricity_maps_price,
+    geocode_address, static_intensity,
+};
+use crate::state::AppState;
+use axum::{
+    Json,
+    extract::{Path, State},
+    http::StatusCode,
+    response::IntoResponse,
+};
+use tracing::{info, warn};
 
 /// Helper to convert a raw database row into a public response object.
 fn make_carbon_config_response(row: CarbonConfigRow) -> CarbonConfigResponse {
     CarbonConfigResponse {
-        has_api_key: row.electricity_maps_api_key.as_deref().map_or(false, |k| !k.is_empty()),
+        has_api_key: row
+            .electricity_maps_api_key
+            .as_deref()
+            .map_or(false, |k| !k.is_empty()),
         country_code: row.country_code,
         address: row.address,
         latitude: row.latitude,
@@ -61,14 +71,19 @@ pub async fn put_carbon_config_handler(
             match geocode_address(addr).await {
                 Ok((lat, lon, display)) => {
                     let resolved_addr: &str = &display;
-                    info!("Address geocoded: address={addr} lat={lat} lon={lon} resolved={resolved_addr}");
+                    info!(
+                        "Address geocoded: address={addr} lat={lat} lon={lon} resolved={resolved_addr}"
+                    );
                     (Some(lat), Some(lon), Some(display))
                 }
                 Err(e) => {
                     warn!(address = %addr, error = %e, "Geocoding failed");
                     return Err(ApiError::new(
                         StatusCode::BAD_REQUEST,
-                        format!("Could not find location for '{}'. Please try a more specific address.", addr),
+                        format!(
+                            "Could not find location for '{}'. Please try a more specific address.",
+                            addr
+                        ),
                     ));
                 }
             }
@@ -81,29 +96,44 @@ pub async fn put_carbon_config_handler(
     let api_key = if body.clear_api_key {
         None
     } else {
-        body.electricity_maps_api_key.clone()
+        body.electricity_maps_api_key
+            .clone()
             .or(current.electricity_maps_api_key.clone())
     };
 
-    let country_code = body.country_code.clone().unwrap_or(current.country_code.clone());
+    let country_code = body
+        .country_code
+        .clone()
+        .unwrap_or(current.country_code.clone());
 
-    let (intensity, intensity_src) = if let (Some(lat_val), Some(lon_val), Some(key)) = (lat, lon, api_key.as_deref()) {
+    let (intensity, intensity_src) = if let (Some(lat_val), Some(lon_val), Some(key)) =
+        (lat, lon, api_key.as_deref())
+    {
         match fetch_electricity_maps_intensity(lat_val, lon_val, key).await {
             Ok(v) => (v, "api".to_string()),
             Err(e) => {
                 return Err(ApiError::new(
                     StatusCode::BAD_GATEWAY,
-                    format!("Failed to fetch real-time intensity from Electricity Maps: {}. Please check your API key and location.", e),
+                    format!(
+                        "Failed to fetch real-time intensity from Electricity Maps: {}. Please check your API key and location.",
+                        e
+                    ),
                 ));
             }
         }
     } else {
-        (static_intensity(&country_code), format!("static_{country_code}"))
+        (
+            static_intensity(&country_code),
+            format!("static_{country_code}"),
+        )
     };
 
     let pue = body.pue_factor.unwrap_or(current.pue_factor);
     let manual_cost = body.manual_cost_per_kwh.or(current.manual_cost_per_kwh);
-    let manual_currency = body.manual_currency.clone().or(current.manual_currency.clone());
+    let manual_currency = body
+        .manual_currency
+        .clone()
+        .or(current.manual_currency.clone());
     let use_api_for_cost = body.use_api_for_cost.unwrap_or(current.use_api_for_cost);
 
     let (api_price, api_currency) = if use_api_for_cost {
@@ -119,8 +149,16 @@ pub async fn put_carbon_config_handler(
         (None, None)
     };
 
-    let final_cost = if use_api_for_cost { api_price } else { manual_cost };
-    let final_currency = if use_api_for_cost { api_currency } else { manual_currency };
+    let final_cost = if use_api_for_cost {
+        api_price
+    } else {
+        manual_cost
+    };
+    let final_currency = if use_api_for_cost {
+        api_currency
+    } else {
+        manual_currency
+    };
 
     let now = chrono::Utc::now().to_rfc3339();
 
@@ -148,7 +186,11 @@ pub async fn put_carbon_config_handler(
     .bind(api_key.as_deref())
     .bind(intensity)
     .bind(&intensity_src)
-    .bind(if intensity_src == "api" { Some(now.as_str()) } else { None })
+    .bind(if intensity_src == "api" {
+        Some(now.as_str())
+    } else {
+        None
+    })
     .bind(pue)
     .bind(final_cost)
     .bind(final_currency)
@@ -170,24 +212,44 @@ pub async fn post_refresh_carbon_intensity(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, ApiError> {
     let current = crate::db::carbon::get_project_carbon_config(&state, project_id).await?;
-    let (intensity, intensity_src) = match (current.latitude, current.longitude, current.electricity_maps_api_key.as_deref()) {
+    let (intensity, intensity_src) = match (
+        current.latitude,
+        current.longitude,
+        current.electricity_maps_api_key.as_deref(),
+    ) {
         (Some(lat), Some(lon), Some(key)) if !key.is_empty() => {
             match fetch_electricity_maps_intensity(lat, lon, key).await {
                 Ok(v) => (v, "api".to_string()),
-                Err(e) => return Err(ApiError::new(StatusCode::BAD_GATEWAY, format!("Electricity Maps Intensity API error: {e}"))),
+                Err(e) => {
+                    return Err(ApiError::new(
+                        StatusCode::BAD_GATEWAY,
+                        format!("Electricity Maps Intensity API error: {e}"),
+                    ));
+                }
             }
         }
-        _ => return Err(ApiError::new(
-            StatusCode::BAD_REQUEST,
-            "No location and API key configured. Set address and electricity_maps_api_key first.",
-        )),
+        _ => {
+            return Err(ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "No location and API key configured. Set address and electricity_maps_api_key first.",
+            ));
+        }
     };
 
     let (final_cost, final_currency) = if current.use_api_for_cost {
-        if let (Some(lat), Some(lon), Some(key)) = (current.latitude, current.longitude, current.electricity_maps_api_key.as_deref()) {
+        if let (Some(lat), Some(lon), Some(key)) = (
+            current.latitude,
+            current.longitude,
+            current.electricity_maps_api_key.as_deref(),
+        ) {
             match fetch_electricity_maps_price(lat, lon, key).await {
                 Ok((p, c)) => (Some(p), Some(c)),
-                Err(e) => return Err(ApiError::new(StatusCode::BAD_GATEWAY, format!("Electricity Maps Price API error: {e}"))),
+                Err(e) => {
+                    return Err(ApiError::new(
+                        StatusCode::BAD_GATEWAY,
+                        format!("Electricity Maps Price API error: {e}"),
+                    ));
+                }
             }
         } else {
             (current.manual_cost_per_kwh, current.manual_currency.clone())

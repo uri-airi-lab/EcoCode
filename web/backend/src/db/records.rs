@@ -1,5 +1,5 @@
 use crate::error::ApiError;
-use crate::models::record::{RecordPointRow, GpuRecordPoint, SocketRecordPoint, RecordPoint};
+use crate::models::record::{GpuRecordPoint, RecordPoint, RecordPointRow, SocketRecordPoint};
 use crate::state::AppState;
 
 /// Fetches all top-level record rows for a specific run.

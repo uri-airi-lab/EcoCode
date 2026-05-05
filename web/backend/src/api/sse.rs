@@ -1,3 +1,19 @@
+//! Server-Sent Events (SSE) — real-time record streaming to browser clients.
+//!
+//! Architecture:
+//! - A dedicated background task (`watch_changes`) opens a persistent PostgreSQL `LISTEN`
+//!   connection on the `record_inserted` channel.
+//! - When the CLI ingests a new record via `POST /api/ingest/run/{id}/record`, the handler
+//!   immediately broadcasts the record JSON to an in-memory `tokio::sync::broadcast` channel.
+//! - `sse_handler` subscribes each browser client to that broadcast channel and streams
+//!   each message as an SSE `data:` event.
+//! - Keep-alive pings are sent every 15 seconds to prevent proxy timeouts (required for
+//!   Azure Container Apps and similar managed hosting environments).
+//!
+//! The `record_inserted` PostgreSQL NOTIFY channel is a fallback for cases where the
+//! direct broadcast (written in `ingest_record`) does not reach clients — e.g. when
+//! multiple backend replicas are running and a record is written on a different instance.
+
 use axum::{
     extract::State,
     response::sse::{Event, KeepAlive, Sse},
@@ -38,13 +54,13 @@ pub async fn sse_handler(
     Sse::new(stream).keep_alive(
         KeepAlive::new()
             .interval(Duration::from_secs(15))
-            .text("keep-alive")
+            .text("keep-alive"),
     )
 }
 
 pub async fn watch_changes(state: AppState) {
     use sqlx::postgres::PgListener;
-    
+
     let mut listener = match PgListener::connect(&state.db_url).await {
         Ok(l) => l,
         Err(e) => {
@@ -82,7 +98,10 @@ pub async fn watch_changes(state: AppState) {
                         }
                     }
                     Ok(None) => {
-                        warn!(record_id, "Notification received but record not found (race condition?)");
+                        warn!(
+                            record_id,
+                            "Notification received but record not found (race condition?)"
+                        );
                     }
                     Err(e) => {
                         error!(record_id, error = ?e, "Failed to fetch record details for SSE");
@@ -92,7 +111,7 @@ pub async fn watch_changes(state: AppState) {
             Err(e) => {
                 error!(error = ?e, "PgListener connection lost, attempting to reconnect in 5s");
                 tokio::time::sleep(Duration::from_secs(5)).await;
-                
+
                 // Attempt to reconnect
                 match PgListener::connect(&state.db_url).await {
                     Ok(mut l) => {

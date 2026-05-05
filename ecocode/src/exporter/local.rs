@@ -571,8 +571,10 @@ impl Exporter for SqliteExporter {
         let cost_per_kwh = config.manual_cost_per_kwh.unwrap_or(0.0);
         let currency = config.manual_currency.unwrap_or_else(|| "USD".to_string());
 
-        println!("Impact calculation: Intensity={:.2} g/kWh (source: {}), PUE={:.2}, Cost={:.4} {}", 
-                 intensity, source, pue, cost_per_kwh, currency);
+        println!(
+            "Impact calculation: Intensity={:.2} g/kWh (source: {}), PUE={:.2}, Cost={:.4} {}",
+            intensity, source, pue, cost_per_kwh, currency
+        );
 
         // Insert energy totals with placeholders for CO2 and cost
         sqlx::query(
@@ -598,14 +600,13 @@ impl Exporter for SqliteExporter {
         .await?;
 
         // Read back totals to compute CO2 and Cost
-        let (total_cpu, total_gpu, total_mem, total_igpu): (f64, f64, f64, f64) =
-            sqlx::query_as(
-                "SELECT total_cpu_energy, total_gpu_energy, total_mem_energy, total_igpu_energy
+        let (total_cpu, total_gpu, total_mem, total_igpu): (f64, f64, f64, f64) = sqlx::query_as(
+            "SELECT total_cpu_energy, total_gpu_energy, total_mem_energy, total_igpu_energy
                  FROM runsummary WHERE run_id = ?",
-            )
-            .bind(run_id)
-            .fetch_one(&self.db)
-            .await?;
+        )
+        .bind(run_id)
+        .fetch_one(&self.db)
+        .await?;
 
         let energy_wh = (total_cpu + total_gpu + total_mem + total_igpu) / 3600.0;
         let co2_g = calculate_co2_g(energy_wh, intensity, pue);

@@ -1,5 +1,19 @@
-use crate::exporter::{CarbonConfig, Exporter, ExporterType, ProjectInfo, Record, SystemInfo};
+//! Dual exporter — fans records out to both a primary local exporter and the online exporter.
+//!
+//! When the user picks any non-`online` output format (e.g. `terminal`, `csv`, `json`),
+//! EcoCode still silently mirrors every record to the EcoCode web platform in parallel.
+//! The `DualExporter` owns both exporters and delegates every `Exporter` method to the
+//! correct one, absorbing errors from the online side as warnings so the primary export
+//! is never interrupted by a network failure.
+//!
+//! Lifecycle:
+//! 1. `get_or_create_project` — looks up the project on the backend; falls back to primary.
+//! 2. `create_run` — creates the run on the backend with the primary exporter type as label.
+//! 3. `add_record` — fans the record to both exporters (run_id is remapped for the online copy).
+//! 4. `complete_run` / `run_summary` — delegated to both.
+
 use crate::exporter::online::OnlineExporter;
+use crate::exporter::{CarbonConfig, Exporter, ExporterType, ProjectInfo, Record, SystemInfo};
 use async_trait::async_trait;
 
 pub struct DualExporter {
@@ -31,11 +45,21 @@ impl Exporter for DualExporter {
         project_name: &str,
         collaborator_name: Option<&str>,
     ) -> Result<ProjectInfo, Box<dyn std::error::Error>> {
-        match self.online.get_or_create_project(project_name, collaborator_name).await {
-            Ok(info) => { self.online_project_id = Some(info.id); }
-            Err(e) => { eprintln!("[online] get_or_create_project warning: {}", e); }
+        match self
+            .online
+            .get_or_create_project(project_name, collaborator_name)
+            .await
+        {
+            Ok(info) => {
+                self.online_project_id = Some(info.id);
+            }
+            Err(e) => {
+                eprintln!("[online] get_or_create_project warning: {}", e);
+            }
         }
-        self.primary.get_or_create_project(project_name, collaborator_name).await
+        self.primary
+            .get_or_create_project(project_name, collaborator_name)
+            .await
     }
 
     async fn create_run(
@@ -48,12 +72,28 @@ impl Exporter for DualExporter {
     ) -> Result<i64, Box<dyn std::error::Error>> {
         if let Some(online_project_id) = self.online_project_id {
             self.online.exporter_type_label = self.primary.exporter_type().to_string();
-            match self.online.create_run(run_name, online_project_id, collaborator_name, started_at, command).await {
-                Ok(id) => { self.online_run_id = Some(id); }
-                Err(e) => { eprintln!("[online] create_run warning: {}", e); }
+            match self
+                .online
+                .create_run(
+                    run_name,
+                    online_project_id,
+                    collaborator_name,
+                    started_at,
+                    command,
+                )
+                .await
+            {
+                Ok(id) => {
+                    self.online_run_id = Some(id);
+                }
+                Err(e) => {
+                    eprintln!("[online] create_run warning: {}", e);
+                }
             }
         }
-        self.primary.create_run(run_name, project_id, collaborator_name, started_at, command).await
+        self.primary
+            .create_run(run_name, project_id, collaborator_name, started_at, command)
+            .await
     }
 
     async fn save_system_info(
@@ -62,7 +102,11 @@ impl Exporter for DualExporter {
         info: SystemInfo,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(online_run_id) = self.online_run_id {
-            if let Err(e) = self.online.save_system_info(online_run_id, info.clone()).await {
+            if let Err(e) = self
+                .online
+                .save_system_info(online_run_id, info.clone())
+                .await
+            {
                 eprintln!("[online] save_system_info warning: {}", e);
             }
         }
@@ -95,7 +139,11 @@ impl Exporter for DualExporter {
         ended_at: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(online_run_id) = self.online_run_id {
-            if let Err(e) = self.online.complete_run(online_run_id, status, ended_at).await {
+            if let Err(e) = self
+                .online
+                .complete_run(online_run_id, status, ended_at)
+                .await
+            {
                 eprintln!("[online] complete_run warning: {}", e);
             }
         }
@@ -113,7 +161,9 @@ impl Exporter for DualExporter {
         if let Some(online_project_id) = self.online_project_id {
             match self.online.get_carbon_config(online_project_id).await {
                 Ok(config) => return Ok(config),
-                Err(e) => { eprintln!("[online] get_carbon_config warning: {}", e); }
+                Err(e) => {
+                    eprintln!("[online] get_carbon_config warning: {}", e);
+                }
             }
         }
         self.primary.get_carbon_config(project_id).await
@@ -127,6 +177,8 @@ impl Exporter for DualExporter {
         address: Option<String>,
         use_api_for_cost: Option<bool>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.primary.update_project_config(project_id, intensity, price, address, use_api_for_cost).await
+        self.primary
+            .update_project_config(project_id, intensity, price, address, use_api_for_cost)
+            .await
     }
 }

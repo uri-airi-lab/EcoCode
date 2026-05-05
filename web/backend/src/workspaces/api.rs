@@ -1,21 +1,21 @@
 //! Workspace CRUD HTTP handlers.
 
 use axum::{
+    Json, Router,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{delete, post},
-    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 
-use tracing::{info, warn};
+use super::members::members_routes;
+use super::{require_admin, resolve_workspace_id};
 use crate::auth::AuthUser;
 use crate::error::ApiError;
 use crate::state::AppState;
-use super::members::members_routes;
-use super::{require_admin, resolve_workspace_id};
+use tracing::{info, warn};
 
 #[derive(Deserialize)]
 struct CreateWorkspacePayload {
@@ -52,7 +52,7 @@ async fn create_workspace(
            SELECT 1 FROM workspaces w
            JOIN workspace_members m ON m.workspace_id = w.id
            WHERE w.slug = $1 AND m.user_id = $2
-         )"
+         )",
     )
     .bind(&payload.slug)
     .bind(auth_user.user_id)
@@ -61,7 +61,10 @@ async fn create_workspace(
     .map_err(ApiError::internal)?;
 
     if slug_taken {
-        return Err(ApiError::new(StatusCode::CONFLICT, "You already have a workspace with this slug"));
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "You already have a workspace with this slug",
+        ));
     }
 
     let res = sqlx::query("INSERT INTO workspaces (name, slug) VALUES ($1, $2) RETURNING id")
@@ -72,15 +75,13 @@ async fn create_workspace(
         .map_err(ApiError::internal)?;
     let workspace_id: i64 = res.get("id");
 
-    sqlx::query(
-        "INSERT INTO workspace_members (workspace_id, user_id, role) VALUES ($1, $2, $3)",
-    )
-    .bind(workspace_id)
-    .bind(auth_user.user_id)
-    .bind("admin")
-    .execute(&mut *tx)
-    .await
-    .map_err(ApiError::internal)?;
+    sqlx::query("INSERT INTO workspace_members (workspace_id, user_id, role) VALUES ($1, $2, $3)")
+        .bind(workspace_id)
+        .bind(auth_user.user_id)
+        .bind("admin")
+        .execute(&mut *tx)
+        .await
+        .map_err(ApiError::internal)?;
 
     tx.commit().await.map_err(ApiError::internal)?;
     info!(workspace_id, slug = %payload.slug, user_id = auth_user.user_id, "Workspace created");

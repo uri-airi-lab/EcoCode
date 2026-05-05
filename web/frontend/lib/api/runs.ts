@@ -436,16 +436,21 @@ export async function batchDeleteRuns(ids: string[]): Promise<void> {
 
 export async function exportRunAsCSV(id: string): Promise<Blob> {
   const run = await fetchRunDetail(id)
-  const headers = ['Timestamp', 'CPU Usage (%)', 'CPU Energy (W)', 'GPU Usage (%)', 'GPU Energy (W)', 'MEM Energy (W)', 'iGPU Energy (W)']
-  const rows = run.records.map(record => [
-    new Date(record.timestamp).toISOString(),
-    record.cpu_usage,
-    record.cpu_energy,
-    record.gpu_usage,
-    record.gpu_energy,
-    record.mem_energy,
-    record.igpu_energy,
-  ])
+  const headers = ['Timestamp', 'CPU Usage (%)', 'CPU Power (W)', 'GPU Usage (%)', 'GPU Power (W)', 'MEM Power (W)', 'iGPU Power (W)']
+  const rows = run.records.map((record, index) => {
+    const prev = index > 0 ? run.records[index - 1] : null
+    const deltaMs = prev ? record.timestamp - prev.timestamp : 1000
+    const deltaS = (deltaMs / 1000) || 1
+    return [
+      new Date(record.timestamp).toISOString(),
+      record.cpu_usage.toFixed(2),
+      (record.cpu_energy / deltaS).toFixed(4),
+      record.gpu_usage.toFixed(2),
+      (record.gpu_energy / deltaS).toFixed(4),
+      ((record.mem_energy ?? 0) / deltaS).toFixed(4),
+      ((record.igpu_energy ?? 0) / deltaS).toFixed(4),
+    ]
+  })
   const csv = [headers, ...rows].map(row => row.join(',')).join('\n')
   return new Blob([csv], { type: 'text/csv' })
 }

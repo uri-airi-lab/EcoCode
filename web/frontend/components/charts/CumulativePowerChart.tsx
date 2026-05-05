@@ -221,9 +221,9 @@ export function CumulativePowerChart({ runs: runsProp, data }: CumulativePowerCh
     <div className="chart-container">
       <div className="flex flex-row items-center gap-2 mb-4">
         <h3 className="text-lg font-semibold text-foreground">
-          Total System Power Stack
+          Stacked Power Over Time
         </h3>
-        <ChartInfoTooltip content="A stacked area view of power consumption across all runs. Vertical markers separate individual runs." />
+        <ChartInfoTooltip content="A stacked area view of instantaneous power draw (Watts) per component across all runs. Vertical markers separate individual runs." />
       </div>
       <div className="relative h-[260px]">
         <div ref={scrollRef} className="overflow-x-auto h-full">

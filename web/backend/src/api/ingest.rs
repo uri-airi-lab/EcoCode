@@ -10,14 +10,21 @@
 //! All record insertions are transactional; GPU and socket breakdowns are inserted
 //! in the same transaction as the parent record.
 
-use axum::{extract::{Path, State}, http::StatusCode, Json, response::IntoResponse};
+use axum::{
+    Json,
+    extract::{Path, State},
+    http::StatusCode,
+    response::IntoResponse,
+};
 use serde_json::json;
 use tracing::{debug, info, warn};
 
-use crate::error::ApiError;
-use crate::models::ingest::{IngestRunPayload, IngestRecordData, IngestSystemInfo, IngestCompletePayload};
-use crate::state::AppState;
 use crate::auth;
+use crate::error::ApiError;
+use crate::models::ingest::{
+    IngestCompletePayload, IngestRecordData, IngestRunPayload, IngestSystemInfo,
+};
+use crate::state::AppState;
 
 /// Handles POST requests from the EcoCode CLI to register a new tracking run.
 /// Validates workspace access and links the run to the authenticated user.
@@ -27,11 +34,14 @@ pub async fn ingest_run(
     Json(payload): Json<IngestRunPayload>,
 ) -> Result<impl IntoResponse, ApiError> {
     use sqlx::Row;
-    
+
     // Resolve project_id: API key scope takes priority over payload value.
-    let resolved_project_id = auth_user.project_id
-        .or(payload.project_id)
-        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "project_id is required when using a workspace-scoped API key"))?;
+    let resolved_project_id = auth_user.project_id.or(payload.project_id).ok_or_else(|| {
+        ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "project_id is required when using a workspace-scoped API key",
+        )
+    })?;
 
     let project_workspace = sqlx::query("SELECT workspace_id FROM projects WHERE id = $1")
         .bind(resolved_project_id)
@@ -41,17 +51,25 @@ pub async fn ingest_run(
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "Project not found"))?;
 
     let ws_id: i64 = project_workspace.get("workspace_id");
-    
-    let membership = sqlx::query("SELECT 1 FROM workspace_members WHERE workspace_id = $1 AND user_id = $2")
-        .bind(ws_id)
-        .bind(auth_user.user_id)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(ApiError::internal)?;
+
+    let membership =
+        sqlx::query("SELECT 1 FROM workspace_members WHERE workspace_id = $1 AND user_id = $2")
+            .bind(ws_id)
+            .bind(auth_user.user_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(ApiError::internal)?;
 
     if membership.is_none() {
-        warn!(user_id = auth_user.user_id, project_id = payload.project_id, "Ingest run denied: user not a member of project workspace");
-        return Err(ApiError::new(StatusCode::FORBIDDEN, "Access denied to project workspace"));
+        warn!(
+            user_id = auth_user.user_id,
+            project_id = payload.project_id,
+            "Ingest run denied: user not a member of project workspace"
+        );
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "Access denied to project workspace",
+        ));
     }
 
     let user_row = sqlx::query("SELECT email FROM users WHERE id = $1")

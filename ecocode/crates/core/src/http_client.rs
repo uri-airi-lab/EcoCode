@@ -150,7 +150,12 @@ impl EcoCodeHttpClient {
 
         let res = self.client.post(&url).json(&payload).send()?;
         if !res.status().is_success() {
-            return Err(format!("Failed to create run: {} {}", res.status(), res.text().unwrap_or_default()).into());
+            return Err(format!(
+                "Failed to create run: {} {}",
+                res.status(),
+                res.text().unwrap_or_default()
+            )
+            .into());
         }
         let data: CreateRunResponse = res.json()?;
         Ok(data.id)

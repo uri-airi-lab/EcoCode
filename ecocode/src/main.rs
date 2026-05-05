@@ -26,4 +26,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         TopCommand::Config { action } => configs::handle_config_command(action),
     }
 }
-

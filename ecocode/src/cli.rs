@@ -2,8 +2,6 @@
 
 use clap::{Args, Parser, Subcommand};
 
-
-
 /// Top-level CLI entry point.
 #[derive(Parser, Debug)]
 #[command(name = "ecocode", author, version, about = "EcoCode - Monitor your code's energy consumption", long_about = None)]
@@ -12,21 +10,19 @@ pub struct Cli {
     pub command: TopCommand,
 }
 
-
-/// Top-level subcommands. Used in main.rs to dispatch commands, either `run` or `config`. 
+/// Top-level subcommands. Used in main.rs to dispatch commands, either `run` or `config`.
 /// claps handles the matching and validation of arguments.
 #[derive(Subcommand, Debug)]
 pub enum TopCommand {
     /// Monitor the energy consumption of a command.
     Run(RunArgs), //Tuple-like variant, accesed by position: ecocode run [ARGS]
     /// Manage EcoCode configuration.
-    Config { //Struct-like variant, accesed by name: ecocode config <SUBCOMMAND> [ARGS]
+    Config {
+        //Struct-like variant, accesed by name: ecocode config <SUBCOMMAND> [ARGS]
         #[command(subcommand)]
         action: ConfigAction,
     },
 }
-
-
 
 /// Subcommands available under `ecocode config`.
 #[derive(Subcommand, Debug)] // Also matched by clap: SetApiKey → "set-api-key" (camelCase words become kebab-case)
@@ -41,9 +37,6 @@ pub enum ConfigAction {
     /// Print the current configuration (API key is masked).
     Show,
 }
-
-
-
 
 /// CLI arguments for a monitoring run (`ecocode run [OPTIONS] -- <COMMAND>`).
 #[derive(Args, Debug)]

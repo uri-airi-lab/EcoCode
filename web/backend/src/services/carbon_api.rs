@@ -1,4 +1,6 @@
-use crate::models::carbon::{NominatimResult, ElectricityMapsResponse, ElectricityMapsPriceResponse};
+use crate::models::carbon::{
+    ElectricityMapsPriceResponse, ElectricityMapsResponse, NominatimResult,
+};
 
 /// Static carbon intensity lookup table (gCO₂eq/kWh).
 pub const CARBON_REGIONS: &[(&str, &str, f64)] = &[
@@ -70,7 +72,9 @@ pub fn static_intensity(country_code: &str) -> f64 {
 }
 
 /// Geocodes a freeform address string into Latitude and Longitude using the public Nominatim API.
-pub async fn geocode_address(address: &str) -> Result<(f64, f64, String), Box<dyn std::error::Error>> {
+pub async fn geocode_address(
+    address: &str,
+) -> Result<(f64, f64, String), Box<dyn std::error::Error>> {
     let client = reqwest::Client::builder()
         .user_agent("EcoCode/1.0 (carbon emission tracker)")
         .build()?;
@@ -81,7 +85,10 @@ pub async fn geocode_address(address: &str) -> Result<(f64, f64, String), Box<dy
         .await?
         .json()
         .await?;
-    let first = results.into_iter().next().ok_or("No geocoding results found")?;
+    let first = results
+        .into_iter()
+        .next()
+        .ok_or("No geocoding results found")?;
     let lat: f64 = first.lat.parse()?;
     let lon: f64 = first.lon.parse()?;
     println!("Geocoding successful: {} -> ({}, {})", address, lat, lon);
@@ -89,7 +96,11 @@ pub async fn geocode_address(address: &str) -> Result<(f64, f64, String), Box<dy
 }
 
 /// Fetches real-time carbon intensity (gCO2eq/kWh) for specific coordinates from the Electricity Maps API.
-pub async fn fetch_electricity_maps_intensity(lat: f64, lon: f64, api_key: &str) -> Result<f64, Box<dyn std::error::Error>> {
+pub async fn fetch_electricity_maps_intensity(
+    lat: f64,
+    lon: f64,
+    api_key: &str,
+) -> Result<f64, Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
     let url = format!(
         "https://api.electricitymap.org/v3/carbon-intensity/latest?lat={}&lon={}",
@@ -106,12 +117,19 @@ pub async fn fetch_electricity_maps_intensity(lat: f64, lon: f64, api_key: &str)
         return Err(format!("Intensity API error: {}", msg).into());
     }
     let data: ElectricityMapsResponse = res.json().await?;
-    println!("Fetched real-time intensity: {} gCO2/kWh", data.carbon_intensity);
+    println!(
+        "Fetched real-time intensity: {} gCO2/kWh",
+        data.carbon_intensity
+    );
     Ok(data.carbon_intensity)
 }
 
 /// Fetches real-time electricity price for specific coordinates from the Electricity Maps API.
-pub async fn fetch_electricity_maps_price(lat: f64, lon: f64, api_key: &str) -> Result<(f64, String), Box<dyn std::error::Error>> {
+pub async fn fetch_electricity_maps_price(
+    lat: f64,
+    lon: f64,
+    api_key: &str,
+) -> Result<(f64, String), Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
     let url = format!(
         "https://api.electricitymap.org/v3/power-price/latest?lat={}&lon={}",
@@ -129,6 +147,9 @@ pub async fn fetch_electricity_maps_price(lat: f64, lon: f64, api_key: &str) -> 
     }
     let data: ElectricityMapsPriceResponse = res.json().await?;
     let price_per_kwh = data.price / 1000.0;
-    println!("Fetched real-time price: {} {}/kWh", price_per_kwh, data.currency);
+    println!(
+        "Fetched real-time price: {} {}/kWh",
+        price_per_kwh, data.currency
+    );
     Ok((price_per_kwh, data.currency))
 }

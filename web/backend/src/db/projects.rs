@@ -1,8 +1,8 @@
-use std::collections::HashMap;
 use crate::error::ApiError;
-use crate::models::project::{Project, AdminProjectRow, ProjectCollaboratorRow, AdminProjectInfo};
-use crate::models::run::{AdminRunRow, RunActivityRow, AdminRunInfo};
+use crate::models::project::{AdminProjectInfo, AdminProjectRow, Project, ProjectCollaboratorRow};
+use crate::models::run::{AdminRunInfo, AdminRunRow, RunActivityRow};
 use crate::state::AppState;
+use std::collections::HashMap;
 
 /// Fetches all projects that the specified user has access to through their workspaces.
 pub async fn fetch_projects(state: &AppState, user_id: i64) -> Result<Vec<Project>, ApiError> {
@@ -22,9 +22,7 @@ pub async fn fetch_projects(state: &AppState, user_id: i64) -> Result<Vec<Projec
 
 /// Fetches an aggregated view of all projects, their collaborators, and their nested runs.
 /// Used for the administrative dashboard.
-pub async fn fetch_admin_projects(
-    state: &AppState,
-) -> Result<Vec<AdminProjectInfo>, ApiError> {
+pub async fn fetch_admin_projects(state: &AppState) -> Result<Vec<AdminProjectInfo>, ApiError> {
     let projects = sqlx::query_as::<_, AdminProjectRow>(
         "SELECT id, name, collaborator_name FROM projects ORDER BY name ASC",
     )
