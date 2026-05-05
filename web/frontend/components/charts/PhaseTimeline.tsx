@@ -1,29 +1,31 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { MetricRecord } from '@/lib/mock-data'
 
 // ── Phase colour palette ───────────────────────────────────────────────────────
+// ── Phase colour palette ───────────────────────────────────────────────────────
 const PHASE_COLORS: Record<string, { bg: string; text: string; label: string }> = {
-  data_loading:    { bg: 'bg-slate-500',   text: 'text-slate-100',  label: 'Data Loading'    },
-  tokenization:    { bg: 'bg-slate-400',   text: 'text-slate-900',  label: 'Tokenization'    },
-  warmup:          { bg: 'bg-slate-600',   text: 'text-slate-100',  label: 'Warmup'          },
-  forward:         { bg: 'bg-blue-600',    text: 'text-blue-100',   label: 'Forward'         },
-  backward:        { bg: 'bg-indigo-600',  text: 'text-indigo-100', label: 'Backward'        },
-  optimizer_step:  { bg: 'bg-emerald-600', text: 'text-emerald-100',label: 'Optimizer Step'  },
-  eval:            { bg: 'bg-violet-600',  text: 'text-violet-100', label: 'Eval'            },
-  checkpoint_save: { bg: 'bg-amber-600',   text: 'text-amber-900',  label: 'Checkpoint'      },
-  policy_rollout:  { bg: 'bg-cyan-600',    text: 'text-cyan-100',   label: 'Policy Rollout'  },
-  reference_forward:{ bg: 'bg-sky-500',    text: 'text-sky-100',    label: 'Ref Forward'     },
-  reward_model:    { bg: 'bg-rose-500',    text: 'text-rose-100',   label: 'Reward Model'    },
-  ppo_update:      { bg: 'bg-pink-600',    text: 'text-pink-100',   label: 'PPO Update'      },
-  dpo_update:      { bg: 'bg-fuchsia-600', text: 'text-fuchsia-100',label: 'DPO Update'      },
-  grpo_update:     { bg: 'bg-teal-600',    text: 'text-teal-100',   label: 'GRPO Update'     },
-  prefill:         { bg: 'bg-violet-500',  text: 'text-violet-100', label: 'Prefill'         },
-  decode:          { bg: 'bg-purple-500',  text: 'text-purple-100', label: 'Decode'          },
-  model_load:      { bg: 'bg-orange-600',  text: 'text-orange-900', label: 'Model Load'      },
-  kv_cache_ops:    { bg: 'bg-amber-500',   text: 'text-amber-900',  label: 'KV Cache'        },
-  done:            { bg: 'bg-emerald-500', text: 'text-emerald-100',label: 'Done'            },
+  data_loading:    { bg: 'bg-slate-500/80',   text: 'text-slate-50',  label: 'Data Loading'    },
+  tokenization:    { bg: 'bg-slate-400/80',   text: 'text-slate-50',  label: 'Tokenization'    },
+  warmup:          { bg: 'bg-indigo-400/70',  text: 'text-indigo-50', label: 'Warmup'          },
+  forward:         { bg: 'bg-sky-500/80',     text: 'text-white',     label: 'Forward'         },
+  backward:        { bg: 'bg-sky-600/80',     text: 'text-white',     label: 'Backward'        },
+  optimizer_step:  { bg: 'bg-blue-600/80',    text: 'text-white',     label: 'Optimizer Step'  },
+  eval:            { bg: 'bg-violet-600/80',  text: 'text-white',     label: 'Eval'            },
+  checkpoint_save: { bg: 'bg-amber-500/80',   text: 'text-white',     label: 'Checkpoint'      },
+  policy_rollout:  { bg: 'bg-cyan-500/80',    text: 'text-white',     label: 'Policy Rollout'  },
+  reference_forward:{ bg: 'bg-sky-400/60',     text: 'text-white',     label: 'Ref Forward'     },
+  reward_model:    { bg: 'bg-rose-400/80',    text: 'text-white',     label: 'Reward Model'    },
+  ppo_update:      { bg: 'bg-indigo-500/80',  text: 'text-white',     label: 'PPO Update'      },
+  dpo_update:      { bg: 'bg-indigo-700/80',  text: 'text-white',     label: 'DPO Update'      },
+  grpo_update:     { bg: 'bg-teal-500/80',    text: 'text-white',     label: 'GRPO Update'     },
+  prefill:         { bg: 'bg-violet-400/80',  text: 'text-white',     label: 'Prefill'         },
+  decode:          { bg: 'bg-purple-400/80',  text: 'text-white',     label: 'Decode'          },
+  model_load:      { bg: 'bg-orange-500/80',  text: 'text-white',     label: 'Model Load'      },
+  kv_cache_ops:    { bg: 'bg-amber-400/70',   text: 'text-white',     label: 'KV Cache'        },
+  done:            { bg: 'bg-primary',        text: 'text-primary-foreground', label: 'Done'    },
 }
 
 const FALLBACK = { bg: 'bg-muted', text: 'text-muted-foreground', label: '' }
@@ -104,13 +106,13 @@ function formatEnergy(j: number): string {
 
 function PhaseLegend({ phases }: { phases: string[] }) {
   return (
-    <div className="flex flex-wrap gap-2 mt-3">
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-4 gap-y-2 mt-6">
       {phases.map(p => {
         const s = phaseStyle(p)
         return (
-          <span key={p} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span className={`w-2.5 h-2.5 rounded-sm shrink-0 ${s.bg}`} />
-            {s.label || p}
+          <span key={p} className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span className={`w-3 h-3 rounded-[3px] shrink-0 ${s.bg}`} />
+            <span className="truncate">{s.label || p}</span>
           </span>
         )
       })}
@@ -126,6 +128,11 @@ interface PhaseTimelineProps {
 
 export function PhaseTimeline({ records }: PhaseTimelineProps) {
   const [tooltip, setTooltip] = useState<{ seg: PhaseSegment; x: number; y: number } | null>(null)
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   const segments = useMemo(() => buildSegments(records), [records])
 
@@ -159,11 +166,10 @@ export function PhaseTimeline({ records }: PhaseTimelineProps) {
           return (
             <div
               key={i}
-              className={`relative flex items-center justify-center overflow-hidden ${s.bg} transition-opacity hover:opacity-90 cursor-pointer`}
+              className={`relative flex items-center justify-center overflow-hidden ${s.bg} border-r border-background/20 transition-opacity hover:opacity-90 cursor-pointer`}
               style={{ width: `${widthPct}%`, minWidth: widthPct > 0 ? '2px' : 0 }}
-              onMouseEnter={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect()
-                setTooltip({ seg, x: rect.left + rect.width / 2, y: rect.top })
+              onMouseMove={(e) => {
+                setTooltip({ seg, x: e.clientX, y: e.clientY })
               }}
             >
               {widthPct > 5 && (
@@ -187,9 +193,22 @@ export function PhaseTimeline({ records }: PhaseTimelineProps) {
               return (
                 <div
                   key={phase}
-                  className={`${s.bg} opacity-80`}
+                  className={`${s.bg} opacity-80 border-r border-background/10 transition-opacity hover:opacity-100 cursor-help`}
                   style={{ width: `${widthPct}%`, minWidth: widthPct > 0 ? '2px' : 0 }}
-                  title={`${s.label || phase}: ${formatEnergy(energy)} (${widthPct.toFixed(1)}%)`}
+                  onMouseMove={(e) => {
+                    setTooltip({ 
+                      seg: { 
+                        phase, 
+                        energyJ: energy, 
+                        startMs: 0, 
+                        endMs: 0, 
+                        recordCount: 0 
+                      }, 
+                      x: e.clientX, 
+                      y: e.clientY 
+                    })
+                  }}
+                  onMouseLeave={() => setTooltip(null)}
                 />
               )
             })}
@@ -222,19 +241,27 @@ export function PhaseTimeline({ records }: PhaseTimelineProps) {
         are attributed accurately.
       </p>
 
-      {/* Floating tooltip */}
-      {tooltip && (
+      {/* Floating tooltip using Portal */}
+      {mounted && tooltip && createPortal(
         <div
-          className="fixed z-50 pointer-events-none bg-popover border border-border rounded-lg shadow-lg px-3 py-2 text-xs -translate-x-1/2 -translate-y-full"
-          style={{ left: tooltip.x, top: tooltip.y - 8 }}
+          className="fixed z-[9999] pointer-events-none bg-popover border border-border rounded-lg shadow-lg px-3 py-2 text-xs -translate-x-1/2 -translate-y-full whitespace-nowrap"
+          style={{ 
+            left: tooltip.x, 
+            top: tooltip.y - 12,
+          }}
         >
           <p className="font-semibold text-foreground mb-1">{phaseStyle(tooltip.seg.phase).label || tooltip.seg.phase}</p>
-          <p className="text-muted-foreground">Duration: <span className="text-foreground">{formatMs(tooltip.seg.endMs - tooltip.seg.startMs)}</span></p>
-          {tooltip.seg.energyJ > 0 && (
-            <p className="text-muted-foreground">Energy: <span className="text-foreground">{formatEnergy(tooltip.seg.energyJ)}</span></p>
+          {tooltip.seg.endMs > 0 && (
+            <p className="text-muted-foreground font-mono">Duration: <span className="text-foreground">{formatMs(tooltip.seg.endMs - tooltip.seg.startMs)}</span></p>
           )}
-          <p className="text-muted-foreground">Records: <span className="text-foreground">{tooltip.seg.recordCount}</span></p>
-        </div>
+          {tooltip.seg.energyJ > 0 && (
+            <p className="text-muted-foreground font-mono">Energy: <span className="text-foreground">{formatEnergy(tooltip.seg.energyJ)}</span></p>
+          )}
+          {tooltip.seg.recordCount > 0 && (
+            <p className="text-muted-foreground font-mono">Records: <span className="text-foreground">{tooltip.seg.recordCount}</span></p>
+          )}
+        </div>,
+        document.body
       )}
     </div>
   )

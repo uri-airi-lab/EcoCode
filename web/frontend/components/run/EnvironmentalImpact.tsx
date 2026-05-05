@@ -69,7 +69,7 @@ export function EnvironmentalImpact({
   ]
 
   return (
-    <div className={`grid grid-cols-2 gap-3 ${className}`}>
+    <div className={`grid grid-cols-2 lg:grid-cols-4 gap-3 ${className}`}>
       {equivalents.map((m) => (
         <MetricCard
           key={m.label}

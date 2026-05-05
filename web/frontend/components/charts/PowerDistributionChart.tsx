@@ -1,17 +1,14 @@
 'use client'
 
 import React from 'react'
-import {
-  PieChart,
-  Pie,
-  Cell,
-  ResponsiveContainer,
-  Tooltip,
-  Legend
-} from 'recharts'
+import { Chart as ChartJS, ArcElement, Tooltip, Legend, TooltipItem } from 'chart.js'
+import { Doughnut } from 'react-chartjs-2'
 import { MetricRecord } from '@/lib/mock-data'
 import { ChartInfoTooltip } from '@/components/ChartInfoTooltip'
 import { chartColor } from '@/lib/chart-colors'
+
+// Register ChartJS components
+ChartJS.register(ArcElement, Tooltip, Legend)
 
 interface PowerDistributionChartProps {
   record: MetricRecord
@@ -21,9 +18,6 @@ interface PowerDistributionChartProps {
 export function PowerDistributionChart({ record, prevRecord }: PowerDistributionChartProps) {
   if (!record) return null;
 
-  // Without a previous record we cannot compute a valid time delta, so
-  // energy / deltaS would use the 1 s fallback and wildly over-report Watts.
-  // Show a loading indicator until the second record arrives (~one interval).
   if (!prevRecord) {
     return (
       <div className="chart-container flex flex-col items-center justify-center min-h-[300px]">
@@ -38,59 +32,97 @@ export function PowerDistributionChart({ record, prevRecord }: PowerDistribution
     return (deltaMs / 1000) || 1
   }, [record, prevRecord])
 
-  const data = [
-    { name: 'CPU', value: (record.cpu_energy ?? 0) / deltaS, color: chartColor(1) },
-    { name: 'GPU', value: (record.gpu_energy ?? 0) / deltaS, color: chartColor(2) },
-    { name: 'Memory', value: (record.mem_energy ?? 0) / deltaS, color: chartColor(3) },
-    { name: 'iGPU', value: (record.igpu_energy ?? 0) / deltaS, color: chartColor(4) },
-  ].filter(item => item.value > 0)
+  const sourceData = React.useMemo(() => {
+    const data = [
+      { label: 'CPU', value: (record.cpu_energy ?? 0) / deltaS, color: chartColor(1) },
+    ]
 
-  const totalWatts = data.reduce((sum, item) => sum + item.value, 0)
+    // If we have individual GPU details, use them; otherwise use aggregate
+    if (record.gpu_details && record.gpu_details.length > 0) {
+      record.gpu_details.forEach((gpu, i) => {
+        data.push({
+          label: `GPU ${gpu.device_index}`,
+          value: (gpu.gpu_usage / 100) * ((record.gpu_energy ?? 0) / deltaS), // Approximation of per-GPU power if not explicitly provided
+          color: chartColor(2 + i)
+        })
+      })
+    } else {
+      data.push({ label: 'GPU', value: (record.gpu_energy ?? 0) / deltaS, color: chartColor(2) })
+    }
+
+    data.push({ label: 'Memory', value: (record.mem_energy ?? 0) / deltaS, color: chartColor(3) })
+    data.push({ label: 'iGPU', value: (record.igpu_energy ?? 0) / deltaS, color: chartColor(4) })
+
+    return data.filter(item => item.value > 0.05)
+  }, [record, deltaS])
+
+  const totalWatts = sourceData.reduce((sum, item) => sum + item.value, 0)
+
+  const chartData = {
+    labels: sourceData.map(d => d.label),
+    datasets: [
+      {
+        data: sourceData.map(d => d.value),
+        backgroundColor: sourceData.map(d => d.color),
+        borderColor: 'hsl(222 47% 11%)',
+        borderWidth: 2,
+        hoverOffset: 8,
+        cutout: '72%',
+      },
+    ],
+  }
+
+  const options = {
+    responsive: true,
+    maintainAspectRatio: false,
+    layout: {
+      padding: { bottom: 10 }
+    },
+    plugins: {
+      legend: {
+        position: 'bottom' as const,
+        labels: {
+          color: 'hsl(215 20.2% 65.1%)',
+          usePointStyle: true,
+          pointStyle: 'rectRounded',
+          padding: 15,
+          font: {
+            size: 10,
+            family: 'var(--font-jetbrains-mono)',
+          },
+        },
+      },
+      tooltip: {
+        backgroundColor: 'hsl(222 47% 10%)',
+        borderColor: 'hsl(217.2 32.6% 17.5%)',
+        borderWidth: 1,
+        padding: 12,
+        cornerRadius: 4,
+        callbacks: {
+          label: (item: any) => ` ${item.label}: ${Number(item.raw).toFixed(2)} W`
+        },
+      },
+    },
+  }
 
   return (
-    <div className="chart-container flex flex-col">
-      <div className="flex flex-row items-center gap-2 mb-4">
+    <div className="chart-container flex flex-col h-full overflow-hidden">
+      <div className="flex flex-row items-center gap-2 mb-4 shrink-0">
         <h3 className="text-lg font-semibold text-foreground">
           Live Power Distribution
         </h3>
-        <ChartInfoTooltip content="Shows the current power draw split between your components (CPU, GPU, RAM) at the latest recorded point in time." />
+        <ChartInfoTooltip content="Shows the current power draw split between your components. If multiple GPUs are detected, they are shown individually." />
       </div>
-      <div className="relative h-[300px]">
-        <ResponsiveContainer width="100%" height="100%">
-          <PieChart>
-            <Pie
-              data={data}
-              cx="50%"
-              cy="50%"
-              innerRadius={60}
-              outerRadius={80}
-              paddingAngle={5}
-              dataKey="value"
-              isAnimationActive={false}
-            >
-              {data.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={entry.color} stroke="none" />
-              ))}
-            </Pie>
-            <Tooltip
-              contentStyle={{
-                backgroundColor: 'hsl(var(--card))',
-                border: '1px solid hsl(var(--border))',
-                borderRadius: '4px',
-                fontSize: '12px',
-                color: 'hsl(var(--foreground))',
-              }}
-              formatter={(value: number) => [`${value.toFixed(2)} W`, '']}
-            />
-            <Legend verticalAlign="bottom" height={36} />
-          </PieChart>
-        </ResponsiveContainer>
-        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-          <span className="text-2xl font-bold text-foreground">
+      <div className="relative h-[240px] flex items-center justify-center overflow-hidden">
+        <div className="w-full h-full">
+          <Doughnut data={chartData} options={options} />
+        </div>
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none -translate-y-4">
+          <span className="text-4xl font-bold font-mono text-foreground tracking-tighter leading-none">
             {totalWatts.toFixed(1)}
           </span>
-          <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
-            Total Watts
+          <span className="text-[10px] font-bold uppercase tracking-[0.3em] text-primary/50 mt-1">
+            Watts
           </span>
         </div>
       </div>
