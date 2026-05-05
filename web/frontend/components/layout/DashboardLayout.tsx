@@ -15,7 +15,7 @@ export function DashboardLayout({
     <div className="flex flex-col lg:flex-row h-screen bg-background overflow-hidden">
       <Sidebar mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} />
       
-      <main className="flex-1 overflow-auto">
+      <main className="flex-1 overflow-auto grid-background">
         {/* Mobile Header with Hamburger Menu */}
         <div className="lg:hidden sticky top-0 z-30 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b border-border">
           <div className="flex items-center justify-between p-4">

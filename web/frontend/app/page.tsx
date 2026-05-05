@@ -63,22 +63,22 @@ export default function RootPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-neutral-950 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-primary animate-spin" />
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-neutral-950 flex flex-col items-center justify-center relative overflow-hidden text-white">
+    <div className="min-h-screen bg-background grid-background flex flex-col items-center justify-center relative overflow-hidden text-foreground">
       <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0 pointer-events-none">
-        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-emerald-500/10 blur-[120px]" />
+        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-primary/5 blur-[120px]" />
       </div>
 
       <div className="z-10 w-full max-w-md px-6">
         <div className="flex flex-col items-center mb-8 text-center">
-          <div className="w-16 h-16 bg-neutral-900 border border-neutral-800 rounded-2xl flex items-center justify-center mb-6">
-            <FolderPlus className="w-8 h-8 text-emerald-400" />
+          <div className="w-16 h-16 bg-card border border-border rounded-2xl flex items-center justify-center mb-6">
+            <FolderPlus className="w-8 h-8 text-primary" />
           </div>
           <h1 className="text-3xl font-bold mb-2">Create your workspace</h1>
           <p className="text-neutral-400">
@@ -97,7 +97,7 @@ export default function RootPage() {
                 required
                 value={name}
                 onChange={(e) => handleNameChange(e.target.value)}
-                className="w-full px-4 py-3 bg-neutral-950/50 border border-neutral-800 rounded-xl text-white placeholder:text-neutral-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                className="w-full px-4 py-3 bg-background border border-border rounded-xl text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/50"
                 placeholder="Acme Corp"
               />
             </div>
@@ -124,7 +124,7 @@ export default function RootPage() {
             <button
               type="submit"
               disabled={creating}
-              className="w-full mt-2 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-white font-medium py-3 px-4 rounded-xl flex items-center justify-center transition-all disabled:opacity-50"
+              className="w-full mt-2 bg-primary hover:bg-primary/90 text-primary-foreground font-medium py-3 px-4 rounded-xl flex items-center justify-center transition-all disabled:opacity-50 shadow-lg shadow-primary/20"
             >
               {creating ? (
                 <Loader2 className="w-5 h-5 animate-spin" />

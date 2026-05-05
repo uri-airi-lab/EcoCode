@@ -131,18 +131,18 @@ export const ProjectsTable = memo(function ProjectsTable({ projects, loading = f
                                 <td className="text-right py-3 px-4 text-foreground font-medium font-mono">
                                     {Number(project.totalEnergy.toFixed(2)).toLocaleString()}
                                 </td>
-                                <td className="text-right py-3 px-4 text-emerald-400 font-medium font-mono whitespace-nowrap">
+                                <td className="text-right py-3 px-4 text-primary/80 font-medium font-mono whitespace-nowrap">
                                     <div className="flex items-center justify-end gap-1.5">
                                         <Leaf className="w-3 h-3" />
                                         {project.totalCo2G > 1000 ? (project.totalCo2G / 1000).toFixed(2) : project.totalCo2G.toFixed(0)}
-                                        <span className="text-[10px] text-muted-foreground uppercase">{project.totalCo2G > 1000 ? 'kg' : 'g'}</span>
+                                        <span className="text-[9px] text-muted-foreground/50 uppercase tracking-tighter">{project.totalCo2G > 1000 ? 'kg' : 'g'}</span>
                                     </div>
                                 </td>
-                                <td className="text-right py-3 px-4 text-amber-400 font-medium font-mono whitespace-nowrap">
+                                <td className="text-right py-3 px-4 text-foreground/80 font-medium font-mono whitespace-nowrap">
                                     <div className="flex items-center justify-end gap-1.5">
-                                        <Coins className="w-3 h-3" />
+                                        <Coins className="w-3 h-3 text-muted-foreground/40" />
                                         {project.totalCost.toFixed(2)}
-                                        <span className="text-[10px] text-muted-foreground uppercase">{project.currency}</span>
+                                        <span className="text-[9px] text-muted-foreground/50 uppercase tracking-tighter">{project.currency}</span>
                                     </div>
                                 </td>
                                 <td className="text-right py-3 px-4 text-muted-foreground">

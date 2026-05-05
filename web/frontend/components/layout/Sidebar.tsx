@@ -64,8 +64,8 @@ export function Sidebar({ mobileOpen, setMobileOpen }: { mobileOpen: boolean; se
           onClick={() => setDropdownOpen(!dropdownOpen)}
         >
           <div className="flex items-center gap-3 overflow-hidden">
-            <div className="p-1.5 rounded-md bg-green-500/15 flex-shrink-0">
-              <Leaf className="w-4 h-4 text-green-500" />
+            <div className="p-1.5 rounded-md bg-primary/10 flex-shrink-0">
+              <Leaf className="w-4 h-4 text-primary" />
             </div>
             <div className="truncate">
               <h1 className="font-semibold text-sm text-foreground truncate">
