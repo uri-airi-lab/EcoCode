@@ -30,6 +30,9 @@
   - [PyTorch Lightning](#pytorch-lightning)
   - [DeepSpeed](#deepspeed)
   - [vLLM Inference](#vllm-inference)
+  - [Keras / TensorFlow](#keras--tensorflow)
+  - [ONNX Runtime](#onnx-runtime)
+  - [Axolotl / Unsloth](#axolotl--unsloth)
 - [Environment Variables](#environment-variables)
 - [What Gets Measured](#what-gets-measured)
 - [Running the Demo](#running-the-demo)
@@ -380,6 +383,8 @@ pip install -e ".[dev]"
 | `hf` | `transformers >= 4.30` | HuggingFace `TrainerCallback` base class |
 | `trl` | `trl >= 0.7` | TRL SFT / DPO / GRPO trainers |
 | `lightning` | `pytorch-lightning >= 2.0` | PyTorch Lightning `Callback` base class |
+| `keras` | `keras >= 3.0` | Keras 3 / tf.keras `Callback` base class |
+| `onnx` | `onnxruntime >= 1.16` | ONNX Runtime session wrapper |
 
 ---
 
@@ -479,6 +484,8 @@ Use these consistently across runs to enable cross-run energy comparisons on the
 | `run.log_lr(lr: float)` | Record the current learning rate |
 | `run.log_tokens(count: int)` | Record the cumulative number of tokens processed |
 | `run.log_sequence_length(seq_len: int)` | Record the input sequence length (attention cost scales as O(n²)) |
+| `run.log_accuracy(accuracy: float)` | Record the current model accuracy (0-100) |
+| `run.log_custom(key: str, value: float)` | Record any custom numeric metric (gradient norm, perplexity, BLEU, reward score, batch size, etc.) |
 
 ---
 
@@ -623,6 +630,88 @@ tracker.on_generation_end(total_tokens=1124)   # logs token count
 
 ---
 
+### Keras / TensorFlow
+
+```python
+import ecocode
+from ecocode.integrations.keras import EcoCodeCallback
+
+with ecocode.run("keras-train", project_id=42, api_key="eco_...") as eco_run:
+    model.fit(
+        x_train, y_train,
+        validation_data=(x_test, y_test),
+        epochs=10,
+        callbacks=[EcoCodeCallback(eco_run)],
+    )
+```
+
+**Hooks fired:**
+
+| Keras hook | Phase marked | Extra logging |
+|---|---|---|
+| `on_train_begin` | `data_loading` | — |
+| `on_epoch_begin` | — | `log_epoch(epoch)` |
+| `on_train_batch_begin` | `forward` | — |
+| `on_train_batch_end` | `optimizer_step` | `step`, `loss`, `lr`, `accuracy`, plus any other numeric logs via `log_custom()` |
+| `on_test_begin` | `eval` | — |
+| `on_test_end` | — | Validation metrics via `log_custom("val_*")` |
+| `on_train_end` | `done` | — |
+
+The Keras callback automatically forwards **unknown numeric metrics** from `logs` through `log_custom()`, so custom Keras metrics (e.g., precision, recall) are tracked without additional code.
+
+---
+
+### ONNX Runtime
+
+```python
+import onnxruntime as ort
+import ecocode
+from ecocode.integrations.onnxruntime import EcoCodeORTWrapper
+
+session = ort.InferenceSession("model.onnx")
+
+with ecocode.run("ort-inference", api_key="eco_...") as eco_run:
+    eco_session = EcoCodeORTWrapper(session, eco_run)
+    result = eco_session.run(None, {"input": data})
+```
+
+The wrapper:
+- Marks `model_load` → `prefill` → `done` phases per `.run()` call.
+- Estimates `batch_size` from the first input tensor shape.
+- Logs `latency_ms` for each inference call.
+- Proxies all other attributes to the underlying `InferenceSession`.
+
+---
+
+### Axolotl / Unsloth
+
+Both Axolotl (≥ 0.4.0) and Unsloth use HuggingFace Trainer internally, so the existing `EcoCodeCallback` works without modification:
+
+```python
+# Axolotl — inject via Python API
+from ecocode.integrations.huggingface import EcoCodeCallback
+
+with ecocode.run("axolotl-sft", api_key="eco_...") as eco_run:
+    do_train(config="config.yml", extra_callbacks=[EcoCodeCallback(eco_run)])
+```
+
+```python
+# Unsloth — works with TRL's SFTTrainer
+from ecocode.integrations.trl import EcoCodeSFTCallback
+
+with ecocode.run("unsloth-sft", api_key="eco_...") as eco_run:
+    trainer = SFTTrainer(
+        model=model,
+        callbacks=[EcoCodeSFTCallback(eco_run)],
+        ...
+    )
+    trainer.train()
+```
+
+See `demo_axolotl.py` and `demo_unsloth.py` for complete examples.
+
+---
+
 ## Environment Variables
 
 | Variable | Description | Default |
@@ -649,6 +738,8 @@ tracker.on_generation_end(total_tokens=1124)   # logs token count
 | Gradient step | ✅ | ✅ | Set via `run.log_step(...)` |
 | Token count | ✅ | ✅ | Set via `run.log_tokens(...)` |
 | Sequence length | ✅ | ✅ | Set via `run.log_sequence_length(...)` |
+| Accuracy | ✅ | ✅ | Set via `run.log_accuracy(...)` |
+| Custom metrics | ✅ | ✅ | Set via `run.log_custom(key, value)` |
 | CPU name / cores | ✅ (platform + psutil) | ✅ | Sent once at run start |
 | RAM total (GB) | ✅ (psutil) | ✅ | Sent once at run start |
 | GPU names | ✅ (pynvml) | ✅ | Sent once at run start |

@@ -364,6 +364,28 @@ impl EcoCodeRun {
             }
         }
     }
+
+    /// Record an arbitrary custom metric (key-value pair).
+    /// Values are accumulated in a JSON map and sent with each record.
+    fn log_custom(&self, key: &str, value: f64) {
+        match &self.mode {
+            Mode::Attached { .. } => {
+                if let Some(ref socket) = self.socket {
+                    let event = serde_json::json!({
+                        "event": "custom",
+                        "key": key,
+                        "value": value,
+                    });
+                    socket.send_event(&event);
+                }
+            }
+            Mode::Standalone => {
+                if let Some(ref sampler) = self.sampler {
+                    sampler.set_custom_metric(key.to_string(), value);
+                }
+            }
+        }
+    }
 }
 
 // ── Internal helpers ────────────────────────────────────────────────────────

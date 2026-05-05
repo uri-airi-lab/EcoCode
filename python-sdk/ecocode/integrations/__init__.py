@@ -6,3 +6,5 @@
 #   from ecocode.integrations.lightning import EcoCodeCallback
 #   from ecocode.integrations.deepspeed import EcoCodeDeepSpeedCallback
 #   from ecocode.integrations.vllm import EcoCodeVLLMMiddleware
+#   from ecocode.integrations.keras import EcoCodeCallback         # Keras 3 / tf.keras
+#   from ecocode.integrations.onnxruntime import EcoCodeORTWrapper  # ONNX Runtime inference

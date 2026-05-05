@@ -4,10 +4,13 @@
  * Reads --chart-N CSS custom properties from the document root and wraps
  * the HSL channel values in hsl() for use in Recharts components.
  * 
- * @param n - Chart color number (1-6)
+ * @param n - Chart color number (1-6 for named slots; higher values wrap around)
  * @returns HSL color string (e.g., "hsl(199 90% 64%)")
  */
-export function chartColor(n: 1 | 2 | 3 | 4 | 5 | 6): string {
+export function chartColor(n: number): string {
+  // Wrap around the 6 available palette slots
+  const slot = ((n - 1) % 6) + 1
+
   // SSR fallback — return W&B defaults directly
   if (typeof window === 'undefined') {
     const defaults: Record<number, string> = {
@@ -18,12 +21,12 @@ export function chartColor(n: 1 | 2 | 3 | 4 | 5 | 6): string {
       5: 'hsl(0 84% 60%)',    // red
       6: 'hsl(47 95% 55%)',   // yellow
     }
-    return defaults[n]
+    return defaults[slot]
   }
 
   // Client-side: read CSS variable and wrap in hsl()
   const channels = getComputedStyle(document.documentElement)
-    .getPropertyValue(`--chart-${n}`)
+    .getPropertyValue(`--chart-${slot}`)
     .trim()
 
   return channels ? `hsl(${channels})` : `hsl(0 0% 50%)` // fallback to gray if missing

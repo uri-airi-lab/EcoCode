@@ -18,7 +18,11 @@ use sysinfo::System;
 pub fn get_process_tree_pids(root_pid: u32) -> Vec<u32> {
     let mut sys = System::new_all();
     sys.refresh_all();
+    get_process_tree_pids_from_sys(&sys, root_pid)
+}
 
+/// Finds all recursive children PIDs of a given root PID using an existing System object.
+pub fn get_process_tree_pids_from_sys(sys: &sysinfo::System, root_pid: u32) -> Vec<u32> {
     let mut pids = vec![root_pid];
     let mut to_visit = vec![root_pid];
 

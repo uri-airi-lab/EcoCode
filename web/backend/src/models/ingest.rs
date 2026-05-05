@@ -50,6 +50,7 @@ pub struct IngestRecordData {
     pub learning_rate: Option<f64>,
     pub sequence_length: Option<i32>,
     pub accuracy: Option<f64>,
+    pub custom_metrics: Option<serde_json::Value>,
 }
 
 /// Payload for reporting system information during a run.

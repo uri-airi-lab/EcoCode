@@ -263,13 +263,16 @@ export async function fetchRunMeta(id: string): Promise<RunDetail> {
     totalMemEnergy = summary.total_mem_energy / 3600
     totalIgpuEnergy = summary.total_igpu_energy / 3600
   } else {
+    // No summary yet (run still in progress) — energies will be 0 until first poll lands records
     totalCpuEnergy = 0; totalGpuEnergy = 0; totalMemEnergy = 0; totalIgpuEnergy = 0
   }
   const totalEnergy = totalCpuEnergy + totalGpuEnergy + totalMemEnergy + totalIgpuEnergy
   const energyKwh = totalEnergy / 1000
-  const carbonFootprint = summary?.total_co2_g != null
+  // Use DB-stored CO2 if available and non-zero. Otherwise fall back to world average
+  // so the EnvironmentalImpact component always shows a reasonable estimate.
+  const carbonFootprint = (summary?.total_co2_g != null && summary.total_co2_g > 0)
     ? summary.total_co2_g
-    : energyKwh * WORLD_AVERAGE_INTENSITY_G_PER_KWH
+    : (energyKwh * WORLD_AVERAGE_INTENSITY_G_PER_KWH)
   const timestamp =
     parseTimestamp(backendRun.started_at) ??
     parseTimestamp(backendRun.ended_at) ??

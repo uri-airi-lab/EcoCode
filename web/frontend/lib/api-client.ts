@@ -67,6 +67,7 @@ interface BackendRecordPoint {
   learning_rate?: number | null
   sequence_length?: number | null
   accuracy?: number | null
+  custom_metrics?: Record<string, number> | null
   gpu_details?: BackendGpuRecordPoint[]
   socket_details?: BackendSocketRecordPoint[]
 }
@@ -199,6 +200,7 @@ function mapRecord(r: BackendRecordPoint): MetricRecord {
     learning_rate: r.learning_rate,
     sequence_length: r.sequence_length,
     accuracy: r.accuracy,
+    custom_metrics: r.custom_metrics ?? null,
   }
 }
 

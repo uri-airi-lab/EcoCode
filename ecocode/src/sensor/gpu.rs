@@ -87,7 +87,7 @@ pub fn get_gpu_energy_by_pid(
         Ok(s) => s,
         Err(e) => {
             eprintln!(
-                "Error fetching process utilization for PID {}: {}, maybe it stopped running on the GPU.",
+                "[ecocode] Warning: Fetching process utilization for PID {}: {}, maybe it stopped running on the GPU.",
                 pid, e
             );
             return (0.0, 0.0, timestamp);

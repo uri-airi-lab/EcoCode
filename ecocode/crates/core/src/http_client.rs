@@ -11,6 +11,8 @@
 //! Uses `reqwest::blocking` so it can run inside a plain `std::thread` without
 //! pulling in a tokio runtime.
 
+use std::collections::HashMap;
+
 use reqwest::blocking::Client;
 use reqwest::header;
 use serde::{Deserialize, Serialize};
@@ -101,6 +103,7 @@ pub struct Record {
     pub learning_rate: Option<f64>,
     pub sequence_length: Option<i32>,
     pub accuracy: Option<f64>,
+    pub custom_metrics: Option<HashMap<String, f64>>,
 }
 
 // ── Implementation ──────────────────────────────────────────────────────────

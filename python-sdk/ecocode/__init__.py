@@ -27,6 +27,19 @@ ML Phase labels (use these consistently for cross-run comparisons):
   RLHF              : reward_model, policy_rollout, reference_forward,
                       ppo_update, dpo_update, grpo_update, kl_penalty
   Inference         : model_load, prefill, decode, kv_cache_ops, done
+
+Additional methods:
+  run.log_custom(key, value)    — Log arbitrary numeric metrics (gradient norm,
+                                  perplexity, BLEU, reward score, batch size, etc.)
+
+Framework integrations:
+  ecocode.integrations.huggingface  — HuggingFace Trainer
+  ecocode.integrations.trl          — TRL (SFT, DPO, GRPO)
+  ecocode.integrations.lightning    — PyTorch Lightning
+  ecocode.integrations.deepspeed    — DeepSpeed
+  ecocode.integrations.vllm         — vLLM (async inference)
+  ecocode.integrations.keras        — Keras 3 / tf.keras
+  ecocode.integrations.onnxruntime  — ONNX Runtime inference
 """
 from __future__ import annotations
 

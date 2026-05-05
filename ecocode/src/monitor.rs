@@ -433,7 +433,7 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
             let gpu_energies_2 = get_all_gpu_energies(&devices)?;
             let gpu_results = get_all_gpu_energies_by_pid(
                 &devices,
-                pid.as_u32(),
+                &[pid.as_u32()],
                 &gpu_energies_1,
                 &gpu_energies_2,
                 &gpu_timestamps,

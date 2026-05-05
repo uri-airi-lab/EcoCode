@@ -61,7 +61,8 @@ export function CarbonSettings({ projectId }: CarbonSettingsProps) {
     try {
       setSaving(true)
       const updated = await updateCarbonConfig(projectId, {
-        address: address,
+        // Only send address when non-empty — empty string causes a geocoding error on the backend
+        ...(address.trim() && { address: address.trim() }),
         country_code: countryCode,
         pue_factor: pue,
         manual_cost_per_kwh: parseFloat(manualCost) || 0,

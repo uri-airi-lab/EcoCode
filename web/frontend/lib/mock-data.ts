@@ -34,6 +34,7 @@ export interface MetricRecord {
   learning_rate?: number | null
   sequence_length?: number | null
   accuracy?: number | null
+  custom_metrics?: Record<string, number> | null
 }
 
 export interface Run {

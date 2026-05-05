@@ -94,8 +94,8 @@ pub async fn ingest_record(
         "INSERT INTO records
             (run_id, pid, timestamp, cpu_usage, cpu_energy, gpu_usage, gpu_energy,
              mem_usage, mem_energy, igpu_usage, igpu_energy,
-             phase, tokens_processed, training_step, loss, learning_rate, sequence_length, accuracy)
-         VALUES ($1, $2, $3::timestamptz, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+             phase, tokens_processed, training_step, loss, learning_rate, sequence_length, accuracy, custom_metrics)
+         VALUES ($1, $2, $3::timestamptz, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
          RETURNING id",
     )
     .bind(run_id)
@@ -116,11 +116,12 @@ pub async fn ingest_record(
     .bind(payload.learning_rate)
     .bind(payload.sequence_length)
     .bind(payload.accuracy)
+    .bind(&payload.custom_metrics)
     .fetch_one(&mut *tx)
     .await
     .map_err(ApiError::internal)?;
 
-    for gm in payload.gpu_metrics {
+    for gm in &payload.gpu_metrics {
         sqlx::query("INSERT INTO gpu_records (record_id, device_index, gpu_usage, gpu_energy) VALUES ($1, $2, $3, $4)")
             .bind(record_id)
             .bind(gm.device_index)
@@ -131,7 +132,7 @@ pub async fn ingest_record(
             .map_err(ApiError::internal)?;
     }
 
-    for sm in payload.socket_metrics {
+    for sm in &payload.socket_metrics {
         sqlx::query("INSERT INTO socket_records (record_id, socket, domain, energy) VALUES ($1, $2, $3, $4)")
             .bind(record_id)
             .bind(sm.socket)
@@ -146,14 +147,56 @@ pub async fn ingest_record(
     debug!(run_id, record_id, "Record ingested");
 
     // Direct broadcast to internal SSE channel for immediate UI update
-    let state_clone = state.clone();
-    tokio::spawn(async move {
-        if let Ok(Some(record)) = crate::db::records::fetch_record_by_id_with_details(record_id, &state_clone).await {
-            if let Ok(json_payload) = serde_json::to_string(&record) {
-                let _ = state_clone.tx.send(json_payload);
-            }
-        }
-    });
+    let mut gpu_details = Vec::new();
+    for gm in &payload.gpu_metrics {
+        gpu_details.push(crate::models::record::GpuRecordPoint {
+            id: 0,
+            record_id,
+            device_index: gm.device_index,
+            gpu_usage: gm.gpu_usage,
+            gpu_energy: gm.gpu_energy,
+        });
+    }
+
+    let mut socket_details = Vec::new();
+    for sm in &payload.socket_metrics {
+        socket_details.push(crate::models::record::SocketRecordPoint {
+            id: 0,
+            record_id,
+            socket: sm.socket,
+            domain: sm.domain.clone(),
+            energy: sm.energy,
+        });
+    }
+
+    let record = crate::models::record::RecordPoint {
+        id: record_id,
+        run_id,
+        pid: payload.pid,
+        timestamp: payload.timestamp.clone(),
+        cpu_usage: Some(payload.cpu_usage),
+        cpu_energy: Some(payload.cpu_energy),
+        gpu_usage: Some(payload.gpu_usage),
+        gpu_energy: Some(payload.gpu_energy),
+        mem_usage: Some(payload.mem_usage),
+        mem_energy: payload.mem_energy,
+        igpu_usage: payload.igpu_usage,
+        igpu_energy: payload.igpu_energy,
+        gpu_details,
+        socket_details,
+        phase: payload.phase.clone(),
+        tokens_processed: payload.tokens_processed,
+        training_step: payload.training_step,
+        loss: payload.loss,
+        learning_rate: payload.learning_rate,
+        sequence_length: payload.sequence_length,
+        accuracy: payload.accuracy,
+        custom_metrics: payload.custom_metrics.clone(),
+    };
+
+    if let Ok(json_payload) = serde_json::to_string(&record) {
+        let _ = state.tx.send(json_payload);
+    }
 
     Ok(StatusCode::CREATED)
 }

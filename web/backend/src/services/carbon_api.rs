@@ -128,6 +128,7 @@ pub async fn fetch_electricity_maps_price(lat: f64, lon: f64, api_key: &str) -> 
         return Err(format!("Price API error: {}", msg).into());
     }
     let data: ElectricityMapsPriceResponse = res.json().await?;
-    println!("Fetched real-time price: {} {}", data.price, data.currency);
-    Ok((data.price, data.currency))
+    let price_per_kwh = data.price / 1000.0;
+    println!("Fetched real-time price: {} {}/kWh", price_per_kwh, data.currency);
+    Ok((price_per_kwh, data.currency))
 }

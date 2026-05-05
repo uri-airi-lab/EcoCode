@@ -371,6 +371,7 @@ fn merge_record_points(
             learning_rate: row.learning_rate,
             sequence_length: row.sequence_length,
             accuracy: row.accuracy,
+            custom_metrics: row.custom_metrics,
         })
         .collect()
 }

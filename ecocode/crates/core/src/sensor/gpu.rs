@@ -78,7 +78,7 @@ pub fn get_all_gpu_energies(devices: &[Device]) -> Result<Vec<f64>, Box<dyn std:
 /// is derived from its share of SM utilization.
 pub fn get_gpu_energy_by_pid(
     device: &Device,
-    pid: u32,
+    pids: &[u32],
     energy_1: f64,
     energy_2: f64,
     timestamp: u64,
@@ -89,8 +89,8 @@ pub fn get_gpu_energy_by_pid(
         Ok(s) => s,
         Err(e) => {
             eprintln!(
-                "Error fetching process utilization for PID {}: {}, maybe it stopped running on the GPU.",
-                pid, e
+                "[ecocode] Warning: Fetching process utilization: {}, maybe it stopped running on the GPU.",
+                e
             );
             return (0.0, 0.0, timestamp);
         }
@@ -98,8 +98,7 @@ pub fn get_gpu_energy_by_pid(
 
     let next_timestamp = stats.iter().map(|s| s.timestamp).max().unwrap_or(timestamp);
 
-    // Track the entire process tree (parent + all children)
-    let pids = crate::sensor::get_process_tree_pids(pid);
+    // Track the entire process tree (already provided in pids)
     let pid_samples: Vec<_> = stats
         .iter()
         .filter(|s| pids.contains(&(s.pid as u32)))
@@ -150,7 +149,7 @@ pub fn get_gpu_energy_by_pid(
 /// Computes per-PID GPU energy/utilization for ALL GPUs in one call.
 pub fn get_all_gpu_energies_by_pid(
     devices: &[Device],
-    pid: u32,
+    pids: &[u32],
     energies_1: &[f64],
     energies_2: &[f64],
     timestamps: &[u64],
@@ -163,7 +162,7 @@ pub fn get_all_gpu_energies_by_pid(
         .map(|(i, device)| {
             let (energy_j, util_pct, next_ts) = get_gpu_energy_by_pid(
                 device,
-                pid,
+                pids,
                 energies_1[i],
                 energies_2[i],
                 timestamps[i],

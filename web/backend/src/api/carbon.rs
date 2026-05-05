@@ -54,18 +54,23 @@ pub async fn put_carbon_config_handler(
     Json(body): Json<CarbonConfigUpdate>,
 ) -> Result<impl IntoResponse, ApiError> {
     let (lat, lon, resolved_address) = if let Some(addr) = &body.address {
-        match geocode_address(addr).await {
-            Ok((lat, lon, display)) => {
-                let resolved_addr: &str = &display;
-                info!("Address geocoded: address={addr} lat={lat} lon={lon} resolved={resolved_addr}");
-                (Some(lat), Some(lon), Some(display))
-            }
-            Err(e) => {
-                warn!(address = %addr, error = %e, "Geocoding failed");
-                return Err(ApiError::new(
-                    StatusCode::BAD_REQUEST,
-                    format!("Could not find location for '{}'. Please try a more specific address.", addr),
-                ));
+        // Skip geocoding for empty/whitespace-only addresses
+        if addr.trim().is_empty() {
+            (body.latitude, body.longitude, None)
+        } else {
+            match geocode_address(addr).await {
+                Ok((lat, lon, display)) => {
+                    let resolved_addr: &str = &display;
+                    info!("Address geocoded: address={addr} lat={lat} lon={lon} resolved={resolved_addr}");
+                    (Some(lat), Some(lon), Some(display))
+                }
+                Err(e) => {
+                    warn!(address = %addr, error = %e, "Geocoding failed");
+                    return Err(ApiError::new(
+                        StatusCode::BAD_REQUEST,
+                        format!("Could not find location for '{}'. Please try a more specific address.", addr),
+                    ));
+                }
             }
         }
     } else {

@@ -96,6 +96,7 @@ export interface BackendRecordPoint {
   learning_rate?: number | null
   sequence_length?: number | null
   accuracy?: number | null
+  custom_metrics?: Record<string, number> | null
 }
 
 export interface BackendGpuRecordPoint {
@@ -234,6 +235,7 @@ export function mapRecord(r: BackendRecordPoint): MetricRecord {
     learning_rate: r.learning_rate ?? null,
     sequence_length: r.sequence_length ?? null,
     accuracy: r.accuracy ?? null,
+    custom_metrics: r.custom_metrics ?? null,
   }
 }
 

@@ -23,6 +23,7 @@ pub struct RecordPointRow {
     pub learning_rate: Option<f64>,
     pub sequence_length: Option<i32>,
     pub accuracy: Option<f64>,
+    pub custom_metrics: Option<sqlx::types::JsonValue>,
 }
 
 /// Represents a complete record point with nested GPU and Socket specific metrics.
@@ -50,6 +51,7 @@ pub struct RecordPoint {
     pub learning_rate: Option<f64>,
     pub sequence_length: Option<i32>,
     pub accuracy: Option<f64>,
+    pub custom_metrics: Option<serde_json::Value>,
 }
 
 /// Represents an individual GPU's metrics at a specific record point.
