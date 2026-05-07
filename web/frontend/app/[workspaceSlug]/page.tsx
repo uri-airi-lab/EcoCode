@@ -326,14 +326,7 @@ export default function Dashboard() {
                     <div className="xl:col-span-2">
                       <EnergyChart runs={runData} />
                     </div>
-                    {currentRun.records.length > 0 && (
-                      <div className="xl:col-span-1">
-                        <PowerDistributionChart
-                          record={currentRun.records[currentRun.records.length - 1]}
-                          prevRecord={currentRun.records.length > 1 ? currentRun.records[currentRun.records.length - 2] : undefined}
-                        />
-                      </div>
-                    )}
+
                   </div>
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
                     <CumulativePowerChart runs={runData} />

@@ -620,6 +620,13 @@ with ecocode.run(
             run.log_tokens(tokens_seen)
 ```
 
+> **CPU energy in standalone mode:** GPU energy (NVML) is always available without root. CPU energy requires read access to the RAPL sysfs interface (`/sys/class/powercap/intel-rapl/`). On machines where these files are not world-readable by default, run the following once to enable CPU energy tracking for all future standalone runs:
+> ```bash
+> sudo chmod o+r /sys/class/powercap/intel-rapl/*/energy_uj
+> sudo chmod o+r /sys/class/powercap/intel-rapl/*/*/energy_uj
+> ```
+> Without this, standalone mode still works — CPU energy silently falls back to `0.0` and all other metrics (GPU, memory, phases, loss, etc.) are unaffected.
+
 ### Attached Mode (CLI + sudo)
 
 The CLI handles energy sampling; the SDK sends only semantic markers via a Unix socket.

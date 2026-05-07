@@ -112,8 +112,8 @@ pub async fn ingest_record(
         "INSERT INTO records
             (run_id, pid, timestamp, cpu_usage, cpu_energy, gpu_usage, gpu_energy,
              mem_usage, mem_energy, igpu_usage, igpu_energy,
-             phase, tokens_processed, training_step, loss, learning_rate, sequence_length, accuracy, custom_metrics)
-         VALUES ($1, $2, $3::timestamptz, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+             phase, epoch_num, tokens_processed, training_step, loss, learning_rate, sequence_length, accuracy, custom_metrics)
+         VALUES ($1, $2, $3::timestamptz, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
          RETURNING id",
     )
     .bind(run_id)
@@ -128,6 +128,7 @@ pub async fn ingest_record(
     .bind(payload.igpu_usage)
     .bind(payload.igpu_energy)
     .bind(&payload.phase)
+    .bind(payload.epoch_num)
     .bind(payload.tokens_processed)
     .bind(payload.training_step)
     .bind(payload.loss)
@@ -203,6 +204,7 @@ pub async fn ingest_record(
         gpu_details,
         socket_details,
         phase: payload.phase.clone(),
+        epoch_num: payload.epoch_num,
         tokens_processed: payload.tokens_processed,
         training_step: payload.training_step,
         loss: payload.loss,

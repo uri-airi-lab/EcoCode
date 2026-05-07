@@ -44,6 +44,7 @@ pub struct IngestRecordData {
     pub socket_metrics: Vec<IngestSocketMetric>,
     // ML semantic fields — sent by the Python SDK
     pub phase: Option<String>,
+    pub epoch_num: Option<i64>,
     pub tokens_processed: Option<i64>,
     pub training_step: Option<i64>,
     pub loss: Option<f64>,

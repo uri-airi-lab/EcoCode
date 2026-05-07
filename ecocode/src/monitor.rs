@@ -60,15 +60,32 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
         None => None,
     };
 
-    println!(
-        "Running: sudo chmod -R +r /sys/class/powercap/intel-rapl/ , please enter your password if needed."
-    );
-    let _access = Command::new("sudo")
-        .arg("chmod")
-        .arg("-R")
-        .arg("+r")
-        .arg(RAPL_PATH)
-        .status();
+    // Request read access to RAPL energy counters (requires root on most systems).
+    // Skipped entirely on machines without Intel RAPL (VMs, ARM, AMD without powercap).
+    if std::path::Path::new(RAPL_PATH).exists() {
+        println!("RAPL energy counters detected. Requesting read access...");
+        println!("  sudo chmod -R +r /sys/class/powercap/intel-rapl/");
+        println!("  (You may be prompted for your sudo password.)");
+        match Command::new("sudo")
+            .arg("chmod")
+            .arg("-R")
+            .arg("+r")
+            .arg(RAPL_PATH)
+            .status()
+        {
+            Ok(s) if s.success() => println!("  RAPL access granted."),
+            Ok(_) => eprintln!(
+                "Warning: sudo chmod returned a non-zero exit code.\n\
+                 CPU energy may not be tracked. Run manually if needed:\n\
+                   sudo chmod -R +r /sys/class/powercap/intel-rapl/"
+            ),
+            Err(e) => eprintln!(
+                "Warning: could not run sudo ({e}).\n\
+                 CPU energy may not be tracked. Run manually if needed:\n\
+                   sudo chmod -R +r /sys/class/powercap/intel-rapl/"
+            ),
+        }
+    }
 
     // --- Exporter setup ---
     let require_file = |format: &str| -> String {

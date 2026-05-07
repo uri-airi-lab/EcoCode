@@ -90,6 +90,7 @@ export interface BackendRecordPoint {
   gpu_details?: BackendGpuRecordPoint[]
   socket_details?: BackendSocketRecordPoint[]
   phase?: string | null
+  epoch_num?: number | null
   tokens_processed?: number | null
   training_step?: number | null
   loss?: number | null
@@ -229,6 +230,7 @@ export function mapRecord(r: BackendRecordPoint): MetricRecord {
       energy: s.energy,
     })),
     phase: r.phase ?? null,
+    epoch_num: r.epoch_num ?? null,
     tokens_processed: r.tokens_processed ?? null,
     training_step: r.training_step ?? null,
     loss: r.loss ?? null,

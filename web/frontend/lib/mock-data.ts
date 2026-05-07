@@ -28,6 +28,7 @@ export interface MetricRecord {
   gpu_details: GpuMetric[]
   socket_details: SocketMetric[]
   phase?: string | null
+  epoch_num?: number | null
   tokens_processed?: number | null
   training_step?: number | null
   loss?: number | null

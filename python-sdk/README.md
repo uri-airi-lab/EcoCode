@@ -86,6 +86,13 @@ The SDK manages the entire run lifecycle itself:
 
 > **Why no sudo?** The EcoCode CLI, which does require root, runs `sudo chmod -R +r /sys/class/powercap/intel-rapl/` once at startup. This makes the RAPL sysfs files world-readable for the session. The Python SDK (and any other unprivileged process) can then read them directly. On systems where the CLI was never run or where the files remain unreadable, CPU energy falls back to `0.0` without interrupting training.
 
+> **Enabling CPU energy in standalone mode without the CLI:** On machines where RAPL files are not world-readable by default, you can grant read access as a one-time setup:
+> ```bash
+> sudo chmod o+r /sys/class/powercap/intel-rapl/*/energy_uj
+> sudo chmod o+r /sys/class/powercap/intel-rapl/*/*/energy_uj
+> ```
+> After this, standalone mode will track CPU energy without requiring `sudo` or the CLI for any future run on that machine. This is the recommended approach on development machines, HPC clusters, and cloud VMs where the CLI is not installed.
+
 #### Attached Mode
 
 > **Requires the EcoCode CLI running with `sudo`.**
@@ -290,6 +297,21 @@ while let Ok(record) = reporter_rx.recv() {
 ```
 
 This two-thread design ensures that a slow network never stalls the hardware sensor reads.
+
+**Why two threads and not one?** The CLI (attached mode) uses a single async Tokio loop that does everything sequentially on each tick:
+
+```
+tick
+ │
+ ├─ read RAPL + NVML
+ ├─ read sysinfo (CPU%, mem%)
+ ├─ drain Unix socket for any markers Python sent
+ ├─ build Record
+ ├─ exporter.add_record()    ← store
+ └─ exporter.export_line()   ← send (HTTP POST, CSV write, etc.)
+```
+
+Tokio's async runtime ensures a slow HTTP POST does not block the next tick — the executor suspends the task and resumes it when the network completes. The SDK cannot use an async runtime inside a Python process without taking over the event loop, so instead it uses two OS threads with an `mpsc` channel: the sampler thread is never blocked waiting for the network, and the reporter thread is never racing with the hardware reads.
 
 **Process tree tracking**
 

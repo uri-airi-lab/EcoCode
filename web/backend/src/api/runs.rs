@@ -49,8 +49,54 @@ pub struct RunSummaryResponse {
 /// Query parameters for paginated endpoints.
 #[derive(Deserialize, Default)]
 pub struct PaginationQuery {
-    pub limit: Option<i64>,
-    pub offset: Option<i64>,
+    pub limit:    Option<i64>,
+    pub offset:   Option<i64>,
+    /// Unix milliseconds — inclusive lower bound for time-range queries (zoom window).
+    pub start_ts: Option<i64>,
+    /// Unix milliseconds — inclusive upper bound for time-range queries (zoom window).
+    pub end_ts:   Option<i64>,
+}
+
+/// Selects up to `threshold` indices from `values` using the LTTB algorithm,
+/// preserving the visual shape of the series (peaks, valleys, transitions).
+fn lttb_indices(values: &[f64], threshold: usize) -> Vec<usize> {
+    let n = values.len();
+    if n <= threshold {
+        return (0..n).collect();
+    }
+
+    let mut sampled = vec![0usize];
+    let bucket_size = (n - 2) as f64 / (threshold - 2) as f64;
+    let mut a = 0usize;
+
+    for i in 0..(threshold - 2) {
+        let cur_start = ((i + 1) as f64 * bucket_size) as usize + 1;
+        let cur_end   = (((i + 2) as f64 * bucket_size) as usize + 1).min(n - 1);
+        let nxt_start = cur_end;
+        let nxt_end   = (((i + 3) as f64 * bucket_size) as usize + 1).min(n);
+
+        let nxt_len = (nxt_end - nxt_start).max(1) as f64;
+        let avg_x: f64 = (nxt_start..nxt_end).map(|j| j as f64).sum::<f64>() / nxt_len;
+        let avg_y: f64 = (nxt_start..nxt_end).map(|j| values[j]).sum::<f64>() / nxt_len;
+
+        let a_y = values[a];
+        let mut max_area = -1.0f64;
+        let mut max_idx  = cur_start;
+        for j in cur_start..cur_end {
+            let area = ((a as f64 - avg_x) * (values[j] - a_y)
+                       - (a as f64 - j as f64) * (avg_y - a_y)).abs()
+                / 2.0;
+            if area > max_area {
+                max_area = area;
+                max_idx  = j;
+            }
+        }
+        sampled.push(max_idx);
+        a = max_idx;
+    }
+
+    sampled.push(n - 1);
+    sampled
 }
 
 /// Paginated response for runs
@@ -173,8 +219,16 @@ pub async fn get_run(
 }
 
 /// Handles GET requests to retrieve record points for a run.
-/// Supports `?limit=N&offset=M` pagination (default limit 1000, max 5000).
-/// Optimized for Azure Container Apps with better timeout handling.
+///
+/// Query params:
+///   - `limit`    — max points to return (default 1000, max 5000)
+///   - `offset`   — pagination offset (default 0)
+///   - `start_ts` — Unix ms lower bound (zoom window; triggers LTTB path)
+///   - `end_ts`   — Unix ms upper bound (zoom window; triggers LTTB path)
+///
+/// When `start_ts`/`end_ts` are present the handler returns LTTB-sampled records
+/// within that window at full available resolution (up to `limit` points).
+/// When absent, the existing paginated/step-sampled path is used.
 pub async fn get_record_points(
     Path(run_id): Path<i64>,
     Query(pagination): Query<PaginationQuery>,
@@ -183,9 +237,72 @@ pub async fn get_record_points(
     let limit = pagination.limit.unwrap_or(1000).min(5000);
     let offset = pagination.offset.unwrap_or(0);
 
+    // ── Zoom-window path ────────────────────────────────────────────────────────
+    // When the frontend requests a specific time window (after zooming in) we
+    // fetch all (id, total_energy) rows in that range, run LTTB to select the
+    // most visually representative subset, then return full records for those IDs.
+    if pagination.start_ts.is_some() || pagination.end_ts.is_some() {
+        let start_ms = pagination.start_ts.unwrap_or(0);
+        let end_ms   = pagination.end_ts.unwrap_or(i64::MAX);
+        let max_pts  = limit as usize;
+
+        debug!(run_id, start_ms, end_ms, max_pts, "Zoom-window record fetch (LTTB)");
+
+        // Step 1: lightweight query — just id + total energy for LTTB selection
+        let energy_rows: Vec<(i64, f64)> = sqlx::query_as(
+            "SELECT id,
+                    COALESCE(cpu_energy, 0.0) + COALESCE(gpu_energy, 0.0) +
+                    COALESCE(mem_energy, 0.0) + COALESCE(igpu_energy, 0.0) AS total_energy
+             FROM records
+             WHERE run_id = $1
+               AND (EXTRACT(EPOCH FROM timestamp) * 1000)::bigint BETWEEN $2 AND $3
+             ORDER BY timestamp ASC, id ASC",
+        )
+        .bind(run_id)
+        .bind(start_ms)
+        .bind(end_ms)
+        .fetch_all(&state.pool)
+        .await
+        .map_err(ApiError::internal)?;
+
+        if energy_rows.is_empty() {
+            return Err(ApiError::new(StatusCode::NOT_FOUND, "No record points found for this run"));
+        }
+
+        // Step 2: LTTB — select at most max_pts indices
+        let values: Vec<f64> = energy_rows.iter().map(|r| r.1).collect();
+        let indices: Vec<usize> = lttb_indices(&values, max_pts);
+        let selected_ids: Vec<i64> = indices.iter().map(|&i| energy_rows[i].0).collect();
+
+        // Step 3: fetch full records for the selected IDs
+        let rows = sqlx::query_as::<_, RecordPointRow>(
+            "SELECT id, run_id, pid, timestamp::text AS timestamp,
+                    cpu_usage, cpu_energy, gpu_usage, gpu_energy,
+                    mem_usage, mem_energy, igpu_usage, igpu_energy,
+                    phase, epoch_num, tokens_processed, training_step, loss,
+                    learning_rate, sequence_length, accuracy, custom_metrics
+             FROM records WHERE id = ANY($1)
+             ORDER BY timestamp ASC, id ASC",
+        )
+        .bind(&selected_ids)
+        .fetch_all(&state.pool)
+        .await
+        .map_err(ApiError::internal)?;
+
+        let record_ids: Vec<i64> = rows.iter().map(|r| r.id).collect();
+        let (gpu_records, socket_records) = tokio::join!(
+            crate::db::records::fetch_gpu_records_for_records(&state, &record_ids),
+            crate::db::records::fetch_socket_records_for_records(&state, &record_ids),
+        );
+
+        let record_points = merge_record_points(rows, gpu_records?, socket_records?);
+        debug!(run_id, returned_count = record_points.len(), "Zoom-window fetch complete");
+        return Ok((StatusCode::OK, Json(record_points)));
+    }
+
+    // ── Standard paginated path ─────────────────────────────────────────────────
     debug!(run_id, limit, offset, "Fetching record points");
 
-    // First check if run exists and get record count
     let record_count: Option<i64> =
         sqlx::query_scalar("SELECT COUNT(*) FROM records WHERE run_id = $1")
             .bind(run_id)
@@ -201,36 +318,43 @@ pub async fn get_record_points(
         ));
     }
 
-    // For large datasets, use a more efficient query strategy
+    // For large datasets use LTTB — better shape preservation than step-based sampling
     let rows = if count > 10000 {
-        // For very large runs, sample the data more aggressively
-        let sample_limit = limit.min(2000);
-        let step = (count as f64 / sample_limit as f64).ceil() as i64;
+        let sample_limit = limit.min(2000) as usize;
 
-        debug!(
-            run_id,
-            count, sample_limit, step, "Using sampling strategy for large dataset"
-        );
+        debug!(run_id, count, sample_limit, "Using LTTB sampling for large dataset");
 
-        sqlx::query_as::<_, crate::models::record::RecordPointRow>(
-            "SELECT * FROM (
-                SELECT *, ROW_NUMBER() OVER (ORDER BY timestamp) as rn
-                FROM records 
-                WHERE run_id = $1
-            ) t 
-            WHERE rn % $2 = 1 
-            ORDER BY timestamp 
-            LIMIT $3 OFFSET $4",
+        // Lightweight fetch for LTTB selection
+        let energy_rows: Vec<(i64, f64)> = sqlx::query_as(
+            "SELECT id,
+                    COALESCE(cpu_energy, 0.0) + COALESCE(gpu_energy, 0.0) +
+                    COALESCE(mem_energy, 0.0) + COALESCE(igpu_energy, 0.0) AS total_energy
+             FROM records WHERE run_id = $1
+             ORDER BY timestamp ASC, id ASC",
         )
         .bind(run_id)
-        .bind(step)
-        .bind(sample_limit)
-        .bind(offset)
+        .fetch_all(&state.pool)
+        .await
+        .map_err(ApiError::internal)?;
+
+        let values: Vec<f64> = energy_rows.iter().map(|r| r.1).collect();
+        let indices = lttb_indices(&values, sample_limit);
+        let selected_ids: Vec<i64> = indices.iter().map(|&i| energy_rows[i].0).collect();
+
+        sqlx::query_as::<_, RecordPointRow>(
+            "SELECT id, run_id, pid, timestamp::text AS timestamp,
+                    cpu_usage, cpu_energy, gpu_usage, gpu_energy,
+                    mem_usage, mem_energy, igpu_usage, igpu_energy,
+                    phase, epoch_num, tokens_processed, training_step, loss,
+                    learning_rate, sequence_length, accuracy, custom_metrics
+             FROM records WHERE id = ANY($1)
+             ORDER BY timestamp ASC, id ASC",
+        )
+        .bind(&selected_ids)
         .fetch_all(&state.pool)
         .await
         .map_err(ApiError::internal)?
     } else {
-        // Normal query for smaller datasets
         crate::db::records::fetch_record_rows_paginated(&state, run_id, limit, offset).await?
     };
 
@@ -387,6 +511,7 @@ fn merge_record_points(
             gpu_details: gpu_by_record.remove(&row.id).unwrap_or_default(),
             socket_details: socket_by_record.remove(&row.id).unwrap_or_default(),
             phase: row.phase,
+            epoch_num: row.epoch_num,
             tokens_processed: row.tokens_processed,
             training_step: row.training_step,
             loss: row.loss,

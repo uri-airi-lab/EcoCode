@@ -10,7 +10,7 @@ pub async fn fetch_record_rows(
     sqlx::query_as::<_, RecordPointRow>(
         "SELECT id, run_id, pid, timestamp::text AS timestamp, cpu_usage, cpu_energy,
                 gpu_usage, gpu_energy, mem_usage, mem_energy, igpu_usage, igpu_energy,
-                phase, tokens_processed, training_step, loss, learning_rate, sequence_length, accuracy, custom_metrics
+                phase, epoch_num, tokens_processed, training_step, loss, learning_rate, sequence_length, accuracy, custom_metrics
          FROM records
          WHERE run_id = $1
          ORDER BY timestamp ASC, id ASC",
@@ -31,7 +31,7 @@ pub async fn fetch_record_rows_paginated(
     sqlx::query_as::<_, RecordPointRow>(
         "SELECT id, run_id, pid, timestamp::text AS timestamp, cpu_usage, cpu_energy,
                 gpu_usage, gpu_energy, mem_usage, mem_energy, igpu_usage, igpu_energy,
-                phase, tokens_processed, training_step, loss, learning_rate, sequence_length, accuracy, custom_metrics
+                phase, epoch_num, tokens_processed, training_step, loss, learning_rate, sequence_length, accuracy, custom_metrics
          FROM records
          WHERE run_id = $1
          ORDER BY timestamp ASC, id ASC
@@ -129,7 +129,7 @@ pub async fn fetch_latest_record_with_details(
     let latest_row = sqlx::query_as::<_, RecordPointRow>(
         "SELECT id, run_id, pid, timestamp::text AS timestamp, cpu_usage, cpu_energy,
                 gpu_usage, gpu_energy, mem_usage, mem_energy, igpu_usage, igpu_energy,
-                phase, tokens_processed, training_step, loss, learning_rate, sequence_length, accuracy, custom_metrics
+                phase, epoch_num, tokens_processed, training_step, loss, learning_rate, sequence_length, accuracy, custom_metrics
          FROM records
          ORDER BY id DESC
          LIMIT 1",
@@ -178,6 +178,7 @@ pub async fn fetch_latest_record_with_details(
         gpu_details,
         socket_details,
         phase: row.phase,
+        epoch_num: row.epoch_num,
         tokens_processed: row.tokens_processed,
         training_step: row.training_step,
         loss: row.loss,
@@ -196,7 +197,7 @@ pub async fn fetch_record_by_id_with_details(
     let row = sqlx::query_as::<_, RecordPointRow>(
         "SELECT id, run_id, pid, timestamp::text AS timestamp, cpu_usage, cpu_energy,
                 gpu_usage, gpu_energy, mem_usage, mem_energy, igpu_usage, igpu_energy,
-                phase, tokens_processed, training_step, loss, learning_rate, sequence_length, accuracy, custom_metrics
+                phase, epoch_num, tokens_processed, training_step, loss, learning_rate, sequence_length, accuracy, custom_metrics
          FROM records
          WHERE id = $1",
     )
@@ -245,6 +246,7 @@ pub async fn fetch_record_by_id_with_details(
         gpu_details,
         socket_details,
         phase: row.phase,
+        epoch_num: row.epoch_num,
         tokens_processed: row.tokens_processed,
         training_step: row.training_step,
         loss: row.loss,

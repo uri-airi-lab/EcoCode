@@ -24,6 +24,7 @@ use sysinfo::{Pid, System};
 #[derive(Debug, Default, Clone)]
 struct MarkerState {
     phase: Option<String>,
+    epoch: Option<i64>,
     tokens_processed: Option<i64>,
     training_step: Option<i64>,
     loss: Option<f64>,
@@ -104,6 +105,10 @@ impl SamplerHandle {
         self.markers.lock().unwrap().phase = Some(phase.to_string());
     }
 
+    pub fn set_epoch(&self, epoch: i64) {
+        self.markers.lock().unwrap().epoch = Some(epoch);
+    }
+
     pub fn set_tokens(&self, count: i64) {
         self.markers.lock().unwrap().tokens_processed = Some(count);
     }
@@ -158,13 +163,33 @@ fn sampler_loop(
     let mut last_tree_refresh = std::time::Instant::now();
 
     // ── Energy reading state ────────────────────────────────────────────────────
-    let mut rapl_readers = rapl::scan_rapl_files().unwrap_or_else(|e| {
-        eprintln!(
-            "[ecocode] RAPL init failed: {}. CPU energy will not be tracked.",
-            e
-        );
-        Vec::new()
-    });
+    let rapl_path = std::path::Path::new(ecocode_core::sensor::RAPL_PATH);
+    let mut rapl_readers = match rapl::scan_rapl_files() {
+        Ok(readers) => readers,
+        Err(e) => {
+            if rapl_path.exists() {
+                // Hardware is present but unreadable — almost always a permissions issue.
+                let is_permission_denied = e
+                    .downcast_ref::<std::io::Error>()
+                    .map_or(false, |io_err| {
+                        io_err.kind() == std::io::ErrorKind::PermissionDenied
+                    });
+                if is_permission_denied {
+                    eprintln!(
+                        "\n[ecocode] RAPL energy files are not readable (permission denied).\n\
+                         CPU energy will not be tracked in this run.\n\n\
+                         To enable CPU energy monitoring, run the following command once\n\
+                         and then restart your script:\n\n\
+                             sudo chmod -R +r /sys/class/powercap/intel-rapl/\n"
+                    );
+                } else {
+                    eprintln!("[ecocode] RAPL init failed: {e}. CPU energy will not be tracked.");
+                }
+            }
+            // RAPL path absent → non-Intel CPU or VM; skip silently.
+            Vec::new()
+        }
+    };
     let rapl_available = !rapl_readers.is_empty();
 
     // Prime RAPL counters so the first delta is 0 instead of garbage.
@@ -381,6 +406,7 @@ fn sampler_loop(
             gpu_metrics,
             socket_metrics,
             phase: state.phase,
+            epoch_num: state.epoch,
             tokens_processed: state.tokens_processed,
             training_step: state.training_step,
             loss: state.loss,

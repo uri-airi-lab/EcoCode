@@ -97,6 +97,7 @@ pub struct Record {
     pub gpu_metrics: Vec<GpuMetric>,
     pub socket_metrics: Vec<SocketMetric>,
     pub phase: Option<String>,
+    pub epoch_num: Option<i64>,
     pub tokens_processed: Option<i64>,
     pub training_step: Option<i64>,
     pub loss: Option<f64>,

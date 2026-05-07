@@ -322,6 +322,21 @@ export async function fetchRunRecords(id: string, limit = 1000, offset = 0): Pro
   return backendRecords.map(mapRecord).sort((a, b) => a.timestamp - b.timestamp)
 }
 
+// Fetches LTTB-downsampled records within a Unix-ms time window. Used by zoom-aware charts.
+export async function fetchRunRecordsInRange(
+  id: string,
+  startTs: number,
+  endTs: number,
+  maxPoints: number
+): Promise<MetricRecord[]> {
+  const res = await apiFetch(
+    buildApiUrl(`/api/run/${id}/record_points?start_ts=${startTs}&end_ts=${endTs}&limit=${maxPoints}`)
+  )
+  if (!res.ok) return []
+  const backendRecords: BackendRecordPoint[] = await res.json()
+  return backendRecords.map(mapRecord).sort((a, b) => a.timestamp - b.timestamp)
+}
+
 export async function fetchRunDetail(id: string): Promise<RunDetail> {
   try {
     const [runRes, summaryRes, recordsRes] = await Promise.all([

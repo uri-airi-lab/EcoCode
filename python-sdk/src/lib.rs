@@ -21,8 +21,8 @@ use std::sync::Arc;
 use ecocode_core::http_client::{EcoCodeHttpClient, SystemInfo};
 use sysinfo::System;
 
-mod sampler;
-mod socket_client;
+mod sampler; // for standalone mode, samples energy on a background thread
+mod socket_client; // for attached mode, communicates with the CLI via Unix socket
 
 use sampler::SamplerHandle;
 use socket_client::SocketClient;
@@ -258,7 +258,7 @@ impl EcoCodeRun {
             }
             Mode::Standalone => {
                 if let Some(ref sampler) = self.sampler {
-                    sampler.set_phase(&format!("epoch:{}", epoch));
+                    sampler.set_epoch(epoch);
                 }
             }
         }

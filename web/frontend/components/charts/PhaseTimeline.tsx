@@ -102,6 +102,90 @@ function formatEnergy(j: number): string {
   return `${(j / 3600).toFixed(2)}Wh`
 }
 
+// ── Epoch tracking ─────────────────────────────────────────────────────────────
+// Primary source: records[].epoch_num (a sticky integer set by log_epoch()).
+// Fallback: records[].phase = "epoch:N" (old behaviour, kept for existing runs).
+
+interface EpochEnergy {
+  epoch: number
+  energyJ: number
+  durationMs: number
+}
+
+interface EpochBoundary {
+  epoch: number
+  timestampMs: number
+}
+
+function buildEpochBoundaries(records: MetricRecord[]): EpochBoundary[] {
+  const out: EpochBoundary[] = []
+  let last: number | null = null
+
+  for (const r of records) {
+    if (r.epoch_num != null && r.epoch_num !== last) {
+      out.push({ epoch: r.epoch_num, timestampMs: r.timestamp })
+      last = r.epoch_num
+    }
+  }
+  if (out.length > 0) return out
+
+  // Fallback for runs recorded before the epoch_num field existed
+  let lastPhase: string | null = null
+  for (const r of records) {
+    if (r.phase?.startsWith('epoch:') && r.phase !== lastPhase) {
+      const n = parseInt(r.phase.split(':')[1], 10)
+      if (!isNaN(n)) {
+        out.push({ epoch: n, timestampMs: r.timestamp })
+        lastPhase = r.phase
+      }
+    }
+  }
+  return out
+}
+
+function computeEpochEnergies(records: MetricRecord[]): EpochEnergy[] {
+  // Primary: group records by epoch_num
+  type Acc = { energyJ: number; minMs: number; maxMs: number }
+  const map = new Map<number, Acc>()
+  let hasEpochNum = false
+
+  for (const r of records) {
+    if (r.epoch_num != null) {
+      hasEpochNum = true
+      const e = recordEnergy(r)
+      const acc = map.get(r.epoch_num)
+      if (acc) {
+        acc.energyJ += e
+        acc.maxMs = Math.max(acc.maxMs, r.timestamp)
+      } else {
+        map.set(r.epoch_num, { energyJ: e, minMs: r.timestamp, maxMs: r.timestamp })
+      }
+    }
+  }
+
+  if (hasEpochNum) {
+    return Array.from(map.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([epoch, { energyJ, minMs, maxMs }]) => ({ epoch, energyJ, durationMs: maxMs - minMs }))
+  }
+
+  // Fallback: infer epochs from phase = "epoch:N" segments
+  const segments = buildSegments(records)
+  const result: EpochEnergy[] = []
+  let current: EpochEnergy | null = null
+  for (const seg of segments) {
+    if (seg.phase.startsWith('epoch:')) {
+      if (current !== null) result.push(current)
+      current = { epoch: parseInt(seg.phase.split(':')[1], 10), energyJ: seg.energyJ, durationMs: seg.endMs - seg.startMs }
+    } else if (current !== null) {
+      current.energyJ += seg.energyJ
+      current.durationMs += seg.endMs - seg.startMs
+    }
+  }
+  if (current !== null) result.push(current)
+  return result
+}
+
 // ── Legend ─────────────────────────────────────────────────────────────────────
 
 function PhaseLegend({ phases }: { phases: string[] }) {
@@ -135,6 +219,22 @@ export function PhaseTimeline({ records }: PhaseTimelineProps) {
   }, [])
 
   const segments = useMemo(() => buildSegments(records), [records])
+  const epochEnergies = useMemo(() => computeEpochEnergies(records), [records])
+  const totalEpochEnergy = useMemo(
+    () => epochEnergies.reduce((s, e) => s + e.energyJ, 0),
+    [epochEnergies]
+  )
+  const epochBoundaries = useMemo(() => buildEpochBoundaries(records), [records])
+  const epochTicks = useMemo(() => {
+    if (segments.length === 0) return []
+    const firstMs = segments[0].startMs
+    const totalMs = segments[segments.length - 1].endMs - firstMs
+    if (totalMs === 0) return []
+    return epochBoundaries.map(b => ({
+      epochNum: b.epoch,
+      leftPct: ((b.timestampMs - firstMs) / totalMs) * 100,
+    }))
+  }, [epochBoundaries, segments])
 
   if (segments.length === 0) return null
 
@@ -155,31 +255,46 @@ export function PhaseTimeline({ records }: PhaseTimelineProps) {
         <span className="text-xs text-muted-foreground">{segments.length} transitions · {formatMs(totalMs)} total</span>
       </div>
 
-      {/* Timeline bar */}
-      <div
-        className="relative flex w-full h-10 rounded-md overflow-hidden border border-border"
-        onMouseLeave={() => setTooltip(null)}
-      >
-        {segments.map((seg, i) => {
-          const widthPct = totalMs > 0 ? ((seg.endMs - seg.startMs) / totalMs) * 100 : 0
-          const s = phaseStyle(seg.phase)
-          return (
-            <div
-              key={i}
-              className={`relative flex items-center justify-center overflow-hidden ${s.bg} border-r border-background/20 transition-opacity hover:opacity-90 cursor-pointer`}
-              style={{ width: `${widthPct}%`, minWidth: widthPct > 0 ? '2px' : 0 }}
-              onMouseMove={(e) => {
-                setTooltip({ seg, x: e.clientX, y: e.clientY })
-              }}
-            >
-              {widthPct > 5 && (
-                <span className={`text-[10px] font-medium truncate px-1 select-none ${s.text}`}>
-                  {s.label || seg.phase}
-                </span>
-              )}
-            </div>
-          )
-        })}
+      {/* Timeline bar — outer wrapper provides space above for epoch labels */}
+      <div className="relative pt-5">
+        <div
+          className="relative flex w-full h-10 rounded-md overflow-hidden border border-border"
+          onMouseLeave={() => setTooltip(null)}
+        >
+          {segments.map((seg, i) => {
+            const widthPct = totalMs > 0 ? ((seg.endMs - seg.startMs) / totalMs) * 100 : 0
+            const s = phaseStyle(seg.phase)
+            return (
+              <div
+                key={i}
+                className={`relative flex items-center justify-center overflow-hidden ${s.bg} border-r border-background/20 transition-opacity hover:opacity-90 cursor-pointer`}
+                style={{ width: `${widthPct}%`, minWidth: widthPct > 0 ? '2px' : 0 }}
+                onMouseMove={(e) => {
+                  setTooltip({ seg, x: e.clientX, y: e.clientY })
+                }}
+              >
+                {widthPct > 5 && (
+                  <span className={`text-[10px] font-medium truncate px-1 select-none ${s.text}`}>
+                    {s.label || seg.phase}
+                  </span>
+                )}
+              </div>
+            )
+          })}
+        </div>
+        {/* Epoch boundary tick marks */}
+        {epochTicks.map(({ epochNum, leftPct }) => (
+          <div
+            key={`epoch-tick-${epochNum}`}
+            className="absolute top-0 flex flex-col items-center pointer-events-none"
+            style={{ left: `${leftPct}%` }}
+          >
+            <span className="text-[9px] font-medium text-indigo-400 leading-none pb-0.5 -translate-x-1/2 whitespace-nowrap">
+              E{epochNum}
+            </span>
+            <div className="w-px h-10 bg-white/30" />
+          </div>
+        ))}
       </div>
 
       {/* Energy per phase breakdown */}
@@ -228,6 +343,46 @@ export function PhaseTimeline({ records }: PhaseTimelineProps) {
                   </span>
                 )
               })}
+          </div>
+        </>
+      )}
+
+      {/* Energy by epoch */}
+      {epochEnergies.length > 0 && (
+        <>
+          <p className="text-xs text-muted-foreground mt-4 mb-1.5">Energy by epoch</p>
+          <div className="flex w-full h-4 rounded overflow-hidden border border-border">
+            {epochEnergies.map((e, i) => {
+              const widthPct = totalEpochEnergy > 0 ? (e.energyJ / totalEpochEnergy) * 100 : 0
+              const bgColors = ['bg-violet-500', 'bg-violet-600', 'bg-violet-700', 'bg-violet-800']
+              return (
+                <div
+                  key={e.epoch}
+                  className={`${bgColors[i % bgColors.length]} opacity-80 border-r border-background/10 transition-opacity hover:opacity-100 cursor-help`}
+                  style={{ width: `${widthPct}%`, minWidth: widthPct > 0 ? '2px' : 0 }}
+                  onMouseMove={(ev) => {
+                    setTooltip({
+                      seg: { phase: `epoch:${e.epoch}`, energyJ: e.energyJ, startMs: 0, endMs: e.durationMs, recordCount: 0 },
+                      x: ev.clientX, y: ev.clientY,
+                    })
+                  }}
+                  onMouseLeave={() => setTooltip(null)}
+                />
+              )
+            })}
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+            {epochEnergies.map((e) => {
+              const pct = totalEpochEnergy > 0 ? (e.energyJ / totalEpochEnergy * 100).toFixed(1) : '0'
+              return (
+                <span key={e.epoch} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span className="w-2 h-2 rounded-sm bg-violet-500" />
+                  Epoch {e.epoch}:{' '}
+                  <span className="text-foreground font-medium">{formatEnergy(e.energyJ)}</span>
+                  <span className="text-muted-foreground/60">({pct}%)</span>
+                </span>
+              )
+            })}
           </div>
         </>
       )}

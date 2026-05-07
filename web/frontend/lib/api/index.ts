@@ -18,6 +18,7 @@ export {
   fetchRunDetail,
   fetchRunMeta,
   fetchRunRecords,
+  fetchRunRecordsInRange,
   mapRunSummary,
   fetchImprovements,
   createRun,

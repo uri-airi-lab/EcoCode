@@ -1,300 +1,305 @@
 'use client'
 
-import { useMemo, useRef } from 'react'
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  Title,
-  Tooltip,
-  Legend,
-  Filler,
-  ChartDataset,
-} from 'chart.js'
-import { Line } from 'react-chartjs-2'
-import annotationPlugin from 'chartjs-plugin-annotation'
+import { useMemo, useRef, useState, useCallback, useEffect } from 'react'
+import dynamic from 'next/dynamic'
+import type { RefObject } from 'react'
+import type { UPlotChartHandle } from './UPlotChart'
+import { makeTooltipPlugin, AXIS_STROKE, GRID_STROKE, AXIS_FONT } from './uplot-helpers'
 import { MetricRecord } from '@/lib/mock-data'
 import { chartColor } from '@/lib/chart-colors'
 import { ChartInfoTooltip } from '@/components/ChartInfoTooltip'
+import { lttbSample } from '@/lib/lttb'
+import { VirtualizedChartList } from './VirtualizedChartList'
+import type { MetricSeries } from './VirtualizedChartList'
 
-// Register ChartJS components
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  Title,
-  Tooltip,
-  Legend,
-  Filler,
-  annotationPlugin
-)
+const UPlotChart = dynamic(() => import('./UPlotChart'), { ssr: false })
 
-interface EpochMarker {
-  step: number
-  epoch: number
-}
+const LTTB_THRESHOLD = 600
+const HEIGHT = 260
 
-const CUSTOM_COLOR_OFFSET = 6
-const PX_PER_POINT = 12
-const MIN_WIDTH = 600
+interface EpochMarker { step: number; epoch: number }
 
 interface TrainingMetricsChartProps {
   records: MetricRecord[]
 }
 
 export function TrainingMetricsChart({ records }: TrainingMetricsChartProps) {
-  const scrollRef = useRef<HTMLDivElement>(null)
+  const uplotRef = useRef<UPlotChartHandle>(null) as RefObject<UPlotChartHandle>
+  const [zoomRange, setZoomRange] = useState<{ min: number; max: number } | null>(null)
+  const [isZoomed, setIsZoomed] = useState(false)
 
-  const { chartLabels, datasets, epochs, hasLoss, hasLR, hasAccuracy, hasCustom, customKeys } = useMemo(() => {
-    const labels: string[] = []
-    const lossData: (number | null)[] = []
-    const lrData: (number | null)[] = []
-    const accuracyData: (number | null)[] = []
+  const handleZoom = useCallback((min: number, max: number) => {
+    setIsZoomed(true)
+    setZoomRange({ min, max })
+    uplotRef.current?.setScale(min, max)
+  }, [])
+
+  // When zoom is cleared, reset the chart scale
+  useEffect(() => {
+    if (!zoomRange) uplotRef.current?.resetZoom()
+  }, [zoomRange])
+
+  // Records with training_step AND at least one metric
+  const stepRecords = useMemo(() => records.filter(r => {
+    if (r.training_step == null) return false
+    return r.loss != null || r.learning_rate != null || r.accuracy != null ||
+      (r.custom_metrics && Object.keys(r.custom_metrics).length > 0)
+  }), [records])
+
+  // Epoch boundaries for annotation lines
+  const allEpochs = useMemo(() => {
     const epochs: EpochMarker[] = []
-    const customKeySet = new Set<string>()
-    const customMetricData: Record<string, (number | null)[]> = {}
-    
-    let lastEpoch: string | null = null
-
-    // Pre-pass for custom keys
+    let lastEpochNum: number | null = null
+    let lastEpochPhase: string | null = null
     records.forEach(r => {
-      if (r.custom_metrics) {
-        Object.keys(r.custom_metrics).forEach(key => customKeySet.add(key))
-      }
-    })
-    const sortedCustomKeys = Array.from(customKeySet).sort()
-    sortedCustomKeys.forEach(key => {
-      customMetricData[key] = []
-    })
-
-    records.forEach((r) => {
       if (r.training_step == null) return
-
-      // Detect epoch boundaries
-      if (r.phase?.startsWith('epoch:')) {
+      if (r.epoch_num != null) {
+        if (r.epoch_num !== lastEpochNum) {
+          epochs.push({ step: r.training_step, epoch: r.epoch_num })
+          lastEpochNum = r.epoch_num
+        }
+      } else if (r.phase?.startsWith('epoch:')) {
         const e = parseInt(r.phase.split(':')[1], 10)
-        if (r.phase !== lastEpoch && !isNaN(e)) {
+        if (r.phase !== lastEpochPhase && !isNaN(e)) {
           epochs.push({ step: r.training_step, epoch: e })
-          lastEpoch = r.phase
+          lastEpochPhase = r.phase
         }
       }
-
-      const hasAnyMetric = r.loss != null || r.learning_rate != null || r.accuracy != null ||
-        (r.custom_metrics && Object.keys(r.custom_metrics).length > 0)
-      if (!hasAnyMetric) return
-
-      labels.push(`Step ${r.training_step}`)
-      lossData.push(r.loss ?? null)
-      lrData.push(r.learning_rate ?? null)
-      accuracyData.push(r.accuracy ?? null)
-
-      sortedCustomKeys.forEach(key => {
-        customMetricData[key].push(r.custom_metrics?.[key] ?? null)
-      })
     })
-
-    const finalDatasets: ChartDataset<'line'>[] = []
-
-    if (lossData.some(v => v !== null)) {
-      finalDatasets.push({
-        label: 'Loss',
-        data: lossData as any,
-        borderColor: chartColor(5),
-        backgroundColor: chartColor(5, 0.05),
-        fill: true,
-        borderWidth: 2,
-        pointRadius: 0,
-        yAxisID: 'y-loss',
-        tension: 0.1,
-      })
-    }
-
-    if (lrData.some(v => v !== null)) {
-      finalDatasets.push({
-        label: 'Learning Rate',
-        data: lrData as any,
-        borderColor: chartColor(1),
-        backgroundColor: 'transparent',
-        borderWidth: 1.5,
-        borderDash: [5, 2],
-        pointRadius: 0,
-        yAxisID: 'y-lr',
-        tension: 0.1,
-      })
-    }
-
-    if (accuracyData.some(v => v !== null)) {
-      finalDatasets.push({
-        label: 'Accuracy',
-        data: accuracyData as any,
-        borderColor: chartColor(3),
-        backgroundColor: chartColor(3, 0.05),
-        fill: true,
-        borderWidth: 2,
-        pointRadius: 0,
-        yAxisID: 'y-acc',
-        tension: 0.1,
-      })
-    }
-
-    sortedCustomKeys.forEach((key, i) => {
-      finalDatasets.push({
-        label: key,
-        data: customMetricData[key] as any,
-        borderColor: chartColor(CUSTOM_COLOR_OFFSET + i),
-        backgroundColor: 'transparent',
-        borderWidth: 1.5,
-        borderDash: [3, 3],
-        pointRadius: 0,
-        yAxisID: 'y-loss', // Custom metrics share Loss axis by default
-        tension: 0.1,
-      })
-    })
-
-    return { 
-      chartLabels: labels, 
-      datasets: finalDatasets, 
-      epochs,
-      hasLoss: lossData.some(v => v !== null),
-      hasLR: lrData.some(v => v !== null),
-      hasAccuracy: accuracyData.some(v => v !== null),
-      hasCustom: sortedCustomKeys.length > 0,
-      customKeys: sortedCustomKeys
-    }
+    return epochs
   }, [records])
 
-  if (datasets.length === 0) return null
+  // Client-side zoom: filter stepRecords by step range when zoomed, LTTB otherwise
+  const visibleRecords = useMemo(() => {
+    if (zoomRange) {
+      return stepRecords.filter(r =>
+        r.training_step! >= zoomRange.min && r.training_step! <= zoomRange.max
+      )
+    }
+    return lttbSample(stepRecords, LTTB_THRESHOLD, r =>
+      r.loss ?? r.accuracy ?? r.learning_rate ?? 0
+    )
+  }, [stepRecords, zoomRange])
 
-  const chartWidth = Math.max(MIN_WIDTH, chartLabels.length * PX_PER_POINT)
+  // ── Custom metrics — extracted to VirtualizedChartList ──────────────────
 
-  const options = {
-    responsive: true,
-    maintainAspectRatio: false,
-    interaction: {
-      mode: 'index' as const,
-      intersect: false,
-    },
-    scales: {
-      x: {
-        grid: { display: false },
-        ticks: {
-          color: 'hsl(215 20.2% 65.1%)',
-          font: { size: 10 },
-          maxRotation: 0,
-          autoSkip: true,
-          maxTicksLimit: 10,
-        },
+  const customKeys = useMemo(() => {
+    const keys = new Set<string>()
+    stepRecords.forEach(r => {
+      if (r.custom_metrics) Object.keys(r.custom_metrics).forEach(k => keys.add(k))
+    })
+    return Array.from(keys).sort()
+  }, [stepRecords])
+
+  const customSeries = useMemo((): MetricSeries[] =>
+    customKeys.map(key => {
+      const steps: number[] = [], values: number[] = []
+      visibleRecords.forEach(r => {
+        const v = r.custom_metrics?.[key]
+        if (v != null) { steps.push(r.training_step!); values.push(v) }
+      })
+      return { key, steps, values }
+    }),
+    [customKeys, visibleRecords]
+  )
+
+  // ── Main chart: Loss, LR, Accuracy ───────────────────────────────────────
+
+  const { uplotData, hasLoss, hasLR, hasAccuracy } = useMemo(() => {
+    const steps: number[] = [], loss: (number | null)[] = []
+    const lr: (number | null)[] = [], acc: (number | null)[] = []
+
+    visibleRecords.forEach(r => {
+      steps.push(r.training_step!)
+      loss.push(r.loss ?? null)
+      lr.push(r.learning_rate ?? null)
+      acc.push(r.accuracy ?? null)
+    })
+
+    return {
+      uplotData: [steps, loss, lr, acc] as any,
+      hasLoss: loss.some(v => v != null),
+      hasLR: lr.some(v => v != null),
+      hasAccuracy: acc.some(v => v != null),
+    }
+  }, [visibleRecords])
+
+  // Axis and series configuration matches what was visible — recreates only when flags change
+  const options = useMemo(() => {
+    const axes: object[] = [
+      // x-axis (training step)
+      {
+        stroke: AXIS_STROKE,
+        grid: { stroke: GRID_STROKE, width: 1 },
+        ticks: { stroke: GRID_STROKE, width: 1 },
+        font: AXIS_FONT,
+        values: (_u: unknown, vals: (number | null)[]) =>
+          vals.map(v => v == null ? '' : `Step ${v}`),
       },
-      'y-loss': {
-        type: 'linear' as const,
-        display: hasLoss || hasCustom,
-        position: 'left' as const,
-        grid: { color: 'rgba(255, 255, 255, 0.05)' },
-        ticks: { color: 'hsl(215 20.2% 65.1%)', font: { size: 10 } },
-        title: { display: true, text: 'Loss', color: 'hsl(215 20.2% 65.1%)', font: { size: 10 } },
-      },
-      'y-lr': {
-        type: 'linear' as const,
-        display: hasLR,
-        position: 'right' as const,
-        grid: { display: false },
-        ticks: { 
-          color: 'hsl(215 20.2% 65.1%)', 
-          font: { size: 10 },
-          callback: (value: any) => value.toExponential(1)
-        },
-        title: { display: true, text: 'LR', color: 'hsl(215 20.2% 65.1%)', font: { size: 10 } },
-      },
-      'y-acc': {
-        type: 'linear' as const,
-        display: hasAccuracy,
-        position: 'right' as const,
-        min: 0,
-        max: 100,
-        grid: { display: false },
-        ticks: { color: 'hsl(215 20.2% 65.1%)', font: { size: 10 }, callback: (v: any) => `${v}%` },
-        title: { display: true, text: 'Accuracy', color: 'hsl(215 20.2% 65.1%)', font: { size: 10 } },
-      },
-    },
-    plugins: {
-      legend: {
-        position: 'bottom' as const,
-        labels: {
-          color: 'hsl(215 20.2% 65.1%)',
-          usePointStyle: true,
-          padding: 20,
-          font: { size: 11 },
-        },
-      },
-      tooltip: {
-        backgroundColor: 'hsl(222 47% 10%)',
-        borderColor: 'hsl(217.2 32.6% 17.5%)',
-        borderWidth: 1,
-        titleFont: { size: 12, family: 'var(--font-jetbrains-mono)' },
-        bodyFont: { size: 11, family: 'var(--font-jetbrains-mono)' },
-        padding: 12,
-        cornerRadius: 4,
-        callbacks: {
-          label: (context: any) => {
-            let label = context.dataset.label || ''
-            if (label) label += ': '
-            if (context.dataset.label === 'Learning Rate') {
-              label += context.parsed.y.toExponential(2)
-            } else {
-              label += context.parsed.y.toFixed(4)
+    ]
+
+    if (hasLoss) {
+      axes.push({
+        scale: 'loss',
+        side: 3, // left
+        label: 'Loss',
+        stroke: AXIS_STROKE,
+        grid: { stroke: GRID_STROKE, width: 1 },
+        ticks: { stroke: GRID_STROKE, width: 1 },
+        font: AXIS_FONT,
+        values: (_u: unknown, vals: (number | null)[]) =>
+          vals.map(v => v == null ? '' : v.toFixed(3)),
+      })
+    }
+
+    if (hasLR) {
+      axes.push({
+        scale: 'lr',
+        side: 1, // right
+        label: 'LR',
+        stroke: AXIS_STROKE,
+        grid: { show: false },
+        ticks: { stroke: GRID_STROKE, width: 1 },
+        font: AXIS_FONT,
+        values: (_u: unknown, vals: (number | null)[]) =>
+          vals.map(v => v == null ? '' : Number(v).toExponential(1)),
+      })
+    }
+
+    if (hasAccuracy) {
+      axes.push({
+        scale: 'acc',
+        side: 1, // right
+        label: 'Acc %',
+        stroke: AXIS_STROKE,
+        grid: { show: false },
+        ticks: { stroke: GRID_STROKE, width: 1 },
+        font: AXIS_FONT,
+        values: (_u: unknown, vals: (number | null)[]) =>
+          vals.map(v => v == null ? '' : `${v.toFixed(0)}%`),
+      })
+    }
+
+    const scales: Record<string, object> = { x: { time: false } }
+    if (hasLoss) scales['loss'] = {}
+    if (hasLR)   scales['lr']   = {}
+    if (hasAccuracy) scales['acc'] = { range: [0, 100] as [number, number] }
+
+    const series: object[] = [{}] // x series
+    const tooltipLabels: string[] = []
+    const tooltipColors: string[] = []
+
+    if (hasLoss) {
+      series.push({ scale: 'loss', label: 'Loss', stroke: chartColor(5), fill: chartColor(5, 0.05), width: 2 })
+      tooltipLabels.push('Loss'); tooltipColors.push(chartColor(5))
+    }
+    if (hasLR) {
+      series.push({ scale: 'lr', label: 'LR', stroke: chartColor(1), width: 1.5, dash: [5, 2] })
+      tooltipLabels.push('Learning Rate'); tooltipColors.push(chartColor(1))
+    }
+    if (hasAccuracy) {
+      series.push({ scale: 'acc', label: 'Accuracy', stroke: chartColor(3), fill: chartColor(3, 0.05), width: 2 })
+      tooltipLabels.push('Accuracy'); tooltipColors.push(chartColor(3))
+    }
+
+    return {
+      height: HEIGHT,
+      scales,
+      axes,
+      series,
+      legend: { show: false },
+      plugins: [
+        makeTooltipPlugin({
+          labels: tooltipLabels,
+          colors: tooltipColors,
+          formatX: v => `Step ${v}`,
+          formatY: (val, i) => {
+            const label = tooltipLabels[i] ?? ''
+            if (label === 'Learning Rate') return val.toExponential(2)
+            if (label === 'Accuracy') return `${val.toFixed(2)}%`
+            return val.toFixed(4)
+          },
+        }),
+      ],
+      hooks: {
+        draw: [
+          (u: any) => {
+            if (allEpochs.length === 0) return
+            const ctx = u.ctx
+            ctx.save()
+            ctx.strokeStyle = 'rgba(255,255,255,0.2)'
+            ctx.lineWidth = 1
+            ctx.setLineDash([4, 4])
+            for (const ep of allEpochs) {
+              const x = Math.round(u.valToPos(ep.step, 'x', true))
+              if (x < u.bbox.left || x > u.bbox.left + u.bbox.width) continue
+              ctx.beginPath()
+              ctx.moveTo(x, u.bbox.top)
+              ctx.lineTo(x, u.bbox.top + u.bbox.height)
+              ctx.stroke()
+              ctx.setLineDash([])
+              ctx.font = '9px sans-serif'
+              ctx.fillStyle = 'hsl(215 20.2% 65.1%)'
+              ctx.fillText(`Epoch ${ep.epoch}`, x + 3, u.bbox.top + 10)
+              ctx.setLineDash([4, 4])
             }
-            return label
-          }
-        }
+            ctx.restore()
+          },
+        ],
       },
-      annotation: {
-        annotations: epochs.reduce((acc, e, idx) => {
-          // Find approximate index of the step in our labels
-          const stepLabel = `Step ${e.step}`
-          const labelIndex = chartLabels.indexOf(stepLabel)
-          if (labelIndex === -1) return acc
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasLoss, hasLR, hasAccuracy, allEpochs])
 
-          acc[`epoch-${idx}`] = {
-            type: 'line',
-            xMin: labelIndex,
-            xMax: labelIndex,
-            borderColor: 'rgba(255, 255, 255, 0.2)',
-            borderWidth: 1,
-            borderDash: [4, 4],
-            label: {
-              display: true,
-              content: `Epoch ${e.epoch}`,
-              position: 'start',
-              backgroundColor: 'rgba(0,0,0,0.5)',
-              color: 'hsl(215 20.2% 65.1%)',
-              font: { size: 9 },
-              padding: 2,
-            }
-          }
-          return acc
-        }, {} as any)
-      }
-    },
-  }
+  const seriesEntries = useMemo(() => {
+    const entries: { label: string; color: string }[] = []
+    if (hasLoss) entries.push({ label: 'Loss', color: chartColor(5) })
+    if (hasLR)   entries.push({ label: 'Learning Rate', color: chartColor(1) })
+    if (hasAccuracy) entries.push({ label: 'Accuracy', color: chartColor(3) })
+    return entries
+  }, [hasLoss, hasLR, hasAccuracy])
+
+  if (!hasLoss && !hasLR && !hasAccuracy && customKeys.length === 0) return null
 
   return (
-    <div className="chart-container">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <h2 className="text-lg font-semibold text-foreground">Training Metrics</h2>
-          <ChartInfoTooltip content="Loss and learning rate plotted over optimizer steps. Epoch boundaries are shown as vertical dashed lines. Custom metrics from log_custom() are also displayed." />
-        </div>
-      </div>
-      <div className="relative h-[260px]">
-        <div ref={scrollRef} className="overflow-x-auto h-full">
-          <div style={{ width: chartWidth, height: '100%' }}>
-            <Line data={{ labels: chartLabels, datasets }} options={options as any} />
+    <div className="space-y-4">
+      {/* Main chart: Loss / LR / Accuracy */}
+      {(hasLoss || hasLR || hasAccuracy) && (
+        <div className="chart-container">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-semibold text-foreground">Training Metrics</h2>
+              <ChartInfoTooltip content="Loss, learning rate, and accuracy plotted over training steps. Epoch boundaries shown as dashed lines. Drag to zoom." />
+            </div>
+            {isZoomed && (
+              <button
+                className="text-xs text-muted-foreground hover:text-foreground px-2 py-0.5 border border-border rounded"
+                onClick={() => { setZoomRange(null); setIsZoomed(false) }}
+              >
+                Reset zoom
+              </button>
+            )}
+          </div>
+          <UPlotChart
+            ref={uplotRef}
+            data={uplotData}
+            options={options as any}
+            onZoom={handleZoom}
+            style={{ height: HEIGHT }}
+          />
+          <div className="flex flex-wrap justify-center gap-4 mt-3">
+            {seriesEntries.map(s => (
+              <div key={s.label} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <span className="w-2.5 h-2.5 rounded-sm inline-block flex-shrink-0" style={{ background: s.color }} />
+                {s.label}
+              </div>
+            ))}
           </div>
         </div>
-      </div>
+      )}
+
+      {/* Custom metrics — virtualized, one chart per key */}
+      {customSeries.length > 0 && <VirtualizedChartList items={customSeries} />}
     </div>
   )
 }

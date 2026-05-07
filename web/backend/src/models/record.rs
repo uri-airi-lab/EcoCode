@@ -17,6 +17,7 @@ pub struct RecordPointRow {
     pub igpu_energy: Option<f64>,
     // ML semantic fields from the Python SDK
     pub phase: Option<String>,
+    pub epoch_num: Option<i64>,
     pub tokens_processed: Option<i64>,
     pub training_step: Option<i64>,
     pub loss: Option<f64>,
@@ -45,6 +46,7 @@ pub struct RecordPoint {
     pub socket_details: Vec<SocketRecordPoint>,
     // ML semantic fields from the Python SDK
     pub phase: Option<String>,
+    pub epoch_num: Option<i64>,
     pub tokens_processed: Option<i64>,
     pub training_step: Option<i64>,
     pub loss: Option<f64>,
