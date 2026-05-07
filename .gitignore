@@ -49,3 +49,5 @@ data/
 .kiro/
 .idea/
 .vscode/
+**/*.so
+**/*.so.*
