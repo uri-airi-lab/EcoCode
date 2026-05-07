@@ -70,33 +70,45 @@ az containerapp env create \
   --name "$ENVIRONMENT" \
   --resource-group "$RESOURCE_GROUP" \
   --location "$LOCATION" \
-  --output none
+  --output none 2>/dev/null || echo "  (environment already exists, continuing)"
 
 # ── 5. Deploy backend ─────────────────────────────────────────────────────────
 log "Deploying backend container app"
 
-# Secrets stored securely in Container Apps (not as plain env vars)
-az containerapp create \
-  --name "$BACKEND_APP" \
-  --resource-group "$RESOURCE_GROUP" \
-  --environment "$ENVIRONMENT" \
-  --image "$BACKEND_IMAGE" \
-  --registry-server "$ACR_LOGIN_SERVER" \
-  --registry-username "$(az acr credential show --name "$ACR_NAME" --query username -o tsv)" \
-  --registry-password "$(az acr credential show --name "$ACR_NAME" --query 'passwords[0].value' -o tsv)" \
-  --target-port 3001 \
-  --ingress external \
-  --min-replicas 1 \
-  --max-replicas 3 \
-  --secrets \
-      "db-url=$DATABASE_URL" \
-      "jwt-secret=$JWT_SECRET" \
-  --env-vars \
-      "DATABASE_URL=secretref:db-url" \
-      "JWT_SECRET=secretref:jwt-secret" \
-      "PRODUCTION=true" \
-      "CORS_ORIGIN=http://placeholder" \
-  --output none
+ACR_USER="$(az acr credential show --name "$ACR_NAME" --query username -o tsv)"
+ACR_PASS="$(az acr credential show --name "$ACR_NAME" --query 'passwords[0].value' -o tsv)"
+
+if az containerapp show --name "$BACKEND_APP" --resource-group "$RESOURCE_GROUP" --output none 2>/dev/null; then
+  # Update existing app — refresh image only
+  az containerapp update \
+    --name "$BACKEND_APP" \
+    --resource-group "$RESOURCE_GROUP" \
+    --image "$BACKEND_IMAGE" \
+    --output none
+else
+  # First-time create — set secrets, env vars, ingress
+  az containerapp create \
+    --name "$BACKEND_APP" \
+    --resource-group "$RESOURCE_GROUP" \
+    --environment "$ENVIRONMENT" \
+    --image "$BACKEND_IMAGE" \
+    --registry-server "$ACR_LOGIN_SERVER" \
+    --registry-username "$ACR_USER" \
+    --registry-password "$ACR_PASS" \
+    --target-port 3001 \
+    --ingress external \
+    --min-replicas 1 \
+    --max-replicas 3 \
+    --secrets \
+        "db-url=$DATABASE_URL" \
+        "jwt-secret=$JWT_SECRET" \
+    --env-vars \
+        "DATABASE_URL=secretref:db-url" \
+        "JWT_SECRET=secretref:jwt-secret" \
+        "PRODUCTION=true" \
+        "CORS_ORIGIN=http://placeholder" \
+    --output none
+fi
 
 BACKEND_FQDN=$(az containerapp show \
   --name "$BACKEND_APP" \
@@ -121,22 +133,33 @@ docker push "$FRONTEND_IMAGE"
 
 # ── 7. Deploy frontend ────────────────────────────────────────────────────────
 log "Deploying frontend container app"
-az containerapp create \
-  --name "$FRONTEND_APP" \
-  --resource-group "$RESOURCE_GROUP" \
-  --environment "$ENVIRONMENT" \
-  --image "$FRONTEND_IMAGE" \
-  --registry-server "$ACR_LOGIN_SERVER" \
-  --registry-username "$(az acr credential show --name "$ACR_NAME" --query username -o tsv)" \
-  --registry-password "$(az acr credential show --name "$ACR_NAME" --query 'passwords[0].value' -o tsv)" \
-  --target-port 3000 \
-  --ingress external \
-  --min-replicas 1 \
-  --max-replicas 3 \
-  --env-vars \
-      "NODE_ENV=production" \
-      "NEXT_PUBLIC_API_URL=$BACKEND_EXTERNAL_URL" \
-  --output none
+
+if az containerapp show --name "$FRONTEND_APP" --resource-group "$RESOURCE_GROUP" --output none 2>/dev/null; then
+  # Update existing app — refresh image only
+  az containerapp update \
+    --name "$FRONTEND_APP" \
+    --resource-group "$RESOURCE_GROUP" \
+    --image "$FRONTEND_IMAGE" \
+    --output none
+else
+  # First-time create — set ingress, env vars
+  az containerapp create \
+    --name "$FRONTEND_APP" \
+    --resource-group "$RESOURCE_GROUP" \
+    --environment "$ENVIRONMENT" \
+    --image "$FRONTEND_IMAGE" \
+    --registry-server "$ACR_LOGIN_SERVER" \
+    --registry-username "$ACR_USER" \
+    --registry-password "$ACR_PASS" \
+    --target-port 3000 \
+    --ingress external \
+    --min-replicas 1 \
+    --max-replicas 3 \
+    --env-vars \
+        "NODE_ENV=production" \
+        "NEXT_PUBLIC_API_URL=$BACKEND_EXTERNAL_URL" \
+    --output none
+fi
 
 FRONTEND_FQDN=$(az containerapp show \
   --name "$FRONTEND_APP" \
