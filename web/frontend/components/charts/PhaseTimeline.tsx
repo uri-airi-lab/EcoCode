@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { MetricRecord } from '@/lib/mock-data'
 
@@ -213,10 +213,10 @@ interface PhaseTimelineProps {
 export function PhaseTimeline({ records }: PhaseTimelineProps) {
   const [tooltip, setTooltip] = useState<{ seg: PhaseSegment; x: number; y: number } | null>(null)
   const [mounted, setMounted] = useState(false)
+  const [viewRange, setViewRange] = useState<{ start: number; end: number } | null>(null)
+  const [isPanning, setIsPanning] = useState(false)
 
-  useEffect(() => {
-    setMounted(true)
-  }, [])
+  useEffect(() => { setMounted(true) }, [])
 
   const segments = useMemo(() => buildSegments(records), [records])
   const epochEnergies = useMemo(() => computeEpochEnergies(records), [records])
@@ -225,21 +225,123 @@ export function PhaseTimeline({ records }: PhaseTimelineProps) {
     [epochEnergies]
   )
   const epochBoundaries = useMemo(() => buildEpochBoundaries(records), [records])
-  const epochTicks = useMemo(() => {
-    if (segments.length === 0) return []
-    const firstMs = segments[0].startMs
-    const totalMs = segments[segments.length - 1].endMs - firstMs
-    if (totalMs === 0) return []
-    return epochBoundaries.map(b => ({
-      epochNum: b.epoch,
-      leftPct: ((b.timestampMs - firstMs) / totalMs) * 100,
-    }))
+
+  // Snap each epoch boundary to the START of the first complete phase segment of the
+  // new epoch (first segment.startMs >= boundary timestamp). This prevents ticks from
+  // appearing mid-segment when the same phase (e.g. backward) spans an epoch transition.
+  const epochSnappedBoundaries = useMemo(() => {
+    if (epochBoundaries.length === 0 || segments.length === 0) return epochBoundaries
+    return epochBoundaries.map(b => {
+      for (const seg of segments) {
+        if (seg.startMs >= b.timestampMs) return { ...b, timestampMs: seg.startMs }
+      }
+      return b
+    })
   }, [epochBoundaries, segments])
 
   if (segments.length === 0) return null
 
-  const totalMs = segments[segments.length - 1].endMs - segments[0].startMs
+  const totalStart = segments[0].startMs
+  const totalEnd = segments[segments.length - 1].endMs
+  const totalMs = totalEnd - totalStart
+
+  const viewStart = viewRange?.start ?? totalStart
+  const viewEnd = viewRange?.end ?? totalEnd
+  const viewDuration = Math.max(1, viewEnd - viewStart)
+
   const uniquePhases = [...new Set(segments.map(s => s.phase))]
+
+  // ── Refs for event handlers (keep fresh values without re-attaching) ────────
+  const barRef = useRef<HTMLDivElement>(null)
+  const viewRangeRef = useRef(viewRange)
+  const totalStartRef = useRef(totalStart)
+  const totalEndRef = useRef(totalEnd)
+  const isPanningRef = useRef(false)
+  const panStartX = useRef(0)
+  const panStartRange = useRef({ start: 0, end: 1 })
+  const panRectWidth = useRef(1)
+
+  viewRangeRef.current = viewRange
+  totalStartRef.current = totalStart
+  totalEndRef.current = totalEnd
+
+  useEffect(() => {
+    const bar = barRef.current
+    if (!bar) return
+
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      const rect = bar.getBoundingClientRect()
+      const vStart = viewRangeRef.current?.start ?? totalStartRef.current
+      const vEnd = viewRangeRef.current?.end ?? totalEndRef.current
+      const range = vEnd - vStart
+
+      const rawDelta = e.deltaMode === 1 ? e.deltaY * 15 : e.deltaY
+      const factor = Math.exp(Math.max(-150, Math.min(150, rawDelta)) * 0.003)
+      const xPct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+      const focal = vStart + range * xPct
+
+      let newStart = focal - range * factor * xPct
+      let newEnd = focal + range * factor * (1 - xPct)
+
+      const tStart = totalStartRef.current
+      const tEnd = totalEndRef.current
+      if (newEnd - newStart < 200) return // don't zoom below 200 ms
+
+      newStart = Math.max(tStart, newStart)
+      newEnd = Math.min(tEnd, newEnd)
+      if (newEnd - newStart >= tEnd - tStart - 1) {
+        setViewRange(null)
+      } else {
+        setViewRange({ start: newStart, end: newEnd })
+      }
+    }
+
+    const handleMouseDown = (e: MouseEvent) => {
+      if (e.button !== 0) return
+      isPanningRef.current = true
+      setIsPanning(true)
+      panStartX.current = e.clientX
+      panStartRange.current = {
+        start: viewRangeRef.current?.start ?? totalStartRef.current,
+        end: viewRangeRef.current?.end ?? totalEndRef.current,
+      }
+      panRectWidth.current = bar.getBoundingClientRect().width
+      e.preventDefault()
+    }
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isPanningRef.current) return
+      const range = panStartRange.current.end - panStartRange.current.start
+      const deltaData = -(e.clientX - panStartX.current) / panRectWidth.current * range
+      const tStart = totalStartRef.current
+      const tEnd = totalEndRef.current
+      let newStart = panStartRange.current.start + deltaData
+      let newEnd = panStartRange.current.end + deltaData
+      if (newStart < tStart) { newEnd += tStart - newStart; newStart = tStart }
+      if (newEnd > tEnd) { newStart -= newEnd - tEnd; newEnd = tEnd }
+      setViewRange({ start: newStart, end: newEnd })
+    }
+
+    const handleMouseUp = () => {
+      if (!isPanningRef.current) return
+      isPanningRef.current = false
+      setIsPanning(false)
+    }
+
+    bar.addEventListener('wheel', handleWheel, { passive: false })
+    bar.addEventListener('mousedown', handleMouseDown)
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+
+    return () => {
+      bar.removeEventListener('wheel', handleWheel)
+      bar.removeEventListener('mousedown', handleMouseDown)
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Aggregate per-phase energy for the summary bar
   const phaseEnergy: Record<string, number> = {}
@@ -252,26 +354,41 @@ export function PhaseTimeline({ records }: PhaseTimelineProps) {
     <div className="chart-container">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-foreground">Phase Timeline</h2>
-        <span className="text-xs text-muted-foreground">{segments.length} transitions · {formatMs(totalMs)} total</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">{segments.length} transitions · {formatMs(totalMs)} total</span>
+          {viewRange && (
+            <button
+              className="text-xs text-muted-foreground hover:text-foreground px-2 py-0.5 border border-border rounded"
+              onClick={() => setViewRange(null)}
+            >
+              Reset zoom
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Timeline bar — outer wrapper provides space above for epoch labels */}
       <div className="relative pt-5">
         <div
-          className="relative flex w-full h-10 rounded-md overflow-hidden border border-border"
+          ref={barRef}
+          className="relative w-full h-10 rounded-md overflow-hidden border border-border select-none"
+          style={{ cursor: isPanning ? 'grabbing' : 'grab' }}
           onMouseLeave={() => setTooltip(null)}
         >
           {segments.map((seg, i) => {
-            const widthPct = totalMs > 0 ? ((seg.endMs - seg.startMs) / totalMs) * 100 : 0
+            const segStartClamped = Math.max(seg.startMs, viewStart)
+            const segEndClamped = Math.min(seg.endMs, viewEnd)
+            if (segEndClamped <= segStartClamped) return null
+            const leftPct = (segStartClamped - viewStart) / viewDuration * 100
+            const widthPct = (segEndClamped - segStartClamped) / viewDuration * 100
+            if (widthPct <= 0) return null
             const s = phaseStyle(seg.phase)
             return (
               <div
                 key={i}
-                className={`relative flex items-center justify-center overflow-hidden ${s.bg} border-r border-background/20 transition-opacity hover:opacity-90 cursor-pointer`}
-                style={{ width: `${widthPct}%`, minWidth: widthPct > 0 ? '2px' : 0 }}
-                onMouseMove={(e) => {
-                  setTooltip({ seg, x: e.clientX, y: e.clientY })
-                }}
+                className={`absolute top-0 bottom-0 flex items-center justify-center overflow-hidden ${s.bg} border-r border-background/20 hover:opacity-90`}
+                style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
+                onMouseMove={(e) => { setTooltip({ seg, x: e.clientX, y: e.clientY }) }}
               >
                 {widthPct > 5 && (
                   <span className={`text-[10px] font-medium truncate px-1 select-none ${s.text}`}>
@@ -282,19 +399,23 @@ export function PhaseTimeline({ records }: PhaseTimelineProps) {
             )
           })}
         </div>
-        {/* Epoch boundary tick marks */}
-        {epochTicks.map(({ epochNum, leftPct }) => (
-          <div
-            key={`epoch-tick-${epochNum}`}
-            className="absolute top-0 flex flex-col items-center pointer-events-none"
-            style={{ left: `${leftPct}%` }}
-          >
-            <span className="text-[9px] font-medium text-indigo-400 leading-none pb-0.5 -translate-x-1/2 whitespace-nowrap">
-              E{epochNum}
-            </span>
-            <div className="w-px h-10 bg-white/30" />
-          </div>
-        ))}
+        {/* Epoch boundary tick marks, snapped to segment boundaries and clipped to viewport */}
+        {epochSnappedBoundaries.map(b => {
+          const leftPct = (b.timestampMs - viewStart) / viewDuration * 100
+          if (leftPct < 0 || leftPct > 100) return null
+          return (
+            <div
+              key={`epoch-tick-${b.epoch}`}
+              className="absolute top-0 flex flex-col items-center pointer-events-none"
+              style={{ left: `${leftPct}%` }}
+            >
+              <span className="text-[9px] font-medium text-indigo-400 leading-none pb-0.5 -translate-x-1/2 whitespace-nowrap">
+                E{b.epoch}
+              </span>
+              <div className="w-px h-10 bg-white/30" />
+            </div>
+          )
+        })}
       </div>
 
       {/* Energy per phase breakdown */}

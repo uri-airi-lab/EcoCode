@@ -200,6 +200,7 @@ export function CumulativePowerChart({ runs: runsProp, data, runId }: Cumulative
           ctx.setLineDash([6, 6])
           for (const sep of seps) {
             const x = Math.round(u.valToPos(sep.ts, 'x', true))
+            if (x < u.bbox.left || x > u.bbox.left + u.bbox.width) continue
             ctx.beginPath()
             ctx.moveTo(x, u.bbox.top)
             ctx.lineTo(x, u.bbox.top + u.bbox.height)

@@ -91,6 +91,9 @@ const UPlotChart = forwardRef<UPlotChartHandle, UPlotChartProps>(
       uplotRef.current = u
       // Grab cursor hints that the chart is pannable
       u.over.style.cursor = 'grab'
+      // Cache the overlay bounding rect — read once, reuse in wheel/pan handlers.
+      // Updated in ResizeObserver so layout shifts after resize are accounted for.
+      let overRect = u.over.getBoundingClientRect()
 
       // ── Shared helpers ──────────────────────────────────────────────────────
 
@@ -154,8 +157,7 @@ const UPlotChart = forwardRef<UPlotChartHandle, UPlotChartProps>(
         const factor = Math.exp(Math.max(-150, Math.min(150, rawDelta)) * 0.003)
 
         // Keep the timestamp under the cursor fixed (focal-point zoom)
-        const rect = u.over.getBoundingClientRect()
-        const xPct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+        const xPct = Math.max(0, Math.min(1, (e.clientX - overRect.left) / overRect.width))
         const xFocal = xMin + range * xPct
         const newRange = range * factor
 
@@ -171,6 +173,7 @@ const UPlotChart = forwardRef<UPlotChartHandle, UPlotChartProps>(
       let panStartX = 0
       let panStartMin = 0
       let panStartMax = 0
+      let panRectWidth = 0
 
       const handleMouseDown = (e: MouseEvent) => {
         if (e.button !== 0) return
@@ -178,6 +181,8 @@ const UPlotChart = forwardRef<UPlotChartHandle, UPlotChartProps>(
         panStartX = e.clientX
         panStartMin = u.scales.x.min ?? 0
         panStartMax = u.scales.x.max ?? 1
+        // Measure once at drag-start — rect doesn't change during a drag
+        panRectWidth = u.over.getBoundingClientRect().width
         u.over.style.cursor = 'grabbing'
         document.body.style.cursor = 'grabbing'
         // Stop uPlot's own mousedown so it doesn't start a drag-select internally
@@ -186,10 +191,9 @@ const UPlotChart = forwardRef<UPlotChartHandle, UPlotChartProps>(
 
       const handleMouseMove = (e: MouseEvent) => {
         if (!isPanning) return
-        const rect = u.over.getBoundingClientRect()
         const range = panStartMax - panStartMin
         // Negate: dragging right moves the window left (shows earlier data), same as W&B
-        const deltaData = -(e.clientX - panStartX) / rect.width * range
+        const deltaData = -(e.clientX - panStartX) / panRectWidth * range
         scheduleScale(panStartMin + deltaData, panStartMax + deltaData)
       }
 
@@ -209,7 +213,10 @@ const UPlotChart = forwardRef<UPlotChartHandle, UPlotChartProps>(
       // ── Resize ──────────────────────────────────────────────────────────────
       const ro = new ResizeObserver(() => {
         const w = containerRef.current?.clientWidth
-        if (w && w !== u.width) u.setSize({ width: w, height: opts.height as number })
+        if (w && w !== u.width) {
+          u.setSize({ width: w, height: opts.height as number })
+          overRect = u.over.getBoundingClientRect()
+        }
       })
       ro.observe(containerRef.current)
 

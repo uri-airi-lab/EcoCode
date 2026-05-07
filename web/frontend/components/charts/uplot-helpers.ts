@@ -24,6 +24,8 @@ export interface TooltipPluginOpts {
 export function makeTooltipPlugin(opts: TooltipPluginOpts): { hooks: object } {
   const { labels, colors, formatX, formatY, unit = '' } = opts
   let tooltip: HTMLDivElement | null = null
+  let lastIdx: number | null = null
+  let cachedTtWidth = 160
 
   return {
     hooks: {
@@ -52,45 +54,53 @@ export function makeTooltipPlugin(opts: TooltipPluginOpts): { hooks: object } {
         const { left, top, idx } = u.cursor
         if (idx == null || (left != null && left < 0)) {
           tooltip.style.display = 'none'
+          lastIdx = null
           return
         }
         const ts = (u.data[0] as number[])?.[idx]
         if (ts == null || !Number.isFinite(ts)) {
           tooltip.style.display = 'none'
+          lastIdx = null
           return
         }
-        const timeLabel = formatX ? formatX(ts) : format(new Date(ts), 'HH:mm:ss')
 
-        let html = `<div style="font-weight:600;margin-bottom:6px;color:#e2e8f0">${timeLabel}</div>`
-        for (let i = 1; i < u.data.length; i++) {
-          const val = (u.data[i] as number[])?.[idx]
-          if (val == null) continue
-          const label = labels[i - 1] ?? `Series ${i}`
-          const color = colors[i - 1] ?? '#888'
-          const formatted = formatY ? formatY(val, i - 1) : val.toFixed(2)
-          html += [
-            '<div style="display:flex;justify-content:space-between;gap:14px;line-height:1.6">',
-            `<span style="color:${color}">● ${label}</span>`,
-            `<span>${formatted}${unit}</span>`,
-            '</div>',
-          ].join('')
+        // Only rebuild HTML when the data index changes — skips string allocs + DOM
+        // mutation + layout read on every cursor pixel move between data points.
+        if (idx !== lastIdx) {
+          lastIdx = idx
+          const timeLabel = formatX ? formatX(ts) : format(new Date(ts), 'HH:mm:ss')
+          let html = `<div style="font-weight:600;margin-bottom:6px;color:#e2e8f0">${timeLabel}</div>`
+          for (let i = 1; i < u.data.length; i++) {
+            const val = (u.data[i] as number[])?.[idx]
+            if (val == null) continue
+            const label = labels[i - 1] ?? `Series ${i}`
+            const color = colors[i - 1] ?? '#888'
+            const formatted = formatY ? formatY(val, i - 1) : val.toFixed(2)
+            html += [
+              '<div style="display:flex;justify-content:space-between;gap:14px;line-height:1.6">',
+              `<span style="color:${color}">● ${label}</span>`,
+              `<span>${formatted}${unit}</span>`,
+              '</div>',
+            ].join('')
+          }
+          tooltip.innerHTML = html
+          tooltip.style.display = 'block'
+          cachedTtWidth = tooltip.offsetWidth || 160
         }
-        tooltip.innerHTML = html
-        tooltip.style.display = 'block'
 
-        // Keep the tooltip inside the chart bounds
+        // Position update on every cursor move (two cheap style writes, no layout read)
         const overWidth = u.over.clientWidth
-        const ttWidth = tooltip.offsetWidth || 160
-        const showLeft = (left ?? 0) + 15 + ttWidth > overWidth
-          ? (left ?? 0) - ttWidth - 10
+        const showLeft = (left ?? 0) + 15 + cachedTtWidth > overWidth
+          ? (left ?? 0) - cachedTtWidth - 10
           : (left ?? 0) + 15
         tooltip.style.left = showLeft + 'px'
         tooltip.style.top = Math.max(0, (top ?? 0) - 20) + 'px'
       },
 
-      // Hide tooltip when data changes (zoom / reset)
+      // Hide tooltip when data changes (zoom / reset) and reset dirty-check
       setData: () => {
         if (tooltip) tooltip.style.display = 'none'
+        lastIdx = null
       },
     },
   }
