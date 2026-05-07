@@ -67,7 +67,7 @@ export function RunSystemInfo({ run }: RunSystemInfoProps) {
             <div key={idx} className="p-4 rounded-lg border border-border/40 bg-primary/[0.02] flex flex-col items-center justify-center text-center group hover:bg-primary/[0.05] transition-all duration-300">
               <stat.icon className="w-4 h-4 text-muted-foreground/60 mb-2 group-hover:text-primary transition-colors" />
               <p className="text-[9px] font-bold text-muted-foreground/40 uppercase tracking-tighter mb-1">{stat.label}</p>
-              <p className="text-sm font-mono font-bold text-foreground">{stat.value}</p>
+              <p className="text-sm font-mono font-bold text-foreground w-full break-all">{stat.value}</p>
             </div>
           ))}
         </div>
