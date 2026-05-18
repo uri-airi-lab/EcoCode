@@ -51,3 +51,5 @@ data/
 .vscode/
 **/*.so
 **/*.so.*
+
+CLAUDE.md
