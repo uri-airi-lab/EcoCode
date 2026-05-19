@@ -8,8 +8,7 @@
 
 use nvml_wrapper::{Device, Nvml};
 
-#[allow(dead_code)]
-pub const DEFAULT_GPU_DEVICE_INDEX: u32 = 0;
+
 
 /// Per-GPU result from energy-by-PID calculation
 pub struct GpuPidResult {
@@ -19,27 +18,10 @@ pub struct GpuPidResult {
     pub next_timestamp: u64,
 }
 
-pub fn _get_gpu_info() -> Result<(), Box<dyn std::error::Error>> {
-    let nvml = Nvml::init()?;
-    let device = nvml.device_by_index(DEFAULT_GPU_DEVICE_INDEX)?;
-    let name = device.name()?;
-    println!("\n[GPU INFO]");
-    println!("  GPU Name: {}", name);
-    Ok(())
-}
 
-pub fn _get_gpu_power() -> Result<u32, Box<dyn std::error::Error>> {
-    let nvml = Nvml::init()?;
-    let device = nvml.device_by_index(DEFAULT_GPU_DEVICE_INDEX)?;
-    let power = device.power_usage()?; // in mW
 
-    Ok(power)
-}
 
-#[allow(dead_code)]
-pub fn get_gpu_count(nvml: &Nvml) -> Result<u32, Box<dyn std::error::Error>> {
-    Ok(nvml.device_count()?)
-}
+
 
 /// Collects Device handles for all GPUs.
 pub fn get_all_gpu_devices<'a>(
@@ -59,6 +41,8 @@ pub fn get_gpu_energy(device: &Device) -> Result<f64, Box<dyn std::error::Error>
     let energy_milij = device.total_energy_consumption()?; // in milliJ
     Ok(energy_milij as f64)
 }
+
+
 
 /// Reads energy (mJ) from all GPU devices.
 pub fn get_all_gpu_energies(devices: &[Device]) -> Result<Vec<f64>, Box<dyn std::error::Error>> {
@@ -82,7 +66,6 @@ pub fn get_gpu_energy_by_pid(
     energy_1: f64,
     energy_2: f64,
     timestamp: u64,
-    _interval_secs: f64,
     max_energy_seen: f64,
 ) -> (f64, f64, u64) {
     let stats = match device.process_utilization_stats(timestamp) {
@@ -96,7 +79,17 @@ pub fn get_gpu_energy_by_pid(
         }
     };
 
-    let next_timestamp = stats.iter().map(|s| s.timestamp).max().unwrap_or(timestamp);
+    let next_timestamp = stats.iter().map(|s| s.timestamp).max().unwrap_or(timestamp); //the Cursor
+
+    // GPU-wide utilization SUMS across ALL samples in this interval for each
+    // subsystem: compute (SM), memory controller, hardware encoder, hardware decoder.
+    // Using sums (not averages) ensures that processes with more samples
+    // contribute proportionally, and all shares sum to exactly 1.0.
+    let global_sm_sum: f64 = stats.iter().map(|s| s.sm_util as f64).sum();
+    let global_mem_sum: f64 = stats.iter().map(|s| s.mem_util as f64).sum();
+    let global_enc_sum: f64 = stats.iter().map(|s| s.enc_util as f64).sum();
+    let global_dec_sum: f64 = stats.iter().map(|s| s.dec_util as f64).sum();
+    let total_activity = global_sm_sum + global_mem_sum + global_enc_sum + global_dec_sum;
 
     // Track the entire process tree (already provided in pids)
     let pid_samples: Vec<_> = stats
@@ -104,16 +97,34 @@ pub fn get_gpu_energy_by_pid(
         .filter(|s| pids.contains(&(s.pid as u32)))
         .collect();
 
-    // SM and memory controller are weighted equally (50/50) because NVML does not
-    // expose per-component power; this is a better approximation than SM-only for
-    // memory-bandwidth-bound workloads (e.g. transformer inference).
-    let process_util = if pid_samples.is_empty() {
+    // Compute process's fractional share using GPU-wide dynamic weights.
+    // Weights are derived from overall GPU behavior (which subsystem is busier)
+    // and applied uniformly. Using sums guarantees all shares sum to 1.0.
+    let process_share = if total_activity == 0.0 || pid_samples.is_empty() {
         0.0
     } else {
-        let n = pid_samples.len() as f64;
-        let sm_avg = pid_samples.iter().map(|s| s.sm_util as f64).sum::<f64>() / n;
-        let mem_avg = pid_samples.iter().map(|s| s.mem_util as f64).sum::<f64>() / n;
-        (sm_avg + mem_avg) / 2.0 / 100.0
+        // Weights: whichever subsystem the GPU uses more gets more blame
+        let sm_w = global_sm_sum / total_activity;
+        let mem_w = global_mem_sum / total_activity;
+        let enc_w = global_enc_sum / total_activity;
+        let dec_w = global_dec_sum / total_activity;
+
+        // Sum (not average) for the target process
+        let process_sm_sum: f64 = pid_samples.iter().map(|s| s.sm_util as f64).sum();
+        let process_mem_sum: f64 = pid_samples.iter().map(|s| s.mem_util as f64).sum();
+        let process_enc_sum: f64 = pid_samples.iter().map(|s| s.enc_util as f64).sum();
+        let process_dec_sum: f64 = pid_samples.iter().map(|s| s.dec_util as f64).sum();
+
+        let process_score = sm_w * process_sm_sum + mem_w * process_mem_sum
+                          + enc_w * process_enc_sum + dec_w * process_dec_sum;
+        let total_score = sm_w * global_sm_sum + mem_w * global_mem_sum
+                        + enc_w * global_enc_sum + dec_w * global_dec_sum;
+
+        if total_score > 0.0 {
+            process_score / total_score
+        } else {
+            0.0
+        }
     };
 
     // NVML's total_energy_consumption is a monotonically-increasing u64 mJ counter
@@ -136,15 +147,30 @@ pub fn get_gpu_energy_by_pid(
         (energy_2 + (max_energy_seen - energy_1)).max(0.0)
     };
 
-    let total_gpu_energy_mj = delta_energy_mj;
-    let process_gpu_energy_j = (total_gpu_energy_mj / 1000.0) * process_util;
+    let process_gpu_energy_j = (delta_energy_mj / 1000.0) * process_share;
+
+    // Per-process SM utilization (0-100), averaged across samples.
+    // This reflects actual GPU hardware busyness, unlike process_share
+    // which is always ~100% when only one process uses the GPU.
+    let process_sm_util = if pid_samples.is_empty() {
+        0.0
+    } else {
+        let sm_sum: f64 = pid_samples.iter().map(|s| s.sm_util as f64).sum();
+        sm_sum / pid_samples.len() as f64
+    };
 
     (
         process_gpu_energy_j,
-        (process_util * 100.0).round_ties_even(),
+        process_sm_util.round_ties_even(),
         next_timestamp,
     )
 }
+
+
+
+
+
+
 
 /// Computes per-PID GPU energy/utilization for ALL GPUs in one call.
 pub fn get_all_gpu_energies_by_pid(
@@ -153,7 +179,6 @@ pub fn get_all_gpu_energies_by_pid(
     energies_1: &[f64],
     energies_2: &[f64],
     timestamps: &[u64],
-    _interval_secs: f64,
     max_energies: &[f64],
 ) -> Vec<GpuPidResult> {
     devices
@@ -166,7 +191,6 @@ pub fn get_all_gpu_energies_by_pid(
                 energies_1[i],
                 energies_2[i],
                 timestamps[i],
-                _interval_secs,
                 max_energies[i],
             );
             GpuPidResult {

@@ -500,6 +500,7 @@ fn merge_record_points(
             run_id: row.run_id,
             pid: row.pid,
             timestamp: row.timestamp,
+            elapsed_secs: row.elapsed_secs,
             cpu_usage: row.cpu_usage,
             cpu_energy: row.cpu_energy,
             gpu_usage: row.gpu_usage,

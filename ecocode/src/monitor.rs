@@ -6,12 +6,66 @@
 
 use nvml_wrapper::Nvml;
 use sqlx::types::chrono::Utc;
+use std::collections::HashMap;
 use std::io;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use sysinfo::{Pid, ProcessesToUpdate, RefreshKind, System};
 use tokio::time::{self, Instant, MissedTickBehavior};
+
+/// Reads cumulative CPU ticks (utime + stime) for a single PID from /proc/[pid]/stat.
+/// Returns None if the process no longer exists or the file can't be parsed.
+fn read_cpu_ticks(pid: u32) -> Option<u64> {
+    let stat = std::fs::read_to_string(format!("/proc/{}/stat", pid)).ok()?;
+    let after_comm = stat.get(stat.rfind(')')? + 2..)?;
+    let fields: Vec<&str> = after_comm.split_whitespace().collect();
+    if fields.len() < 13 {
+        return None;
+    }
+    let utime: u64 = fields[11].parse().ok()?;
+    let stime: u64 = fields[12].parse().ok()?;
+    Some(utime + stime)
+}
+
+/// Reads cumulative CPU ticks for all PIDs, returning a map of pid → total ticks.
+fn read_all_cpu_ticks(pids: &[u32]) -> HashMap<u32, u64> {
+    let mut ticks = HashMap::with_capacity(pids.len());
+    for &pid in pids {
+        if let Some(t) = read_cpu_ticks(pid) {
+            ticks.insert(pid, t);
+        }
+    }
+    ticks
+}
+
+/// Reads PSS (Proportional Set Size) from /proc/[pid]/smaps_rollup.
+/// PSS correctly attributes shared pages proportionally across sharing processes.
+fn read_pss_bytes(pid: u32) -> Option<u64> {
+    let content = std::fs::read_to_string(format!("/proc/{}/smaps_rollup", pid)).ok()?;
+    for line in content.lines() {
+        if line.starts_with("Pss:") {
+            let kb: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
+            return Some(kb * 1024);
+        }
+    }
+    None
+}
+
+/// Returns true if this PID is a thread group leader (i.e. a real process, not a thread).
+/// Threads share the same address space as their leader, so PSS must only be read
+/// from leaders to avoid counting the same memory N times.
+fn is_thread_leader(pid: u32) -> bool {
+    std::fs::read_to_string(format!("/proc/{}/status", pid))
+        .ok()
+        .and_then(|s| {
+            s.lines()
+                .find(|l| l.starts_with("Tgid:"))
+                .and_then(|l| l.split_whitespace().nth(1)?.parse::<u32>().ok())
+        })
+        .map(|tgid| tgid == pid)
+        .unwrap_or(false)
+}
 
 /// Shared state updated by the Python SDK via Unix socket (attached mode).
 /// The main sampling loop reads these values on every tick and attaches them to the Record.
@@ -46,6 +100,10 @@ use crate::cli::RunArgs;
 /// Core monitoring loop: initialises sensors, spawns the target process, samples
 /// energy on each tick, exports records, and writes the final run summary.
 pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
+    if args.interval < 0.1 {
+        return Err("Sampling interval must be at least 0.1 seconds".into());
+    }
+
     let output = args.output.to_lowercase();
     let project_name = args.project;
     let collaborator = match args.collaborator {
@@ -106,7 +164,7 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
             "csv" => Box::new(CsvExporter::new(require_file("csv"))?),
             "json" => Box::new(JsonExporter::new(require_file("json"))?),
             "local" => Box::new(SqliteExporter::new().await?),
-            "prometheus" => Box::new(PrometheusExporter::new()),
+            "prometheus" => Box::new(PrometheusExporter::new()?),
             "logfile" => Box::new(LogFileExporter::new(require_file("logfile"))?),
             _ => Box::new(TerminalExporter::new()),
         };
@@ -207,7 +265,11 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
     // Creates a Unix domain socket so the Python SDK running inside the child process
     // can send semantic marker events (phase, tokens, step, loss, lr, seq_len).
     let cli_pid = std::process::id();
-    let socket_path = format!("/tmp/ecocode_{}.sock", cli_pid);
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let socket_path = format!("/tmp/ecocode_{}_{:x}.sock", cli_pid, nonce);
     let marker_state: Arc<Mutex<MarkerState>> = Arc::new(Mutex::new(MarkerState::default()));
 
     // Remove any stale socket left by a previous crash
@@ -285,9 +347,20 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
         .env("ECOCODE_SOCKET", &socket_path)
         .env("ECOCODE_RUN_ID", run_id.to_string())
         .spawn()
-        .expect("failed to execute process");
+        .map_err(|e| format!("Failed to execute '{}': {}", args.command[0], e))?;
+    
 
-    let pid = Pid::from(child.id() as usize);
+    let child_pid_raw = child.id();
+    let pid = Pid::from(child_pid_raw as usize);
+
+    // Install a panic hook that kills the child process to avoid orphans.
+    let prev_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let _ = Command::new("kill")
+            .args(["-9", &child_pid_raw.to_string()])
+            .status();
+        prev_hook(info);
+    }));
 
     // --- System setup ---
     let mut sys = System::new_with_specifics(RefreshKind::everything());
@@ -416,6 +489,12 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
         sys.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
     }
 
+    // --- CPU tick baseline (for interval-average CPU usage) ---
+    let initial_tree = get_process_tree_pids_from_sys(&sys, pid.as_u32());
+    let initial_leaders: Vec<u32> = initial_tree.iter().copied().filter(|&p| is_thread_leader(p)).collect();
+    let mut prev_cpu_ticks = read_all_cpu_ticks(&initial_leaders);
+    let mut prev_tick_time = std::time::Instant::now();
+
     let period = Duration::from_secs_f64(args.interval);
     let mut last_sample = Instant::now();
     let mut ticker = time::interval_at(last_sample + period, period);
@@ -435,6 +514,9 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
             }
 
             iteration += 1;
+            // Capture wall-clock timestamp before sensor work so that
+            // consecutive timestamps are evenly spaced (~ticker interval).
+            let tick_wall = Utc::now().to_rfc3339();
 
             let now = Instant::now();
             let elapsed_secs = now.duration_since(last_sample).as_secs_f64();
@@ -453,30 +535,57 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
             // included in CPU, memory, and GPU attribution.
             let tree_pids = get_process_tree_pids_from_sys(&sys, pid.as_u32());
 
-            // Sum CPU usage and take the max memory across the whole tree.
-            // cpu_usage() already returns the core-percentage; dividing by num_cores
-            // normalises to 0–100% of total machine capacity. Clamped to 100 to
-            // avoid over-attribution on machines where children can briefly spike.
-            let mut total_cpu_pct = 0.0_f32;
-            let mut max_mem_pct = 0.0_f64;
+            // --- CPU: interval-average from /proc/[pid]/stat tick deltas ---
+            const CLK_TCK: f64 = 100.0;
+            let now_tick = std::time::Instant::now();
+            let tick_elapsed = now_tick.duration_since(prev_tick_time).as_secs_f64();
+            let elapsed_ticks = tick_elapsed * CLK_TCK;
+
+            // Only read ticks for thread group leaders (real processes).
+            // /proc/[tgid]/stat returns aggregate utime+stime for all threads (whole=1).
+            // /proc/[tid]/stat for non-leaders ALSO returns the group aggregate,
+            // so including threads would count the same CPU time N times.
+            let leaders: Vec<u32> = tree_pids.iter().copied().filter(|&p| is_thread_leader(p)).collect();
+            let curr_cpu_ticks = read_all_cpu_ticks(&leaders);
+            let mut total_delta_ticks = 0_u64;
+            for (&p, &curr) in &curr_cpu_ticks {
+                if let Some(&prev) = prev_cpu_ticks.get(&p) {
+                    total_delta_ticks += curr.saturating_sub(prev);
+                }
+            }
+
+            cpu_usage = if elapsed_ticks > 0.0 && num_cores > 0 {
+                ((total_delta_ticks as f64 / elapsed_ticks) * 100.0 / num_cores as f64).min(100.0) as f32
+            } else {
+                0.0
+            };
+
+            prev_cpu_ticks = curr_cpu_ticks;
+            prev_tick_time = now_tick;
+
+            // --- Memory: PSS-sum for accurate shared-memory attribution ---
+            // Only read PSS from thread group leaders (real processes), not threads.
+            // Threads share the same address space, so /proc/[tid]/smaps_rollup
+            // returns the same value as the leader — summing them would Nx the real memory.
+            let mut pss_total_bytes = 0_u64;
             for &tpid in &tree_pids {
-                if let Some(proc_) = sys.process(Pid::from(tpid as usize)) {
-                    total_cpu_pct += proc_.cpu_usage() / num_cores as f32;
-                    let pmem = (proc_.memory() as f64 / sys_memo as f64) * 100.0;
-                    if pmem > max_mem_pct {
-                        max_mem_pct = pmem;
+                if is_thread_leader(tpid) {
+                    if let Some(pss) = read_pss_bytes(tpid) {
+                        pss_total_bytes += pss;
                     }
                 }
             }
-            cpu_usage = total_cpu_pct.min(100.0);
-            mem_usage = max_mem_pct.min(100.0);
+            mem_usage = if sys_memo > 0 {
+                ((pss_total_bytes as f64 / sys_memo as f64) * 100.0).min(100.0)
+            } else {
+                0.0
+            };
 
             // --- CPU energy ---
             let cpu_energy_2 = get_all_energies(&mut rapl_readers)?;
             let delta_cpu_energy_j = delta_cpu_energy_per_pid_j(
                 &cpu_energy_1,
                 &cpu_energy_2,
-                elapsed_secs,
                 cpu_usage as f64,
                 mem_usage,
                 cpu_usage as f64, // igpu proxy: no per-process iGPU sensor available
@@ -511,7 +620,6 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
                 &gpu_energies_1,
                 &gpu_energies_2,
                 &gpu_timestamps,
-                elapsed_secs,
                 &gpu_max_energies,
             );
 
@@ -571,7 +679,7 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
                 iteration,
                 run_id,
                 pid.as_u32(),
-                Utc::now().to_rfc3339(),
+                tick_wall,
                 elapsed_secs,
                 cpu_usage as f64,
                 cpu_j,
@@ -626,6 +734,9 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
 
     // Clean up the SDK socket file
     let _ = std::fs::remove_file(&socket_path);
+
+    // Restore the default panic hook now that the child is done.
+    let _ = std::panic::take_hook();
 
     execution_result?;
 

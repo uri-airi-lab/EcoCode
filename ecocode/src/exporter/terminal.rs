@@ -101,7 +101,7 @@ impl Exporter for TerminalExporter {
     }
 
     async fn export_line(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let r = self.records.last().unwrap();
+        let Some(r) = self.records.last() else { return Ok(()) };
 
         if self.first_record {
             println!("\n{}", "=".repeat(128));

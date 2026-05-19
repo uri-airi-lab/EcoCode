@@ -52,6 +52,7 @@ interface BackendRecordPoint {
   run_id: number
   pid: number
   timestamp: string
+  elapsed_secs?: number
   cpu_usage: number
   cpu_energy: number
   gpu_usage: number
@@ -175,6 +176,7 @@ function mapRecord(r: BackendRecordPoint): MetricRecord {
     run_id: r.run_id.toString(),
     pid: r.pid,
     timestamp: new Date(r.timestamp).getTime(),
+    elapsed_secs: r.elapsed_secs ?? undefined,
     cpu_usage: r.cpu_usage,
     cpu_energy: r.cpu_energy,
     gpu_usage: r.gpu_usage,
@@ -307,12 +309,26 @@ function calculateEnergyTotals(summary: BackendRunSummary | null) {
   }
 }
 
-/** Thin wrapper around `fetch` that always sends session cookies. */
+/** Thin wrapper around `fetch` that always sends session cookies and includes timeout handling. */
 async function apiFetch(url: string, init?: RequestInit) {
-  return fetch(url, {
-    ...init,
-    credentials: 'include',
-  })
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 30000) // 30 second timeout
+
+  try {
+    const response = await fetch(url, {
+      ...init,
+      credentials: 'include',
+      signal: controller.signal,
+    })
+    clearTimeout(timeoutId)
+    return response
+  } catch (error) {
+    clearTimeout(timeoutId)
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('Request timeout - please try again')
+    }
+    throw error
+  }
 }
 
 async function fetchRunMetricSnapshot(backendRun: BackendRun): Promise<RunMetricSnapshot> {

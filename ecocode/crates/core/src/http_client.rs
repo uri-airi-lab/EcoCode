@@ -86,6 +86,7 @@ pub struct SocketMetric {
 pub struct Record {
     pub pid: u32,
     pub timestamp: String,
+    pub elapsed_secs: Option<f64>,
     pub cpu_usage: f64,
     pub cpu_energy: f64,
     pub gpu_usage: f64,

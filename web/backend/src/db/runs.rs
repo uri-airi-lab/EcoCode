@@ -90,17 +90,20 @@ pub async fn calculate_run_summary_db(
     run_id: i64,
     db: &PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let mut tx = db.begin().await?;
+
     let record_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM records WHERE run_id = $1")
         .bind(run_id)
-        .fetch_one(db)
+        .fetch_one(&mut *tx)
         .await?;
 
     sqlx::query("DELETE FROM runsummary WHERE run_id = $1")
         .bind(run_id)
-        .execute(db)
+        .execute(&mut *tx)
         .await?;
 
     if record_count == 0 {
+        tx.commit().await?;
         return Ok(());
     }
 
@@ -111,7 +114,7 @@ pub async fn calculate_run_summary_db(
          WHERE r.id = $1",
     )
     .bind(run_id)
-    .fetch_optional(db)
+    .fetch_optional(&mut *tx)
     .await?;
 
     let (intensity, pue, _source, cost_per_kwh, currency) = if let Some(r) = config_row {
@@ -152,7 +155,7 @@ pub async fn calculate_run_summary_db(
     .bind(intensity)
     .bind(pue)
     .bind(&currency)
-    .execute(db)
+    .execute(&mut *tx)
     .await?;
 
     let totals: (f64, f64, f64, f64) = sqlx::query_as(
@@ -160,19 +163,24 @@ pub async fn calculate_run_summary_db(
          FROM runsummary WHERE run_id = $1",
     )
     .bind(run_id)
-    .fetch_one(db)
+    .fetch_one(&mut *tx)
     .await?;
 
+    // PUE scales the energy (total facility power vs IT equipment power),
+    // then carbon intensity converts kWh to gCO2.
     let energy_wh = (totals.0 + totals.1 + totals.2 + totals.3) / 3600.0;
-    let co2_g = energy_wh / 1000.0 * intensity * pue;
-    let total_cost = (energy_wh / 1000.0) * cost_per_kwh * pue;
+    let effective_energy_kwh = (energy_wh * pue) / 1000.0;
+    let co2_g = effective_energy_kwh * intensity;
+    let total_cost = effective_energy_kwh * cost_per_kwh;
 
     sqlx::query("UPDATE runsummary SET total_co2_g = $1, total_cost = $2 WHERE run_id = $3")
         .bind(co2_g)
         .bind(total_cost)
         .bind(run_id)
-        .execute(db)
+        .execute(&mut *tx)
         .await?;
+
+    tx.commit().await?;
 
     Ok(())
 }

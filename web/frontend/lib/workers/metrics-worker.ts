@@ -39,8 +39,12 @@ export type WorkerResponse =
 
 function computeWatts(records: MetricRecord[]): RecordW[] {
   return records.map((r, i) => {
+    // Prefer backend-provided elapsed_secs (monotonic, matches energy deltas exactly).
+    // Fall back to timestamp diff for older records that lack the field.
     const prev = i > 0 ? records[i - 1] : null
-    const deltaS = prev ? Math.max((r.timestamp - prev.timestamp) / 1000, 0.001) : 1
+    const deltaS = r.elapsed_secs
+      ? Math.max(r.elapsed_secs, 0.001)
+      : prev ? Math.max((r.timestamp - prev.timestamp) / 1000, 0.001) : 1
     return {
       ...r,
       cpuW:  (r.cpu_energy  ?? 0) / deltaS,

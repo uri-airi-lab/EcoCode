@@ -37,75 +37,62 @@ pub struct PrometheusExporter {
 
 impl PrometheusExporter {
     /// Creates a new Prometheus exporter and spawns the HTTP server in the background.
-    pub fn new() -> PrometheusExporter {
+    pub fn new() -> Result<PrometheusExporter, Box<dyn Error>> {
         let registry = Registry::new();
 
-        let cpu_usage = Gauge::new("ecocode_cpu_usage", "CPU usage percentage").unwrap();
+        let cpu_usage = Gauge::new("ecocode_cpu_usage", "CPU usage percentage")?;
         let cpu_energy = Gauge::new(
             "ecocode_cpu_energy_watts",
             "CPU energy consumption in Watts",
-        )
-        .unwrap();
-        let gpu_usage = Gauge::new("ecocode_gpu_usage", "GPU usage percentage").unwrap();
+        )?;
+        let gpu_usage = Gauge::new("ecocode_gpu_usage", "GPU usage percentage")?;
         let gpu_energy = Gauge::new(
             "ecocode_gpu_energy_watts",
             "GPU energy consumption in Watts",
-        )
-        .unwrap();
-        let mem_usage = Gauge::new("ecocode_mem_usage", "Memory usage percentage").unwrap();
+        )?;
+        let mem_usage = Gauge::new("ecocode_mem_usage", "Memory usage percentage")?;
         let mem_energy = Gauge::new(
             "ecocode_mem_energy_watts",
             "Memory energy consumption in Watts",
-        )
-        .unwrap();
-        let igpu_usage = Gauge::new("ecocode_igpu_usage", "IGPU usage percentage").unwrap();
+        )?;
+        let igpu_usage = Gauge::new("ecocode_igpu_usage", "IGPU usage percentage")?;
         let igpu_energy = Gauge::new(
             "ecocode_igpu_energy_watts",
             "IGPU energy consumption in Watts",
-        )
-        .unwrap();
+        )?;
         let gpu_usage_per_device = GaugeVec::new(
             Opts::new(
                 "ecocode_gpu_usage_per_device",
                 "GPU usage percentage per device",
             ),
             &["device_index"],
-        )
-        .unwrap();
+        )?;
         let gpu_energy_per_device = GaugeVec::new(
             Opts::new(
                 "ecocode_gpu_energy_watts_per_device",
                 "GPU energy consumption in Watts per device",
             ),
             &["device_index"],
-        )
-        .unwrap();
+        )?;
         let socket_energy_per_domain = GaugeVec::new(
             Opts::new(
                 "ecocode_socket_energy_watts_per_domain",
                 "Socket energy consumption in Watts per domain",
             ),
             &["socket", "domain"],
-        )
-        .unwrap();
+        )?;
 
-        registry.register(Box::new(cpu_usage.clone())).unwrap();
-        registry.register(Box::new(cpu_energy.clone())).unwrap();
-        registry.register(Box::new(gpu_usage.clone())).unwrap();
-        registry.register(Box::new(gpu_energy.clone())).unwrap();
-        registry.register(Box::new(mem_usage.clone())).unwrap();
-        registry.register(Box::new(mem_energy.clone())).unwrap();
-        registry.register(Box::new(igpu_usage.clone())).unwrap();
-        registry.register(Box::new(igpu_energy.clone())).unwrap();
-        registry
-            .register(Box::new(gpu_usage_per_device.clone()))
-            .unwrap();
-        registry
-            .register(Box::new(gpu_energy_per_device.clone()))
-            .unwrap();
-        registry
-            .register(Box::new(socket_energy_per_domain.clone()))
-            .unwrap();
+        registry.register(Box::new(cpu_usage.clone()))?;
+        registry.register(Box::new(cpu_energy.clone()))?;
+        registry.register(Box::new(gpu_usage.clone()))?;
+        registry.register(Box::new(gpu_energy.clone()))?;
+        registry.register(Box::new(mem_usage.clone()))?;
+        registry.register(Box::new(mem_energy.clone()))?;
+        registry.register(Box::new(igpu_usage.clone()))?;
+        registry.register(Box::new(igpu_energy.clone()))?;
+        registry.register(Box::new(gpu_usage_per_device.clone()))?;
+        registry.register(Box::new(gpu_energy_per_device.clone()))?;
+        registry.register(Box::new(socket_energy_per_domain.clone()))?;
 
         let exporter = PrometheusExporter {
             registry,
@@ -133,7 +120,7 @@ impl PrometheusExporter {
             warp::serve(metrics_route).run(([0, 0, 0, 0], 9091)).await;
         });
 
-        exporter
+        Ok(exporter)
     }
 }
 
@@ -239,6 +226,8 @@ fn encode_metrics(registry: &Registry) -> String {
     let mut buffer = Vec::new();
     let encoder = TextEncoder::new();
     let metric_families = registry.gather();
-    encoder.encode(&metric_families, &mut buffer).unwrap();
-    String::from_utf8(buffer).unwrap()
+    if let Err(e) = encoder.encode(&metric_families, &mut buffer) {
+        return format!("# Error encoding metrics: {}\n", e);
+    }
+    String::from_utf8(buffer).unwrap_or_else(|_| "# Error: metrics contained invalid UTF-8\n".to_string())
 }

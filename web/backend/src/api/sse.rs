@@ -15,10 +15,11 @@
 //! multiple backend replicas are running and a record is written on a different instance.
 
 use axum::{
-    extract::State,
+    extract::{Query, State},
     response::sse::{Event, KeepAlive, Sse},
 };
 use futures::stream::{Stream, StreamExt};
+use serde::Deserialize;
 use std::convert::Infallible;
 use tokio::time::Duration;
 use tokio_stream::wrappers::BroadcastStream;
@@ -26,26 +27,52 @@ use tracing::{debug, error, info, warn};
 
 use crate::state::AppState;
 
+/// Optional query parameters for the SSE endpoint.
+#[derive(Deserialize, Default)]
+pub struct SseQuery {
+    /// When set, only records belonging to this run are forwarded.
+    pub run_id: Option<i64>,
+}
+
 /// Upgrades an HTTP connection to a Server-Sent Events (SSE) stream.
 /// Emits live updates across the application (e.g., new records or run state changes).
+/// Accepts an optional `?run_id=N` query parameter to filter events server-side.
 pub async fn sse_handler(
     State(state): State<AppState>,
+    Query(query): Query<SseQuery>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    info!("SSE client connected");
+    info!(run_id = ?query.run_id, "SSE client connected");
 
     let rx = state.tx.subscribe();
     let broadcast_stream = BroadcastStream::new(rx);
+    let filter_run_id = query.run_id;
 
-    // Create the main stream that filters and maps broadcast messages
-    let stream = broadcast_stream.filter_map(|res| async move {
+    // Create the main stream that filters and maps broadcast messages.
+    // When the broadcast channel lags (client too slow), send a "refresh" event
+    // so the frontend knows to re-fetch rather than silently missing data.
+    let stream = broadcast_stream.filter_map(move |res| async move {
         match res {
             Ok(msg) => {
+                // If the client requested a specific run_id, filter out unrelated events.
+                if let Some(rid) = filter_run_id {
+                    // "run_updated:123" format
+                    if msg.starts_with("run_updated:") {
+                        let id_str = &msg["run_updated:".len()..];
+                        if id_str.parse::<i64>().ok() != Some(rid) {
+                            return None;
+                        }
+                    } else if let Ok(val) = serde_json::from_str::<serde_json::Value>(&msg) {
+                        if val.get("run_id").and_then(|v| v.as_i64()) != Some(rid) {
+                            return None;
+                        }
+                    }
+                }
                 debug!("Sending SSE event to client");
                 Some(Ok(Event::default().data(msg)))
             }
-            Err(e) => {
-                warn!(error = ?e, "SSE stream error");
-                None
+            Err(tokio_stream::wrappers::errors::BroadcastStreamRecvError::Lagged(count)) => {
+                warn!(skipped = count, "SSE client lagged, sending refresh hint");
+                Some(Ok(Event::default().event("refresh").data(format!("{{\"skipped\":{}}}", count))))
             }
         }
     });

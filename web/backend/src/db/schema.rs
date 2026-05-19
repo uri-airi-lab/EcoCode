@@ -310,6 +310,9 @@ pub async fn ensure_postgres_schema(db: &PgPool) -> Result<(), Box<dyn std::erro
     sqlx::query("ALTER TABLE records ADD COLUMN IF NOT EXISTS epoch_num BIGINT")
         .execute(db)
         .await?;
+    sqlx::query("ALTER TABLE records ADD COLUMN IF NOT EXISTS elapsed_secs DOUBLE PRECISION")
+        .execute(db)
+        .await?;
 
     sqlx::query("ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS project_id BIGINT REFERENCES projects(id) ON DELETE SET NULL").execute(db).await?;
     sqlx::query("ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS key_prefix TEXT")

@@ -26,6 +26,8 @@ pub struct RaplFile {
     pub file: BufReader<File>,
     /// Counter ceiling read from `max_energy_range_uj`, used to detect wrap-around.
     pub max_energy: f64,
+    /// Reusable buffer for reading energy values, avoids allocation on every sample.
+    buffer: String,
 }
 
 /// A snapshot of a RAPL energy counter at one point in time (in microjoules).
@@ -54,12 +56,11 @@ pub struct RaplEnergyDelta {
 /// Reads the current energy counter value (microjoules) from an open sysfs file.
 /// The file is seeked back to position 0 before every read because the kernel
 /// updates it in-place rather than appending new data.
-pub fn get_energy(rapl_file: &mut BufReader<File>) -> Result<f64, Box<dyn Error>> {
-    rapl_file.seek(SeekFrom::Start(0))?;
-    let mut buffer = String::new();
-    rapl_file.read_line(&mut buffer)?;
-    let energy_consumed = buffer.trim().parse::<f64>()?;
-    Ok(energy_consumed)
+pub fn get_energy(rapl_file: &mut RaplFile) -> Result<f64, Box<dyn Error>> {
+    rapl_file.file.seek(SeekFrom::Start(0))?;
+    rapl_file.buffer.clear();
+    rapl_file.file.read_line(&mut rapl_file.buffer)?;
+    Ok(rapl_file.buffer.trim().parse::<f64>()?)
 }
 
 /// Reads the hardware counter ceiling from `max_energy_range_uj`.
@@ -76,7 +77,7 @@ pub fn get_all_energies(
 ) -> Result<Vec<RaplEnergy>, Box<dyn Error>> {
     let mut rapl_energies = Vec::new();
     for reader in rapl_readers {
-        let energy = get_energy(&mut reader.file)?;
+        let energy = get_energy(reader)?;
         let rapl_energy = RaplEnergy {
             socket: reader.socket,
             domain: reader.domain.clone(),
@@ -103,50 +104,52 @@ pub fn get_all_energies(
 pub fn delta_cpu_energy_per_pid_j(
     energies_1: &[RaplEnergy],
     energies_2: &[RaplEnergy],
-    _elapsed_secs: f64,
     cpu_usage: f64,
     mem_usage: f64,
     igpu_usage: f64,
 ) -> Vec<RaplEnergyDelta> {
-    if energies_1.len() != energies_2.len() {
-        panic!("energy vectors must have the same length");
-    };
-    let mut delta_energy = Vec::new();
-    for i in 0..energies_1.len() {
-        let energy_1 = energies_1[i].energy;
-        let energy_2 = energies_2[i].energy;
-        let max_energy = energies_1[i].max_energy; // in microjoules
+    energies_1
+        .iter()
+        .zip(energies_2.iter())
+        .map(|(e1, e2)| {
+            // Handle counter reset logic
+            let energy_2_corrected = if e2.energy < e1.energy {
+                e2.energy + e1.max_energy
+            } else {
+                e2.energy
+            };
 
-        // Handle counter reset
-        let energy_2 = if energy_2 < energy_1 {
-            energy_2 + max_energy
-        } else {
-            energy_2
-        };
+            // Map domains to their respective usage fractions
+            //
+            // NOTE: DRAM attribution uses RSS (resident set size) as a proxy,
+            // which measures memory *capacity* (how much RAM is allocated), not
+            // memory *bandwidth* (how often RAM is accessed). DRAM energy is
+            // primarily driven by read/write activity, so RSS can over-attribute
+            // to large-but-idle processes and under-attribute to small-but-active ones.
+            //
+            // A more accurate approach would blend static and dynamic components:
+            //   let static_fraction = 0.3; // ~30% of DRAM power is refresh/leakage
+            //   "dram" => static_fraction * mem_usage + (1.0 - static_fraction) * cpu_usage
+            // This attributes refresh energy by RSS (fair — all pages need refreshing)
+            // and dynamic access energy by CPU usage (better bandwidth proxy).
+            let usage_fraction = match e1.domain.as_str() {
+                "cpu"  => cpu_usage,
+                "dram" => mem_usage,
+                "igpu" => igpu_usage,
+                _      => cpu_usage,
+            } / 100.0;
 
-        // Each domain is attributed using the process's share of the relevant resource.
-        // Domains absent on this system simply won't appear in the energies vectors,
-        // so missing DRAM or iGPU domains are handled naturally — no entries, no delta.
-        let usage_fraction = match energies_1[i].domain.as_str() {
-            "cpu" => cpu_usage / 100.0,
-            "dram" => mem_usage / 100.0,
-            // No dedicated per-process iGPU sensor exists; cpu_usage is the best proxy
-            // for processes that drive integrated graphics alongside CPU work.
-            "igpu" => igpu_usage / 100.0,
-            _ => cpu_usage / 100.0,
-        };
+            // Calculate delta and ensure it's non-negative
+            let delta_j = (((energy_2_corrected - e1.energy) / 1_000_000.0) * usage_fraction).max(0.0);
 
-        let delta_energy_per_pid =
-            (((energy_2 - energy_1) / 1_000_000.0) * usage_fraction).max(0.0);
-
-        delta_energy.push(RaplEnergyDelta {
-            socket: energies_1[i].socket,
-            domain: energies_1[i].domain.clone(),
-            delta_energy: delta_energy_per_pid,
-        });
-    }
-
-    delta_energy
+            RaplEnergyDelta {
+                socket: e1.socket,
+                domain: e1.domain.clone(),
+                delta_energy: delta_j,
+            }
+        })
+        .collect::<Vec<RaplEnergyDelta>>() //returned because it is the last variable in the function (no need for let variable = then reutrn)
+                         // more idiomatic Rust way
 }
 
 /// Scans the RAPL sysfs hierarchy and opens a buffered file handle for every
@@ -197,7 +200,7 @@ pub fn scan_rapl_files() -> Result<Vec<RaplFile>, Box<dyn Error>> {
                 let name = match raw_name.trim() {
                     "core" => "cpu".to_string(),
                     "dram" => "dram".to_string(),
-                    "uncore" => "igpu".to_string(),
+                    "uncore" | "graphics" => "igpu".to_string(),
                     other => other.to_string(),
                 };
                 let max_energy_path = ent.join("max_energy_range_uj");
@@ -210,6 +213,7 @@ pub fn scan_rapl_files() -> Result<Vec<RaplFile>, Box<dyn Error>> {
                     domain: name,
                     file: file,
                     max_energy: get_max_energy(&max_energy_path)?,
+                    buffer: String::new(),
                 };
                 rapl_files.push(file);
             }

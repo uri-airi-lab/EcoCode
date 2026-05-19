@@ -8,7 +8,7 @@ pub async fn fetch_record_rows(
     run_id: i64,
 ) -> Result<Vec<RecordPointRow>, ApiError> {
     sqlx::query_as::<_, RecordPointRow>(
-        "SELECT id, run_id, pid, timestamp::text AS timestamp, cpu_usage, cpu_energy,
+        "SELECT id, run_id, pid, timestamp::text AS timestamp, elapsed_secs, cpu_usage, cpu_energy,
                 gpu_usage, gpu_energy, mem_usage, mem_energy, igpu_usage, igpu_energy,
                 phase, epoch_num, tokens_processed, training_step, loss, learning_rate, sequence_length, accuracy, custom_metrics
          FROM records
@@ -29,7 +29,7 @@ pub async fn fetch_record_rows_paginated(
     offset: i64,
 ) -> Result<Vec<RecordPointRow>, ApiError> {
     sqlx::query_as::<_, RecordPointRow>(
-        "SELECT id, run_id, pid, timestamp::text AS timestamp, cpu_usage, cpu_energy,
+        "SELECT id, run_id, pid, timestamp::text AS timestamp, elapsed_secs, cpu_usage, cpu_energy,
                 gpu_usage, gpu_energy, mem_usage, mem_energy, igpu_usage, igpu_energy,
                 phase, epoch_num, tokens_processed, training_step, loss, learning_rate, sequence_length, accuracy, custom_metrics
          FROM records
@@ -127,7 +127,7 @@ pub async fn fetch_latest_record_with_details(
     state: &AppState,
 ) -> Result<Option<RecordPoint>, ApiError> {
     let latest_row = sqlx::query_as::<_, RecordPointRow>(
-        "SELECT id, run_id, pid, timestamp::text AS timestamp, cpu_usage, cpu_energy,
+        "SELECT id, run_id, pid, timestamp::text AS timestamp, elapsed_secs, cpu_usage, cpu_energy,
                 gpu_usage, gpu_energy, mem_usage, mem_energy, igpu_usage, igpu_energy,
                 phase, epoch_num, tokens_processed, training_step, loss, learning_rate, sequence_length, accuracy, custom_metrics
          FROM records
@@ -167,6 +167,7 @@ pub async fn fetch_latest_record_with_details(
         run_id: row.run_id,
         pid: row.pid,
         timestamp: row.timestamp,
+        elapsed_secs: row.elapsed_secs,
         cpu_usage: row.cpu_usage,
         cpu_energy: row.cpu_energy,
         gpu_usage: row.gpu_usage,
@@ -195,7 +196,7 @@ pub async fn fetch_record_by_id_with_details(
     state: &AppState,
 ) -> Result<Option<RecordPoint>, ApiError> {
     let row = sqlx::query_as::<_, RecordPointRow>(
-        "SELECT id, run_id, pid, timestamp::text AS timestamp, cpu_usage, cpu_energy,
+        "SELECT id, run_id, pid, timestamp::text AS timestamp, elapsed_secs, cpu_usage, cpu_energy,
                 gpu_usage, gpu_energy, mem_usage, mem_energy, igpu_usage, igpu_energy,
                 phase, epoch_num, tokens_processed, training_step, loss, learning_rate, sequence_length, accuracy, custom_metrics
          FROM records
@@ -235,6 +236,7 @@ pub async fn fetch_record_by_id_with_details(
         run_id: row.run_id,
         pid: row.pid,
         timestamp: row.timestamp,
+        elapsed_secs: row.elapsed_secs,
         cpu_usage: row.cpu_usage,
         cpu_energy: row.cpu_energy,
         gpu_usage: row.gpu_usage,

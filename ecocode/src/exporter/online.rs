@@ -57,7 +57,12 @@ impl OnlineExporter {
         });
         config.api_key = Some(api_key.to_string());
         let content = serde_json::to_string_pretty(&config)?;
-        fs::write(config_path, content)?;
+        fs::write(&config_path, content)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&config_path, fs::Permissions::from_mode(0o600))?;
+        }
         Ok(())
     }
 
@@ -99,8 +104,14 @@ impl OnlineExporter {
         if api_key_arg.is_some()
             && config.as_ref().and_then(|c| c.api_key.as_ref()) != Some(&api_key)
         {
+            let masked = if api_key.len() > 12 {
+                format!("{}...{}", &api_key[..8], &api_key[api_key.len()-4..])
+            } else {
+                "****".to_string()
+            };
             println!("💡 Tip: Save your API key to avoid entering it each time:");
-            println!("   ecocode config set-api-key {}", api_key);
+            println!("   ecocode config set-api-key <YOUR_KEY>");
+            println!("   (detected key: {})", masked);
         }
 
         let base_url = env::var("ECOCODE_API_URL")

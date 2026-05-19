@@ -98,7 +98,7 @@ impl Exporter for LogFileExporter {
     }
 
     async fn export_line(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let r = self.records.last().unwrap();
+        let Some(r) = self.records.last() else { return Ok(()) };
 
         if self.first_record {
             writeln!(self.writer)?;

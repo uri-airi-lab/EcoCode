@@ -19,10 +19,11 @@ impl ApiError {
     }
 
     /// Convenience method to create an internal server error (500) from any type that implements `Display`.
+    /// Logs the full error detail but returns a generic message to the client to avoid
+    /// leaking database schema or internal implementation details.
     pub fn internal(err: impl std::fmt::Display) -> Self {
-        let msg = err.to_string();
-        error!(error = %msg, "Internal server error");
-        Self::new(StatusCode::INTERNAL_SERVER_ERROR, msg)
+        error!(error = %err, "Internal server error");
+        Self::new(StatusCode::INTERNAL_SERVER_ERROR, "Internal server error")
     }
 }
 

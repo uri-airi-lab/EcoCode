@@ -7,6 +7,7 @@
 //! - `sysinfo`                    — CPU/memory usage (replaces psutil)
 
 use std::collections::HashMap;
+use std::fs;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -19,6 +20,63 @@ use ecocode_core::sensor::rapl;
 use ecocode_core::sensor::gpu;
 
 use sysinfo::{Pid, System};
+
+/// Reads cumulative CPU ticks (utime + stime) for a single PID from /proc/[pid]/stat.
+/// Returns None if the process no longer exists or the file can't be parsed.
+fn read_cpu_ticks(pid: u32) -> Option<u64> {
+    let stat = fs::read_to_string(format!("/proc/{}/stat", pid)).ok()?;
+    // Field 2 (comm) is wrapped in parentheses and may contain spaces/parens.
+    // Find the last ')' to safely skip it, then split the remaining fields.
+    let after_comm = stat.get(stat.rfind(')')? + 2..)?;
+    let fields: Vec<&str> = after_comm.split_whitespace().collect();
+    // After comm: field index 0 = state, ..., 11 = utime, 12 = stime
+    if fields.len() < 13 {
+        return None;
+    }
+    let utime: u64 = fields[11].parse().ok()?;
+    let stime: u64 = fields[12].parse().ok()?;
+    Some(utime + stime)
+}
+
+/// Reads cumulative CPU ticks for all PIDs, returning a map of pid → total ticks.
+fn read_all_cpu_ticks(pids: &[u32]) -> HashMap<u32, u64> {
+    let mut ticks = HashMap::with_capacity(pids.len());
+    for &pid in pids {
+        if let Some(t) = read_cpu_ticks(pid) {
+            ticks.insert(pid, t);
+        }
+    }
+    ticks
+}
+
+/// Reads PSS (Proportional Set Size) from /proc/[pid]/smaps_rollup.
+/// PSS correctly attributes shared pages proportionally across sharing processes.
+/// Returns None if the process no longer exists or the file can't be read.
+fn read_pss_bytes(pid: u32) -> Option<u64> {
+    let content = fs::read_to_string(format!("/proc/{}/smaps_rollup", pid)).ok()?;
+    for line in content.lines() {
+        if line.starts_with("Pss:") {
+            let kb: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
+            return Some(kb * 1024);
+        }
+    }
+    None
+}
+
+/// Returns true if this PID is a thread group leader (i.e. a real process, not a thread).
+/// Threads share the same address space as their leader, so PSS must only be read
+/// from leaders to avoid counting the same memory N times.
+fn is_thread_leader(pid: u32) -> bool {
+    fs::read_to_string(format!("/proc/{}/status", pid))
+        .ok()
+        .and_then(|s| {
+            s.lines()
+                .find(|l| l.starts_with("Tgid:"))
+                .and_then(|l| l.split_whitespace().nth(1)?.parse::<u32>().ok())
+        })
+        .map(|tgid| tgid == pid)
+        .unwrap_or(false)
+}
 
 /// ML marker state — updated from the Python thread, read by the sampler thread.
 #[derive(Debug, Default, Clone)]
@@ -61,7 +119,7 @@ impl SamplerHandle {
                     }
                 }
             })
-            .expect("failed to spawn reporter thread");
+            .expect("ecocode: failed to spawn reporter thread");
 
         // 2. Start Sampler Thread (handles hardware reads)
         let handle = thread::Builder::new()
@@ -77,7 +135,7 @@ impl SamplerHandle {
                     reporter_tx,
                 );
             })
-            .expect("failed to spawn sampler thread");
+            .expect("ecocode: failed to spawn sampler thread");
 
         Self {
             stop_tx,
@@ -161,6 +219,12 @@ fn sampler_loop(
 
     let mut tree_pids = ecocode_core::sensor::get_process_tree_pids_from_sys(&sys, pid);
     let mut last_tree_refresh = std::time::Instant::now();
+
+    // ── CPU tick baseline (for interval-average CPU usage) ──────────────────
+    let initial_leaders: Vec<u32> = tree_pids.iter().copied().filter(|&p| is_thread_leader(p)).collect();
+    let mut prev_cpu_ticks = read_all_cpu_ticks(&initial_leaders);
+    let num_cpus = sys.cpus().len().max(1);
+    let mut prev_tick_time = std::time::Instant::now();
 
     // ── Energy reading state ────────────────────────────────────────────────────
     let rapl_path = std::path::Path::new(ecocode_core::sensor::RAPL_PATH);
@@ -267,38 +331,58 @@ fn sampler_loop(
         // ── Refresh process metrics for the entire tree ──────────────
         let work_start = std::time::Instant::now();
 
-        // Refresh sysinfo (targeted for performance)
-        sys.refresh_cpu_usage();
-        sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-
-        if last_tree_refresh.elapsed() > Duration::from_secs(1) { // refresh pid tree once per second
-            sys.refresh_all(); // Full refresh to find new children
+        // Refresh sysinfo for process tree discovery
+        if last_tree_refresh.elapsed() > Duration::from_secs(1) {
+            sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
             tree_pids = ecocode_core::sensor::get_process_tree_pids_from_sys(&sys, pid);
             last_tree_refresh = std::time::Instant::now();
         }
 
-        let mut total_cpu_usage = 0.0f64;
-        let mut max_mem_usage = 0.0f64;
-        let num_cpus = sys.cpus().len().max(1) as f64;
+        // ── CPU: interval-average from /proc/[pid]/stat tick deltas ─────
+        const CLK_TCK: f64 = 100.0;
+        let now_tick = std::time::Instant::now();
+        let elapsed_secs = now_tick.duration_since(prev_tick_time).as_secs_f64();
+        let elapsed_ticks = elapsed_secs * CLK_TCK;
 
-        for p_id in &tree_pids {
-            if let Some(proc_) = sys.process(Pid::from(*p_id as usize)) {
-                // CPU: Sum across cores (already normalized by num_cpus)
-                total_cpu_usage += proc_.cpu_usage() as f64 / num_cpus;
-
-                // Memory: Use Max RSS to avoid double-counting shared memory
-                if total_mem > 0.0 {
-                    let p_mem = proc_.memory() as f64;
-                    let proc_mem_pct = (p_mem / total_mem) * 100.0;
-                    if proc_mem_pct > max_mem_usage {
-                        max_mem_usage = proc_mem_pct;
-                    }
-                }
+        // Only read ticks for thread group leaders (real processes).
+        // /proc/[tgid]/stat returns aggregate utime+stime for all threads (whole=1).
+        // /proc/[tid]/stat for non-leaders ALSO returns the group aggregate,
+        // so including threads would count the same CPU time N times.
+        let leaders: Vec<u32> = tree_pids.iter().copied().filter(|&p| is_thread_leader(p)).collect();
+        let curr_cpu_ticks = read_all_cpu_ticks(&leaders);
+        let mut total_delta_ticks = 0_u64;
+        for (&p, &curr) in &curr_cpu_ticks {
+            if let Some(&prev) = prev_cpu_ticks.get(&p) {
+                total_delta_ticks += curr.saturating_sub(prev);
             }
         }
 
-        let cpu_usage = total_cpu_usage.min(100.0);
-        let mem_usage = max_mem_usage.min(100.0);
+        let cpu_usage = if elapsed_ticks > 0.0 && num_cpus > 0 {
+            ((total_delta_ticks as f64 / elapsed_ticks) * 100.0 / num_cpus as f64).min(100.0)
+        } else {
+            0.0
+        };
+
+        prev_cpu_ticks = curr_cpu_ticks;
+        prev_tick_time = now_tick;
+
+        // ── Memory: PSS-sum for accurate shared-memory attribution ──────
+        // Only read PSS from thread group leaders (real processes), not threads.
+        // Threads share the same address space — reading their smaps_rollup
+        // returns the same value as the leader, so summing them Nx's the real memory.
+        let mut pss_total_bytes = 0_u64;
+        for &p_id in &tree_pids {
+            if is_thread_leader(p_id) {
+                if let Some(pss) = read_pss_bytes(p_id) {
+                    pss_total_bytes += pss;
+                }
+            }
+        }
+        let mem_usage = if total_mem > 0.0 {
+            ((pss_total_bytes as f64 / total_mem) * 100.0).min(100.0)
+        } else {
+            0.0
+        };
 
         let sensor_work_done = std::time::Instant::now();
 
@@ -312,7 +396,7 @@ fn sampler_loop(
             if let Ok(rapl_curr) = rapl::get_all_energies(&mut rapl_readers) {
                 if let Some(ref prev) = rapl_prev {
                     let deltas = rapl::delta_cpu_energy_per_pid_j(
-                        prev, &rapl_curr, interval, cpu_usage, mem_usage,
+                        prev, &rapl_curr, cpu_usage, mem_usage,
                         cpu_usage, // igpu proxy
                     );
                     for d in &deltas {
@@ -351,7 +435,6 @@ fn sampler_loop(
                     &gpu_energies_prev,
                     &gpu_energies_curr,
                     &gpu_timestamps,
-                    interval,
                     &gpu_max_energies,
                 );
 
@@ -395,6 +478,7 @@ fn sampler_loop(
         let record = Record {
             pid,
             timestamp,
+            elapsed_secs: Some(elapsed_secs),
             cpu_usage,
             cpu_energy: cpu_energy_j,
             gpu_usage: avg_gpu_usage,

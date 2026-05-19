@@ -79,6 +79,7 @@ export interface BackendRecordPoint {
   run_id: number
   pid: number
   timestamp: string
+  elapsed_secs?: number
   cpu_usage: number
   cpu_energy: number
   gpu_usage: number
@@ -211,6 +212,7 @@ export function mapRecord(r: BackendRecordPoint): MetricRecord {
     run_id: r.run_id.toString(),
     pid: r.pid,
     timestamp: new Date(r.timestamp).getTime(),
+    elapsed_secs: r.elapsed_secs ?? undefined,
     cpu_usage: r.cpu_usage,
     cpu_energy: r.cpu_energy,
     gpu_usage: r.gpu_usage,

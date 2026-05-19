@@ -62,6 +62,7 @@ export function EnergyChart({ runs: runsProp, data, runId }: EnergyChartProps) {
   const [zoomLoading, setZoomLoading] = useState(false)
   const [isZoomed, setIsZoomed] = useState(false)
   const zoomRangeRef = useRef<{ min: number; max: number } | null>(null)
+  const zoomAbortRef = useRef<AbortController | null>(null)
 
   const runs: RunData[] = runsProp ?? (data ? [{ runId: runId ?? 'single', runName: '', records: data }] : [])
   const sourceRecords = runs[0]?.records ?? []
@@ -108,12 +109,16 @@ export function EnergyChart({ runs: runsProp, data, runId }: EnergyChartProps) {
       setZoomedRecords(null)
       return
     }
+    // Cancel any in-flight zoom fetch before starting a new one.
+    zoomAbortRef.current?.abort()
+    const controller = new AbortController()
+    zoomAbortRef.current = controller
     setZoomLoading(true)
     try {
       const newRecs = await fetchRunRecordsInRange(runId, Math.floor(min), Math.ceil(max), 600)
-      setZoomedRecords(newRecs)
-    } catch { /* ignore */ }
-    finally { setZoomLoading(false) }
+      if (!controller.signal.aborted) setZoomedRecords(newRecs.length > 0 ? newRecs : null)
+    } catch { /* ignore (includes aborted fetches) */ }
+    finally { if (!controller.signal.aborted) setZoomLoading(false) }
   }, [runId, runs])
 
   // Precompute watts + LTTB for the base (unzoomed) view

@@ -41,6 +41,7 @@ export function useSSE() {
                     run_id: record.run_id.toString(),
                     pid: record.pid,
                     timestamp: new Date(record.timestamp).getTime(),
+                    elapsed_secs: record.elapsed_secs ?? undefined,
                     cpu_usage: record.cpu_usage,
                     cpu_energy: record.cpu_energy,
                     gpu_usage: record.gpu_usage,

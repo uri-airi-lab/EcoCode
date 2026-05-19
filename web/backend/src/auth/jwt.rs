@@ -12,9 +12,10 @@ pub(super) struct Claims {
     pub exp: usize,
 }
 
-/// Returns the JWT signing secret from `JWT_SECRET`, falling back to a development placeholder.
+/// Returns the JWT signing secret from `JWT_SECRET`. Panics if not set.
 pub(super) fn get_jwt_secret() -> String {
-    std::env::var("JWT_SECRET").unwrap_or_else(|_| "SUPER_SECRET_CHANGE_ME_IN_PROD".to_string())
+    std::env::var("JWT_SECRET")
+        .expect("JWT_SECRET environment variable must be set")
 }
 
 /// Generates a signed JWT encoding the user's ID with a 30-day expiry.

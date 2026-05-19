@@ -138,7 +138,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .layer(
             CorsLayer::new()
-                .allow_origin(cors_origin.parse::<axum::http::HeaderValue>().unwrap())
+                .allow_origin(cors_origin.parse::<axum::http::HeaderValue>()
+                    .expect(&format!("Invalid CORS_ORIGIN value: '{}'", cors_origin)))
                 .allow_methods([
                     Method::GET,
                     Method::POST,

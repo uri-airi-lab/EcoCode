@@ -106,19 +106,39 @@ pub async fn ingest_record(
     State(state): State<AppState>,
     Json(payload): Json<IngestRecordData>,
 ) -> Result<impl IntoResponse, ApiError> {
+    // Basic sanity checks — reject clearly invalid measurements.
+    if payload.cpu_energy < 0.0 || payload.gpu_energy < 0.0 {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "Energy values must be non-negative"));
+    }
+    if payload.cpu_usage < 0.0 || payload.cpu_usage > 100.0 {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "cpu_usage must be between 0 and 100"));
+    }
+    if payload.gpu_usage < 0.0 || payload.gpu_usage > 100.0 {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "gpu_usage must be between 0 and 100"));
+    }
+    if payload.mem_usage < 0.0 || payload.mem_usage > 100.0 {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "mem_usage must be between 0 and 100"));
+    }
+    if let Some(es) = payload.elapsed_secs {
+        if es <= 0.0 {
+            return Err(ApiError::new(StatusCode::BAD_REQUEST, "elapsed_secs must be positive"));
+        }
+    }
+
     let mut tx = state.pool.begin().await.map_err(ApiError::internal)?;
 
     let record_id: i64 = sqlx::query_scalar(
         "INSERT INTO records
-            (run_id, pid, timestamp, cpu_usage, cpu_energy, gpu_usage, gpu_energy,
+            (run_id, pid, timestamp, elapsed_secs, cpu_usage, cpu_energy, gpu_usage, gpu_energy,
              mem_usage, mem_energy, igpu_usage, igpu_energy,
              phase, epoch_num, tokens_processed, training_step, loss, learning_rate, sequence_length, accuracy, custom_metrics)
-         VALUES ($1, $2, $3::timestamptz, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+         VALUES ($1, $2, $3::timestamptz, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
          RETURNING id",
     )
     .bind(run_id)
     .bind(payload.pid)
     .bind(&payload.timestamp)
+    .bind(payload.elapsed_secs)
     .bind(payload.cpu_usage)
     .bind(payload.cpu_energy)
     .bind(payload.gpu_usage)
@@ -193,6 +213,7 @@ pub async fn ingest_record(
         run_id,
         pid: payload.pid,
         timestamp: payload.timestamp.clone(),
+        elapsed_secs: payload.elapsed_secs,
         cpu_usage: Some(payload.cpu_usage),
         cpu_energy: Some(payload.cpu_energy),
         gpu_usage: Some(payload.gpu_usage),

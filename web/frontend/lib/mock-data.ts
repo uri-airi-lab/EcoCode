@@ -17,6 +17,7 @@ export interface MetricRecord {
   run_id: string
   pid: number
   timestamp: number
+  elapsed_secs?: number // seconds since previous sample (for accurate watts)
   cpu_usage: number // percentage 0-100
   cpu_energy: number // Joules
   gpu_usage: number // percentage 0-100 (aggregate)
