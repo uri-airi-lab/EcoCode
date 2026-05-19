@@ -19,6 +19,7 @@ ACR_NAME="ecocoderegistry"          # must be globally unique, lowercase, 5-50 c
 ENVIRONMENT="ecocode-env"
 BACKEND_APP="backend"
 FRONTEND_APP="frontend"
+FRONTEND_CORS_URL="https://frontend.placeholder"
 
 # Load secrets from file
 ENV_FILE="$(dirname "$0")/backend/.env.azure"
@@ -79,7 +80,15 @@ ACR_USER="$(az acr credential show --name "$ACR_NAME" --query username -o tsv)"
 ACR_PASS="$(az acr credential show --name "$ACR_NAME" --query 'passwords[0].value' -o tsv)"
 
 if az containerapp show --name "$BACKEND_APP" --resource-group "$RESOURCE_GROUP" --output none 2>/dev/null; then
-  # Update existing app — refresh image only
+  # Update existing app secrets and image
+  az containerapp secret set \
+    --name "$BACKEND_APP" \
+    --resource-group "$RESOURCE_GROUP" \
+    --secrets \
+        "db-url=$DATABASE_URL" \
+        "jwt-secret=$JWT_SECRET" \
+    --output none
+
   az containerapp update \
     --name "$BACKEND_APP" \
     --resource-group "$RESOURCE_GROUP" \
@@ -106,7 +115,7 @@ else
         "DATABASE_URL=secretref:db-url" \
         "JWT_SECRET=secretref:jwt-secret" \
         "PRODUCTION=true" \
-        "CORS_ORIGIN=http://placeholder" \
+        "CORS_ORIGIN=$FRONTEND_CORS_URL" \
     --output none
 fi
 
@@ -117,14 +126,19 @@ BACKEND_FQDN=$(az containerapp show \
 
 BACKEND_EXTERNAL_URL="https://$BACKEND_FQDN"
 # Internal URL used by the Next.js server inside the same Container Apps environment
+# Container Apps backend ingress terminates traffic and exposes service internally on port 80.
 BACKEND_INTERNAL_URL="http://$BACKEND_APP"
 
 log "Backend deployed → $BACKEND_EXTERNAL_URL"
 
-# ── 6. Build & push frontend (using external backend URL for browser connections) ───────
-log "Building frontend image (NEXT_PUBLIC_API_URL=$BACKEND_EXTERNAL_URL)"
+# ── 6. Build & push frontend (using internal backend URL for Next.js rewrites) ───────
+# IMPORTANT: Use the internal service name for rewrites because:
+#   - Next.js rewrites happen server-side (no CORS issues)
+#   - Internal HTTP is faster than external HTTPS
+#   - Avoids SSL/certificate/DNS resolution overhead
+log "Building frontend image (NEXT_PUBLIC_API_URL=$BACKEND_INTERNAL_URL)"
 docker build \
-  --build-arg "NEXT_PUBLIC_API_URL=$BACKEND_EXTERNAL_URL" \
+  --build-arg "NEXT_PUBLIC_API_URL=$BACKEND_INTERNAL_URL" \
   -t "$FRONTEND_IMAGE" \
   "$(dirname "$0")/frontend"
 
@@ -135,11 +149,12 @@ docker push "$FRONTEND_IMAGE"
 log "Deploying frontend container app"
 
 if az containerapp show --name "$FRONTEND_APP" --resource-group "$RESOURCE_GROUP" --output none 2>/dev/null; then
-  # Update existing app — refresh image only
+  # Update existing app — refresh image and backend URL env var
   az containerapp update \
     --name "$FRONTEND_APP" \
     --resource-group "$RESOURCE_GROUP" \
     --image "$FRONTEND_IMAGE" \
+    --set-env-vars "NEXT_PUBLIC_API_URL=$BACKEND_INTERNAL_URL" \
     --output none
 else
   # First-time create — set ingress, env vars
@@ -157,7 +172,7 @@ else
     --max-replicas 3 \
     --env-vars \
         "NODE_ENV=production" \
-        "NEXT_PUBLIC_API_URL=$BACKEND_EXTERNAL_URL" \
+        "NEXT_PUBLIC_API_URL=$BACKEND_INTERNAL_URL" \
     --output none
 fi
 

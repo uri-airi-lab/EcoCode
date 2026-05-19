@@ -87,6 +87,31 @@ pub async fn ensure_postgres_schema(db: &PgPool) -> Result<(), Box<dyn std::erro
 
     // 2. Projects & Collaborators
 
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS projects (
+            id BIGSERIAL PRIMARY KEY,
+            workspace_id BIGINT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+            name TEXT,
+            collaborator_name TEXT,
+            country_code TEXT NOT NULL DEFAULT 'WORLD',
+            address TEXT,
+            latitude DOUBLE PRECISION,
+            longitude DOUBLE PRECISION,
+            electricity_maps_api_key TEXT,
+            resolved_intensity_g_per_kwh DOUBLE PRECISION NOT NULL DEFAULT 445.0,
+            intensity_source TEXT NOT NULL DEFAULT 'static_WORLD',
+            intensity_fetched_at TEXT,
+            pue_factor DOUBLE PRECISION NOT NULL DEFAULT 1.0,
+            manual_cost_per_kwh DOUBLE PRECISION,
+            manual_currency TEXT,
+            use_api_for_cost BOOLEAN NOT NULL DEFAULT FALSE,
+            updated_at TEXT NOT NULL DEFAULT (now()::text),
+            UNIQUE (workspace_id, name)
+        )",
+    )
+    .execute(db)
+    .await?;
+
     // Drop any old global unique constraint on projects.name (names must only be unique per workspace)
     sqlx::query(
         "DO $$ BEGIN
@@ -111,31 +136,6 @@ pub async fn ensure_postgres_schema(db: &PgPool) -> Result<(), Box<dyn std::erro
              ALTER TABLE projects ADD CONSTRAINT projects_workspace_id_name_key UNIQUE (workspace_id, name);
            END IF;
          END $$"
-    )
-    .execute(db)
-    .await?;
-
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS projects (
-            id BIGSERIAL PRIMARY KEY,
-            workspace_id BIGINT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-            name TEXT,
-            collaborator_name TEXT,
-            country_code TEXT NOT NULL DEFAULT 'WORLD',
-            address TEXT,
-            latitude DOUBLE PRECISION,
-            longitude DOUBLE PRECISION,
-            electricity_maps_api_key TEXT,
-            resolved_intensity_g_per_kwh DOUBLE PRECISION NOT NULL DEFAULT 445.0,
-            intensity_source TEXT NOT NULL DEFAULT 'static_WORLD',
-            intensity_fetched_at TEXT,
-            pue_factor DOUBLE PRECISION NOT NULL DEFAULT 1.0,
-            manual_cost_per_kwh DOUBLE PRECISION,
-            manual_currency TEXT,
-            use_api_for_cost BOOLEAN NOT NULL DEFAULT FALSE,
-            updated_at TEXT NOT NULL DEFAULT (now()::text),
-            UNIQUE (workspace_id, name)
-        )",
     )
     .execute(db)
     .await?;
