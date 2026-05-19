@@ -36,8 +36,8 @@ export function TrainingMetricsChart({ records }: TrainingMetricsChartProps) {
 
   // When zoom is cleared, reset the chart scale
   useEffect(() => {
-    if (!zoomRange) uplotRef.current?.resetZoom()
-  }, [zoomRange])
+    if (!isZoomed) uplotRef.current?.resetZoom()
+  }, [isZoomed])
 
   // Records with training_step AND at least one metric
   const stepRecords = useMemo(() => records.filter(r => {

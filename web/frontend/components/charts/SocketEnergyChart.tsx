@@ -67,8 +67,8 @@ export function SocketEnergyChart({ data, runId }: SocketEnergyChartProps) {
   }, [data])
 
   useEffect(() => {
-    if (!zoomedRecords) uplotRef.current?.resetZoom()
-  }, [zoomedRecords])
+    if (!isZoomed) uplotRef.current?.resetZoom()
+  }, [isZoomed])
 
   const handleZoom = useCallback(async (min: number, max: number) => {
     setIsZoomed(true)

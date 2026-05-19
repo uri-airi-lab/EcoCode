@@ -95,8 +95,8 @@ export function EnergyChart({ runs: runsProp, data, runId }: EnergyChartProps) {
   // React runs child effects before parent effects, so u.data[0] is the full base
   // dataset by the time this fires — resetZoom reads the correct full range.
   useEffect(() => {
-    if (!zoomedRecords) uplotRef.current?.resetZoom()
-  }, [zoomedRecords])
+    if (!isZoomed) uplotRef.current?.resetZoom()
+  }, [isZoomed])
 
   // UPlotChart debounces and fires onZoom after scroll settles; no inner debounce needed.
   const handleZoom = useCallback(async (min: number, max: number) => {

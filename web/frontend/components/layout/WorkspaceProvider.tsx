@@ -52,6 +52,12 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         }
       } else if (res.status === 401) {
         // Token might be invalid or expired (e.g., after DB reset)
+        // Clear the auth_token cookie to prevent the middleware redirect loop
+        try {
+          await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
+        } catch {
+          // ignore
+        }
         // Only redirect if not already on an auth page
         if (!window.location.pathname.startsWith('/login') && !window.location.pathname.startsWith('/register')) {
           window.location.href = '/login'

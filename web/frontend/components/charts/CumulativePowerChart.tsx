@@ -61,8 +61,8 @@ export function CumulativePowerChart({ runs: runsProp, data, runId }: Cumulative
   const sourceRecords = runs[0]?.records ?? []
 
   useEffect(() => {
-    if (!zoomedRecords) uplotRef.current?.resetZoom()
-  }, [zoomedRecords])
+    if (!isZoomed) uplotRef.current?.resetZoom()
+  }, [isZoomed])
 
   // Keep the zoomed snapshot live: append new in-range records as SSE delivers them
   useEffect(() => {
