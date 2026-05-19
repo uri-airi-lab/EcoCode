@@ -2,7 +2,6 @@
 
 import React from 'react'
 import { Smartphone, Car, TreePine, Leaf } from 'lucide-react'
-import { MetricCard } from '../MetricCard'
 
 interface EnvironmentalImpactProps {
   totalEnergyWh: number
@@ -71,15 +70,15 @@ export function EnvironmentalImpact({
   ]
 
   return (
-    <div className={`grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 ${className}`}>
-      {equivalents.map((m) => (
-        <MetricCard
-          key={m.label}
-          icon={m.icon}
-          label={m.label}
-          value={m.value}
-          unit={m.unit}
-        />
+    <div className={`grid grid-cols-2 md:grid-cols-4 gap-3 ${className}`}>
+      {equivalents.map((m, idx) => (
+        <div key={idx} className="p-4 rounded-lg border border-border/40 bg-primary/[0.02] flex flex-col items-center justify-center text-center group hover:bg-primary/[0.05] transition-all duration-300">
+          <m.icon className="w-4 h-4 text-muted-foreground/60 mb-2 group-hover:text-primary transition-colors" />
+          <p className="text-[9px] font-bold text-muted-foreground/40 uppercase tracking-tighter mb-1 truncate w-full">{m.label}</p>
+          <p className="text-sm font-mono font-bold text-foreground w-full break-all">
+            {m.value}{m.unit ? ` ${m.unit}` : ''}
+          </p>
+        </div>
       ))}
     </div>
   )
