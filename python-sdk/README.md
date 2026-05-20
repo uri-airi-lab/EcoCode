@@ -13,14 +13,17 @@
   - [Execution Flow](#execution-flow)
 - [Architecture Deep Dive](#architecture-deep-dive)
   - [`__init__.py` — Public API surface](#initpy--public-api-surface)
-  - [`src/lib.rs` — The Rust extension (PyO3)](#srclibrs--the-rust-extension-pyo3)
-  - [`src/sampler.rs` — High-precision sampling thread](#srcsamplerrs--high-precision-sampling-thread)
+  - [`_run.py` — EcoCodeRun class](#_runpy--ecoCoderun-class)
+  - [`_pipe.py` — Pipe IPC writers](#_pipepy--pipe-ipc-writers)
+  - [`_http.py` — HTTP client](#_httppy--http-client)
+  - [`ecocode monitor` — Headless monitor subprocess](#ecocode-monitor--headless-monitor-subprocess)
   - [`ecocode-core` — Shared energy sensor logic](#ecocode-core--shared-energy-sensor-logic)
-  - [How Python calls into Rust](#how-python-calls-into-rust)
+  - [How the SDK communicates with the monitor](#how-the-sdk-communicates-with-the-monitor)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
   - [Standalone Mode (no sudo required)](#standalone-mode-no-sudo-required)
-  - [Attached Mode (CLI + sudo)](#attached-mode-cli--sudo)
+  - [Attached Mode (CLI + SDK)](#attached-mode-cli--sdk)
+  - [Explicit Start/Stop](#explicit-startstop)
   - [Decorator API](#decorator-api)
 - [ML Marker API](#ml-marker-api)
   - [Phase Labels](#phase-labels)
@@ -55,7 +58,7 @@ with ecocode.run("llama-finetune", api_key="eco_...", project_id=42) as run:
     run.log_loss(1.45)
 ```
 
-The SDK is implemented as a native Rust extension compiled with [PyO3](https://pyo3.rs/) and [Maturin](https://maturin.rs/). There is no pure-Python measurement code — all sensor reads, threading, and HTTP calls happen in Rust.
+The SDK is implemented as a pure Python library with zero compiled dependencies. Energy monitoring is handled by the `ecocode` CLI binary spawned as a subprocess — the Python process contains no native threads, making it fully fork-safe for PyTorch DataLoader and DDP workloads.
 
 ---
 
@@ -67,79 +70,67 @@ The SDK operates in one of two mutually exclusive modes, **auto-detected at cons
 
 #### Standalone Mode
 
-> **No CLI, no sudo, no root required.**
+> **No CLI wrapper needed. Install with `pip install ecocode` and go.**
 
 The SDK manages the entire run lifecycle itself:
 
 1. Creates a run record on the EcoCode backend via HTTP (`POST /api/ingest/run`).
-2. Collects system info (CPU, RAM, GPU names) via `sysinfo` and sends it via HTTP.
-3. Starts two **daemon background threads** in Rust:
-   - **Sampler thread** (`ecocode-sampler`): wakes up every `interval` seconds and reads hardware sensors.
-   - **Reporter thread** (`ecocode-reporter`): receives completed records from the sampler via an in-process channel and posts them to the backend over HTTP. Blocking HTTP is isolated here so the sampler thread is never stalled.
-4. The sampler reads:
-   - **GPU energy** from NVIDIA's NVML library (`nvmlDeviceGetTotalEnergyConsumption`) — real joule deltas, no root needed.
-   - **CPU energy** directly from RAPL sysfs (`/sys/class/powercap/intel-rapl/*/energy_uj`). These files are **world-readable on most Linux distributions**; no root required. If they are not readable, `cpu_energy` silently falls back to `0.0`.
-   - **DRAM energy** from the RAPL `dram` sub-domain, if the CPU exposes it.
-   - **CPU % and process memory %** via the `sysinfo` crate (Rust-native, replaces `psutil`).
-   - ML marker state set by `log_*()` calls from the Python thread, snapshotted under a `Mutex`.
-5. On `__exit__`, the sampler and reporter threads are stopped and the run is marked `finished` or `failed`.
+2. Collects system info (CPU, RAM, GPU names) and sends it via HTTP.
+3. Spawns the `ecocode monitor` binary as a **subprocess** (not a thread). This subprocess:
+   - Reads **GPU energy** from NVIDIA NVML (`nvmlDeviceGetTotalEnergyConsumption`) — real joule deltas.
+   - Reads **CPU energy** from RAPL sysfs (`/sys/class/powercap/intel-rapl/*/energy_uj`).
+   - Reads **DRAM energy** from the RAPL `dram` sub-domain, if the CPU exposes it.
+   - Reads **CPU % and memory PSS** from `/proc/[pid]/stat` and `/proc/[pid]/smaps_rollup`.
+   - Reads markers from its stdin pipe, merges them with sensor data, and POSTs combined records to the backend.
+4. `run.log_loss(1.45)` writes `{"event":"loss","value":1.45}\n` to the subprocess's stdin pipe — a single kernel buffer write taking ~1 microsecond. The Python process has **zero native threads**, making it fully fork-safe.
+5. On `__exit__` (or `.stop()`), the SDK closes the pipe, waits for the subprocess to flush its final record and exit, then marks the run `finished` or `failed`.
 
-> **Why no sudo?** The EcoCode CLI, which does require root, runs `sudo chmod -R +r /sys/class/powercap/intel-rapl/` once at startup. This makes the RAPL sysfs files world-readable for the session. The Python SDK (and any other unprivileged process) can then read them directly. On systems where the CLI was never run or where the files remain unreadable, CPU energy falls back to `0.0` without interrupting training.
-
-> **Enabling CPU energy in standalone mode without the CLI:** On machines where RAPL files are not world-readable by default, you can grant read access as a one-time setup:
+> **CPU energy:** GPU energy (NVML) is always available without root. CPU energy requires read access to the RAPL sysfs interface. On machines where these files are not world-readable by default, run the following once:
 > ```bash
 > sudo chmod o+r /sys/class/powercap/intel-rapl/*/energy_uj
 > sudo chmod o+r /sys/class/powercap/intel-rapl/*/*/energy_uj
 > ```
-> After this, standalone mode will track CPU energy without requiring `sudo` or the CLI for any future run on that machine. This is the recommended approach on development machines, HPC clusters, and cloud VMs where the CLI is not installed.
 
 #### Attached Mode
 
-> **Requires the EcoCode CLI running with `sudo`.**
+> **Uses the CLI as the monitor instead of spawning a subprocess.**
 
 ```bash
-sudo ecocode -o online --api-key eco_... -- python train.py
+ecocode run -o online --api-key eco_... -- python train.py
 ```
 
-The CLI (a separate Rust binary):
-- Reads RAPL registers with root privileges (exact, unattributed machine-level energy) and NVML for GPU.
+The CLI:
 - Creates the run record in the backend.
-- Binds a **Unix domain socket** and exports its path + the run ID as environment variables: `ECOCODE_SOCKET` and `ECOCODE_RUN_ID`.
+- Creates an OS pipe and exports `ECOCODE_MARKER_FD` (write-end FD) + `ECOCODE_RUN_ID` into the child process environment.
 - Spawns the user's Python process as a child.
+- Handles all energy sampling and record reporting.
 
 The SDK sees these variables and switches to attached mode:
-- **No background threads.** All heavy measurement is done by the CLI process.
-- **No HTTP calls.** The SDK only sends lightweight semantic markers (phase, step, tokens…) through the Unix socket as newline-delimited JSON.
-- Full CPU + GPU energy accuracy (root-level RAPL reads).
-- Zero overhead on the training process beyond the socket writes.
+- **No subprocess spawned.** The CLI is the monitor.
+- **No HTTP calls from Python.** The SDK only sends lightweight semantic markers through the inherited pipe as newline-delimited JSON.
+- Zero overhead on the training process beyond pipe writes.
 
 **When to use standalone:**
 
-- You are running on a cloud VM, a Jupyter notebook, a university cluster, or any environment where you do not have root access or cannot install system services.
+- You are running on a cloud VM, a Jupyter notebook, a university cluster, or any environment where simplicity matters most.
 - You want the simplest possible setup: `pip install ecocode`, add three lines of code, and go.
-- You are prototyping or running one-off experiments where operational simplicity matters more than anything else.
-- You are running on a machine where RAPL sysfs files are already world-readable (common on Ubuntu, Fedora, and most cloud VM images).
+- You are using explicit `start()`/`stop()` across notebook cells or in a long-lived server.
 
 **When to use attached mode:**
 
-- You are running production or long-duration training jobs on a machine where you control the environment and have root access.
-- You need the RAPL files to be reliably readable regardless of OS configuration — the CLI's `chmod` guarantees this.
-- You want zero overhead on the training process itself — the SDK does nothing except send sub-millisecond socket writes; all measurement runs in a separate root process.
-- You need the `canceled` run status — if the job is killed with Ctrl+C, the CLI catches the signal, saves all data collected so far, and marks the run `canceled` cleanly. In standalone mode a SIGKILL kills the sampler threads instantly and the run is left open.
-- You are running multi-node or multi-GPU jobs where a single CLI process monitoring the root launcher is cleaner than embedding SDK threads inside each worker.
+- You want the CLI's terminal output, export format selection (CSV, JSON, Prometheus, etc.), and run lifecycle features.
+- You need the `canceled` run status — if the job is killed with Ctrl+C, the CLI catches the signal, saves all data collected so far, and marks the run `canceled` cleanly.
+- You are running multi-node or multi-GPU jobs where a single CLI process monitoring the root launcher is cleaner.
 
 **Mode comparison:**
 
 | | Standalone | Attached |
 |---|---|---|
-| Who reads RAPL | Rust sampler thread in Python process | CLI process running as root |
-| RAPL files used | Same `/sys/class/powercap/intel-rapl/*/energy_uj` sysfs files | Same `/sys/class/powercap/intel-rapl/*/energy_uj` sysfs files |
-| CPU energy attribution | Proportional by process CPU usage fraction (same algorithm as CLI) | Proportional by process CPU usage fraction (same algorithm as SDK) |
-| File access guaranteed | Requires CLI to have run `chmod -R +r` first, or a permissive distro | Yes — CLI runs as root |
-| Background threads | Two (sampler + reporter) in-process | None — CLI does all sampling |
-| HTTP calls | From the Python process | From the CLI |
-| Training process overhead | Small (native Rust threads, minimal) | Negligible — only tiny socket writes |
-| Run lifecycle management | SDK creates, records, and completes runs | CLI creates, records, and completes runs |
+| Who reads sensors | `ecocode monitor` subprocess (spawned by SDK) | CLI process (parent) |
+| Marker IPC | Pipe (subprocess stdin) | Pipe (inherited FD) |
+| Native threads in Python | None (fork-safe) | None (fork-safe) |
+| HTTP calls from Python | Run create/complete only | None |
+| Run lifecycle management | SDK creates and completes runs | CLI creates and completes runs |
 | `canceled` status | Not applicable — SDK only knows `finished` / `failed` | Produced by CLI on Ctrl+C |
 
 ---
@@ -147,26 +138,36 @@ The SDK sees these variables and switches to attached mode:
 ### Mode Detection
 
 ```
-EcoCodeRun.__init__()
+EcoCodeRun.__enter__()
        │
-       ├─ ECOCODE_SOCKET set? ──── yes ──► Attached mode
-       │  ECOCODE_RUN_ID  set?            (SocketClient → CLI process)
+       ├─ RANK / LOCAL_RANK != 0? ──── yes ──► No-op mode (DDP non-zero rank)
        │
-       └─ no ──────────────────────────► Standalone mode
-                                         (requires api_key)
+       ├─ ECOCODE_MARKER_FD set? ──── yes ──► Attached mode
+       │  ECOCODE_RUN_ID    set?              (write markers to inherited pipe FD)
+       │
+       └─ no ──────────────────────────────► Standalone mode
+                                              (requires api_key, spawns monitor subprocess)
 ```
 
-This detection happens in the Rust `EcoCodeRun` constructor (`src/lib.rs`):
+This detection happens in `_run.py`:
 
-```rust
-let socket_path = std::env::var("ECOCODE_SOCKET").ok();
-let env_run_id  = std::env::var("ECOCODE_RUN_ID").ok();
+```python
+# DDP rank detection
+rank = os.environ.get("RANK") or os.environ.get("LOCAL_RANK")
+if rank is not None and int(rank) != 0:
+    self._mode = "noop"
+    return self
 
-if let (Some(path), Some(rid_str)) = (&socket_path, &env_run_id) {
-    // Attached mode
-} else {
-    // Standalone mode
-}
+# Attached mode
+env_run_id = os.environ.get("ECOCODE_RUN_ID")
+env_marker_fd = os.environ.get("ECOCODE_MARKER_FD")
+if env_run_id and env_marker_fd:
+    self._mode = "attached"
+    ...
+
+# Standalone mode
+self._mode = "standalone"
+...
 ```
 
 ---
@@ -176,60 +177,59 @@ if let (Some(path), Some(rid_str)) = (&socket_path, &env_run_id) {
 #### Standalone Mode — Step by Step
 
 ```
-Python script                    Rust sampler/reporter threads     EcoCode backend
+Python script                    ecocode monitor subprocess        EcoCode backend
 ────────────────────────────────────────────────────────────────────────────────────
 ecocode.run().__enter__()
   │
   ├─ POST /api/ingest/run  ──────────────────────────────────────► creates run row
   ├─ POST /api/ingest/run/{id}/system-info  ────────────────────► stores CPU/GPU info
   │
-  ├─ SamplerHandle::start()
-  │       │
-  │       │  ecocode-sampler thread (every interval seconds):
-  │       ├─ nvmlDeviceGetTotalEnergyConsumption()
-  │       ├─ sysinfo::System::refresh_cpu_usage()
-  │       ├─ sysinfo::Process::memory()   (full process tree)
-  │       ├─ rapl::get_all_energies()     (RAPL sysfs)
-  │       ├─ Mutex::lock() → snapshot ML marker state
-  │       └─ mpsc::send(record) → ecocode-reporter thread
+  ├─ subprocess.Popen("ecocode monitor --run-id 42 --pid $$", stdin=PIPE)
   │                                   │
+  │                                   │  monitor subprocess (every interval seconds):
+  │                                   ├─ NVML: GPU energy + utilisation
+  │                                   ├─ /proc/[pid]/stat: CPU ticks
+  │                                   ├─ /proc/[pid]/smaps_rollup: PSS memory
+  │                                   ├─ RAPL sysfs: CPU + DRAM energy
+  │                                   ├─ read markers from stdin pipe
   │                                   └─ POST /api/ingest/run/{id}/record ──────► stores metric row
   │
-run.mark("phase", "forward")     # acquires Mutex, updates sampler marker state
-run.log_step(100)                # acquires Mutex, updates sampler marker state
-run.log_loss(1.45)               # acquires Mutex, updates sampler marker state
+run.mark("phase", "forward")     # writes JSON to subprocess stdin pipe (~1μs)
+run.log_step(100)                # writes JSON to subprocess stdin pipe (~1μs)
+run.log_loss(1.45)               # writes JSON to subprocess stdin pipe (~1μs)
   │
 ecocode.run().__exit__()
-  ├─ SamplerHandle::stop()       # sends stop signal, joins both threads
+  ├─ pipe.close()                # EOF signal → monitor flushes final record and exits
+  ├─ waitpid()                   # wait for subprocess to finish
   └─ POST /api/ingest/run/{id}/complete ──────────────────────────────────────► marks run done/failed
 ```
 
 #### Attached Mode — Step by Step
 
 ```
-CLI (sudo, Rust)                 Python script              EcoCode backend
+CLI (Rust)                       Python script              EcoCode backend
 ─────────────────────────────────────────────────────────────────────────────
-ecocode CLI starts
+ecocode run starts
   ├─ reads RAPL + NVML on its own timer
   ├─ POST /api/ingest/run ─────────────────────────────────► creates run
-  ├─ binds Unix socket at /tmp/ecocode-<pid>.sock
-  ├─ export ECOCODE_SOCKET=/tmp/ecocode-<pid>.sock
+  ├─ creates OS pipe (read_fd, write_fd)
+  ├─ export ECOCODE_MARKER_FD=<write_fd>
   ├─ export ECOCODE_RUN_ID=42
   └─ exec python train.py
 
                                  ecocode.run().__enter__()
-                                   └─ SocketClient::connect()
+                                   └─ InheritedFdWriter(fd)
 
                                  run.mark("phase", "forward")
-                                   └─ socket.send({"event":"phase","value":"forward"}\n)
+                                   └─ pipe.write({"event":"phase","value":"forward"}\n)
 
-CLI receives marker event ──────►
+CLI reads marker from pipe ─────►
   └─ attaches marker to next metric record sent to backend
 
                                  ecocode.run().__exit__()
-                                   └─ socket.close()
+                                   └─ pipe.close()
 
-CLI detects EOF on socket, marks run "canceled" (Ctrl+C) or "finished"/"failed"
+CLI detects EOF on pipe, marks run "canceled" (Ctrl+C) or "finished"/"failed"
 ```
 
 ---
@@ -238,11 +238,11 @@ CLI detects EOF on socket, marks run "canceled" (Ctrl+C) or "finished"/"failed"
 
 ### `__init__.py` — Public API surface
 
-Exposes two functions: `run()` and `track()`.
+Exposes three symbols: `run()`, `track()`, and `EcoCodeRun`.
 
 | Symbol | Type | Description |
 |--------|------|-------------|
-| `run(name, *, api_key, project_id, base_url, interval)` | Context manager factory | Returns an `EcoCodeRun`. Used with `with`. |
+| `run(name, *, api_key, project_id, base_url, interval)` | Context manager factory | Returns an `EcoCodeRun`. Used with `with`, or call `.start()`/`.stop()` manually. |
 | `track(name, *, api_key, project_id, base_url, interval)` | Decorator factory | Wraps a function in `EcoCodeRun`. |
 | `EcoCodeRun` | Class | Re-exported for type-checking convenience. |
 
@@ -257,71 +257,92 @@ def wrapper(*args, **kwargs):
 
 ---
 
-### `src/lib.rs` — The Rust extension (PyO3)
+### `_run.py` — EcoCodeRun class
 
-The central object `EcoCodeRun` is defined here as a `#[pyclass]`. Its `#[pymethods]` implement:
+The central object that manages the run lifecycle. Implements:
 
-- `__new__`: mode detection, client initialisation.
-- `__enter__`: in standalone mode, creates the run via HTTP, saves system info, spawns `SamplerHandle`.
-- `__exit__`: stops the sampler, completes the run. Returns `False` — exceptions from the training code are **never suppressed**. The run status is `"finished"` (no exception) or `"failed"` (exception propagated). `"canceled"` is only produced by the CLI.
-- All `log_*()` / `mark()` methods: in standalone mode, they acquire a `Mutex` and update the shared `MarkerState`; in attached mode, they serialise a JSON event and write it to the Unix socket.
+- `__enter__` / `start()`: DDP rank detection, mode detection (attached vs standalone), run creation via HTTP, subprocess spawning.
+- `__exit__` / `stop()`: closes the marker pipe, waits for the subprocess to finish, completes the run. Returns `False` — exceptions from the training code are **never suppressed**. The run status is `"finished"` (no exception) or `"failed"` (exception propagated).
+- All `log_*()` / `mark()` methods: write a JSON event to the pipe (subprocess stdin in standalone mode, inherited FD in attached mode).
 
 ---
 
-### `src/sampler.rs` — High-precision sampling thread
+### `_pipe.py` — Pipe IPC writers
 
-Spawns two Rust threads:
+Three writer implementations:
 
-**Sampler thread (`ecocode-sampler`)** — hardware reads only:
+| Class | Used in | Mechanism |
+|-------|---------|-----------|
+| `PipeWriter` | Standalone mode | Writes to subprocess stdin (`subprocess.PIPE`) |
+| `InheritedFdWriter` | Attached mode | Writes to inherited FD via `os.fdopen()` |
+| `NullWriter` | DDP non-zero ranks, pre-enter state | Silent no-op |
 
-```rust
-loop {
-    match stop_rx.recv_timeout(wait_time) {
-        Ok(()) => break,                           // stop signal
-        Err(RecvTimeoutError::Timeout) => {}       // normal tick
-        Err(RecvTimeoutError::Disconnected) => break,
-    }
-    // ... read RAPL, NVML, sysinfo ...
-    let _ = reporter_tx.send(record);              // non-blocking
-}
+All writers serialise markers as newline-delimited JSON and silently catch `BrokenPipeError`.
+
+---
+
+### `_http.py` — HTTP client
+
+Pure Python HTTP client using `urllib.request` (zero external dependencies). Used only by the SDK for run lifecycle management:
+
+- `create_run()` — `POST /api/ingest/run`
+- `save_system_info()` — `POST /api/ingest/run/{id}/system-info`
+- `complete_run()` — `POST /api/ingest/run/{id}/complete`
+
+Record reporting is handled by the monitor subprocess, not the SDK.
+
+---
+
+### `ecocode monitor` — Headless monitor subprocess
+
+The `ecocode monitor` subcommand (`monitor_headless.rs`) is the subprocess spawned by the SDK in standalone mode. It:
+
+- Reads markers from stdin (newline-delimited JSON)
+- Reads RAPL, NVML, `/proc` sensors on every tick
+- Merges markers with energy data into a `Record`
+- POSTs combined records to the backend via `EcoCodeHttpClient`
+- Exits on stdin EOF (pipe closed by SDK) or target PID death
+
+This runs as a separate OS process, not a thread — the Python process has zero native threads, making it safe for `os.fork()` (DataLoader workers, DDP).
+
+---
+
+### `ecocode-core` — Shared energy sensor logic
+
+`ecocode-core` is a Rust library crate at `ecocode/crates/core/`. The CLI binary links against it statically. It provides:
+
+- `sensor::rapl` — RAPL sysfs file handles, energy reads, delta computation with wrap-around correction.
+- `sensor::gpu` — NVML device enumeration, energy delta computation, per-process GPU utilisation.
+- `sensor::get_process_tree_pids_from_sys` — recursive PID-tree walker using `sysinfo`.
+- `http_client::EcoCodeHttpClient` — blocking HTTP client for the four ingest endpoints.
+
+---
+
+### How the SDK communicates with the monitor
+
+```
+Python: import ecocode
+           └── ecocode/__init__.py
+                   └── from ecocode._run import EcoCodeRun  (pure Python)
+                               │
+                   ┌───────────┴───────────────────────────┐
+                   │  _run.py  — run lifecycle, mode detect │
+                   │  _pipe.py — JSON pipe writers          │
+                   │  _http.py — stdlib HTTP client         │
+                   └───────────┬───────────────────────────┘
+                               │ subprocess.Popen (stdin=PIPE)
+                               ▼
+                   ┌───────────────────────────────────────┐
+                   │  ecocode monitor (Rust binary)        │
+                   │    monitor_headless.rs                │
+                   │    → links ecocode-core (static)      │
+                   │         sensor::rapl                  │
+                   │         sensor::gpu  (NVML)           │
+                   │         http_client                   │
+                   └───────────────────────────────────────┘
 ```
 
-Using `recv_timeout` instead of `thread::sleep` means the thread wakes up immediately when `stop()` is called and always produces a final sample before exiting.
-
-**Reporter thread (`ecocode-reporter`)** — blocking HTTP, isolated from the sampler:
-
-```rust
-while let Ok(record) = reporter_rx.recv() {
-    client.add_record(run_id, &record)?;
-}
-```
-
-This two-thread design ensures that a slow network never stalls the hardware sensor reads.
-
-**Why two threads and not one?** The CLI (attached mode) uses a single async Tokio loop that does everything sequentially on each tick:
-
-```
-tick
- │
- ├─ read RAPL + NVML
- ├─ read sysinfo (CPU%, mem%)
- ├─ drain Unix socket for any markers Python sent
- ├─ build Record
- ├─ exporter.add_record()    ← store
- └─ exporter.export_line()   ← send (HTTP POST, CSV write, etc.)
-```
-
-Tokio's async runtime ensures a slow HTTP POST does not block the next tick — the executor suspends the task and resumes it when the network completes. The SDK cannot use an async runtime inside a Python process without taking over the event loop, so instead it uses two OS threads with an `mpsc` channel: the sampler thread is never blocked waiting for the network, and the reporter thread is never racing with the hardware reads.
-
-**Process tree tracking**
-
-The sampler calls `get_process_tree_pids_from_sys()` to find the root PID and all its descendants (data-loader workers, `torch.distributed` ranks, etc.). CPU usage is summed across the whole tree; memory is the max-of-tree to avoid double-counting shared pages. The tree is refreshed every second.
-
-**Thread-safety**
-
-All `set_*()` methods (called from the Python main thread) acquire a `Mutex<MarkerState>`. The sampler also acquires the same `Mutex` to snapshot state before building each record. The Python thread and sampler thread never race.
-
-**The payload shape posted every tick:**
+**The payload shape posted every tick by the monitor:**
 
 ```json
 {
@@ -346,85 +367,38 @@ All `set_*()` methods (called from the Python main thread) acquire a `Mutex<Mark
 }
 ```
 
-> `cpu_energy` is non-zero when RAPL sysfs files are world-readable (either after the CLI's `chmod` or on distributions that expose them by default).
-> `gpu_usage` reflects per-process GPU utilisation attributed from NVML process utilisation stats.
-
----
-
-### `ecocode-core` — Shared energy sensor logic
-
-`ecocode-core` is a Rust library crate at `ecocode/crates/core/`. Both the CLI binary and the Python SDK `.so` link against it statically. It provides:
-
-- `sensor::rapl` — RAPL sysfs file handles, energy reads, delta computation with wrap-around correction.
-- `sensor::gpu` — NVML device enumeration, energy delta computation, per-process GPU utilisation.
-- `sensor::get_process_tree_pids_from_sys` — recursive PID-tree walker using `sysinfo`.
-- `http_client::EcoCodeHttpClient` — blocking HTTP client wrapping `ureq` for the four ingest endpoints.
-
----
-
-### How Python calls into Rust
-
-Maturin compiles `python-sdk/src/lib.rs` into a native shared library:
-
-```
-_core.cpython-3xx-linux-gnu.so
-```
-
-The `#[pymodule]` macro on `_core()` and `#[pyclass]`/`#[pymethods]` on `EcoCodeRun` generate the CPython ABI glue automatically at compile time. When Python executes `from ecocode._core import EcoCodeRun`, it calls `dlopen()` on that `.so` — there is no subprocess, no IPC, no marshalling overhead. It is a native Python extension, identical in mechanism to NumPy or PyTorch's C extensions. The `ecocode-core` crate is linked as a static library directly into the `.so`.
-
-```
-Python: import ecocode
-           └── ecocode/__init__.py
-                   └── from ecocode._core import EcoCodeRun
-                               │
-                        _core.cpython-3xx.so  (PyO3, compiled by Maturin)
-                               │
-                    ┌──────────┴──────────────────────────┐
-                    │  python-sdk/src/lib.rs               │
-                    │  python-sdk/src/sampler.rs           │
-                    │  python-sdk/src/socket_client.rs     │
-                    │                                      │
-                    │  → links ecocode-core (static)       │
-                    │       sensor::rapl                   │
-                    │       sensor::gpu  (NVML)            │
-                    │       http_client                    │
-                    └──────────────────────────────────────┘
-```
-
 ---
 
 ## Installation
 
 ```bash
-# Core (CPU + memory metrics, no GPU)
-pip install -e .
-
-# With GPU energy tracking (requires NVIDIA GPU + driver)
-pip install -e ".[gpu]"
+# Core SDK (pure Python, zero compiled dependencies)
+pip install ecocode
 
 # With HuggingFace Trainer callback
-pip install -e ".[hf]"
+pip install ecocode[hf]
 
 # With TRL callback (SFT / DPO / GRPO)
-pip install -e ".[trl]"
+pip install ecocode[trl]
 
 # With PyTorch Lightning callback
-pip install -e ".[lightning]"
+pip install ecocode[lightning]
 
 # Everything
-pip install -e ".[all]"
+pip install ecocode[all]
 
-# Development (includes pytest, responses, pytest-mock)
+# Development from source
+git clone https://github.com/MohamedAziz-Khezami/EcoCode.git
+cd EcoCode/python-sdk
 pip install -e ".[dev]"
 ```
 
-**Build requirement**: [Maturin](https://maturin.rs/) and a Rust toolchain (`rustup`) must be installed. `pip install -e .` invokes Maturin automatically.
+The SDK is a pure Python package with zero compiled dependencies. No Rust toolchain or Maturin needed.
 
 **Optional runtime extras**:
 
 | Extra | Package | Why |
 |-------|---------|-----|
-| `gpu` | `nvml-wrapper` (Rust) | NVIDIA GPU energy via NVML |
 | `hf` | `transformers >= 4.30` | HuggingFace `TrainerCallback` base class |
 | `trl` | `trl >= 0.7` | TRL SFT / DPO / GRPO trainers |
 | `lightning` | `pytorch-lightning >= 2.0` | PyTorch Lightning `Callback` base class |
@@ -436,10 +410,10 @@ pip install -e ".[dev]"
 ## Quick Start
 
 > **Not sure which mode to use?**
-> - No root access, cloud VM, notebook, or just getting started → use **Standalone**.
-> - Own the machine, need guaranteed RAPL reads, or running production jobs → use **Attached**.
+> - Most users → use **Standalone** (just `pip install ecocode` and go).
+> - Want CLI terminal output, export formats, or run lifecycle control → use **Attached**.
 
-### Standalone Mode (no sudo required)
+### Standalone Mode
 
 ```python
 import ecocode
@@ -475,21 +449,36 @@ with ecocode.run(
     run.mark("phase", "done")
 ```
 
-### Attached Mode (CLI + sudo)
+### Attached Mode (CLI + SDK)
 
 Start the CLI first, then your script can use a minimal import:
 
 ```bash
-sudo ecocode -o online --api-key eco_... -- python train.py
+ecocode run -o online --api-key eco_... -- python train.py
 ```
 
 ```python
-# train.py — no api_key needed; CLI injects ECOCODE_SOCKET + ECOCODE_RUN_ID
+# train.py — no api_key needed; CLI injects ECOCODE_MARKER_FD + ECOCODE_RUN_ID
 import ecocode
 
 with ecocode.run() as run:
     run.mark("phase", "forward")
     run.log_step(100)
+```
+
+### Explicit Start/Stop
+
+For Jupyter notebooks or long-lived servers where a context manager does not fit:
+
+```python
+import ecocode
+
+run = ecocode.run("notebook-experiment", api_key="eco_...")
+run.start()
+
+# ... training across multiple cells or a long-lived process ...
+
+run.stop()
 ```
 
 ### Decorator API
@@ -766,9 +755,10 @@ See `demo_axolotl.py` and `demo_unsloth.py` for complete examples.
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `ECOCODE_API_KEY` | API key for standalone mode | — (required if not passed to `run()`) |
-| `ECOCODE_API_URL` | Backend base URL | `http://localhost:3001` |
-| `ECOCODE_SOCKET` | Unix socket path (set by CLI) | — (triggers attached mode) |
+| `ECOCODE_API_URL` | Backend base URL | `https://ecocode.app` |
+| `ECOCODE_MARKER_FD` | Pipe file descriptor (set by CLI) | — (triggers attached mode) |
 | `ECOCODE_RUN_ID` | Integer run ID (set by CLI) | — (triggers attached mode) |
+| `RANK` / `LOCAL_RANK` | DDP rank (set by torchrun/deepspeed) | — (non-zero ranks use no-op mode) |
 
 ---
 
@@ -776,19 +766,19 @@ See `demo_axolotl.py` and `demo_unsloth.py` for complete examples.
 
 | Metric | Standalone | Attached (CLI) | Notes |
 |--------|-----------|----------------|-------|
-| GPU energy (J) | Real (NVML) | Real (NVML) | Requires `gpu` feature, NVIDIA GPU |
-| CPU energy (J) | RAPL sysfs, proportional attribution | RAPL sysfs, proportional attribution | Same sysfs files, same algorithm. SDK requires files to be world-readable (CLI chmod or permissive distro). `0.0` if unreadable. |
+| GPU energy (J) | Real (NVML) | Real (NVML) | Requires NVIDIA GPU + driver |
+| CPU energy (J) | RAPL sysfs, proportional attribution | RAPL sysfs, proportional attribution | Same sysfs files, same algorithm. Requires files to be world-readable. `0.0` if unreadable. |
 | RAM energy (J) | Real if DRAM domain present | Real (RAPL) | RAPL DRAM domain; `null` if not exposed by hardware |
-| CPU usage (%) | `sysinfo` (Rust) | `sysinfo` (Rust) | Full process tree, normalised to 0–100% of machine |
-| Memory usage (%) | `sysinfo` RSS (max of tree) | `sysinfo` (max of tree) | Max across process tree to avoid double-counting |
-| Training phase | Set via `run.mark("phase", ...)` | Set via `run.mark("phase", ...)` | — |
-| Loss | Set via `run.log_loss(...)` | Set via `run.log_loss(...)` | — |
-| Learning rate | Set via `run.log_lr(...)` | Set via `run.log_lr(...)` | — |
-| Gradient step | Set via `run.log_step(...)` | Set via `run.log_step(...)` | — |
-| Token count | Set via `run.log_tokens(...)` | Set via `run.log_tokens(...)` | — |
-| Sequence length | Set via `run.log_sequence_length(...)` | Set via `run.log_sequence_length(...)` | — |
-| Accuracy | Set via `run.log_accuracy(...)` | Set via `run.log_accuracy(...)` | — |
-| Custom metrics | Set via `run.log_custom(key, value)` | Set via `run.log_custom(key, value)` | — |
+| CPU usage (%) | `/proc/[pid]/stat` ticks | `/proc/[pid]/stat` ticks | Full process tree, normalised to 0-100% of machine |
+| Memory usage (%) | PSS from `/proc/[pid]/smaps_rollup` | PSS from `/proc/[pid]/smaps_rollup` | Proportional Set Size avoids double-counting shared pages |
+| Training phase | Set via `run.mark("phase", ...)` | Set via `run.mark("phase", ...)` | -- |
+| Loss | Set via `run.log_loss(...)` | Set via `run.log_loss(...)` | -- |
+| Learning rate | Set via `run.log_lr(...)` | Set via `run.log_lr(...)` | -- |
+| Gradient step | Set via `run.log_step(...)` | Set via `run.log_step(...)` | -- |
+| Token count | Set via `run.log_tokens(...)` | Set via `run.log_tokens(...)` | -- |
+| Sequence length | Set via `run.log_sequence_length(...)` | Set via `run.log_sequence_length(...)` | -- |
+| Accuracy | Set via `run.log_accuracy(...)` | Set via `run.log_accuracy(...)` | -- |
+| Custom metrics | Set via `run.log_custom(key, value)` | Set via `run.log_custom(key, value)` | -- |
 | CPU name / cores | `sysinfo` | `sysinfo` | Sent once at run start |
 | RAM total (GB) | `sysinfo` | `sysinfo` | Sent once at run start |
 | GPU names | NVML | NVML | Sent once at run start |
@@ -847,8 +837,9 @@ EPOCHS=30 BATCH_SIZE=256 LR=3e-4 API_KEY=eco_... python demo_training.py
 | Field | Value |
 |-------|-------|
 | Name | `ecocode` |
-| Version | `0.1.0` |
-| Python | ≥ 3.9 |
+| Version | `0.2.0` |
+| Python | >= 3.9 |
 | License | MIT |
-| Build backend | [Maturin](https://maturin.rs/) |
+| Build backend | [Hatchling](https://hatch.pypa.io/) |
+| Dependencies | None (pure Python, stdlib only) |
 | Keywords | energy, carbon, ml, llm, monitoring, sustainability, rlhf, training |

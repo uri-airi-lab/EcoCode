@@ -276,7 +276,7 @@ pub async fn get_record_points(
 
         // Step 3: fetch full records for the selected IDs
         let rows = sqlx::query_as::<_, RecordPointRow>(
-            "SELECT id, run_id, pid, timestamp::text AS timestamp,
+            "SELECT id, run_id, pid, timestamp::text AS timestamp, elapsed_secs,
                     cpu_usage, cpu_energy, gpu_usage, gpu_energy,
                     mem_usage, mem_energy, igpu_usage, igpu_energy,
                     phase, epoch_num, tokens_processed, training_step, loss,
@@ -342,7 +342,7 @@ pub async fn get_record_points(
         let selected_ids: Vec<i64> = indices.iter().map(|&i| energy_rows[i].0).collect();
 
         sqlx::query_as::<_, RecordPointRow>(
-            "SELECT id, run_id, pid, timestamp::text AS timestamp,
+            "SELECT id, run_id, pid, timestamp::text AS timestamp, elapsed_secs,
                     cpu_usage, cpu_energy, gpu_usage, gpu_energy,
                     mem_usage, mem_energy, igpu_usage, igpu_energy,
                     phase, epoch_num, tokens_processed, training_step, loss,

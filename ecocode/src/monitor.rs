@@ -261,93 +261,94 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
 
     let mut rapl_readers = scan_rapl_files()?;
 
-    // --- Python SDK socket listener (attached mode) ---
-    // Creates a Unix domain socket so the Python SDK running inside the child process
-    // can send semantic marker events (phase, tokens, step, loss, lr, seq_len).
-    let cli_pid = std::process::id();
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let socket_path = format!("/tmp/ecocode_{}_{:x}.sock", cli_pid, nonce);
+    // --- Pipe-based marker IPC (attached mode) ---
+    // Creates an OS pipe so the Python SDK running inside the child process
+    // can send semantic marker events (phase, tokens, step, loss, lr, seq_len)
+    // by writing newline-delimited JSON to the inherited write-end FD.
     let marker_state: Arc<Mutex<MarkerState>> = Arc::new(Mutex::new(MarkerState::default()));
 
-    // Remove any stale socket left by a previous crash
-    let _ = std::fs::remove_file(&socket_path);
-
-    let listener = tokio::net::UnixListener::bind(&socket_path)?;
+    let (pipe_read_fd, pipe_write_fd) = os_pipe::pipe()?;
     let marker_state_for_task = Arc::clone(&marker_state);
-    let socket_path_for_task = socket_path.clone();
 
-    tokio::spawn(async move {
-        loop {
-            match listener.accept().await {
-                Ok((mut stream, _)) => {
-                    let ms = Arc::clone(&marker_state_for_task);
-                    tokio::spawn(async move {
-                        use tokio::io::{AsyncBufReadExt, BufReader};
-                        let reader = BufReader::new(&mut stream);
-                        let mut lines = reader.lines();
-                        while let Ok(Some(line)) = lines.next_line().await {
-                            let line = line.trim().to_string();
-                            if line.is_empty() {
-                                continue;
+    // Clear CLOEXEC on the write-end so the child inherits it across exec.
+    // os_pipe sets CLOEXEC by default; we need the child to write markers to this FD.
+    {
+        use std::os::unix::io::AsRawFd;
+        let raw = pipe_write_fd.as_raw_fd();
+        unsafe {
+            let flags = libc::fcntl(raw, libc::F_GETFD);
+            libc::fcntl(raw, libc::F_SETFD, flags & !libc::FD_CLOEXEC);
+        }
+    }
+
+    // Spawn a blocking reader thread for the pipe read-end.
+    // The child process writes markers to pipe_write_fd; we read them here.
+    std::thread::spawn(move || {
+        use std::io::BufRead;
+        let reader = std::io::BufReader::new(pipe_read_fd);
+        for line in reader.lines() {
+            match line {
+                Ok(line) => {
+                    let line = line.trim().to_string();
+                    if line.is_empty() {
+                        continue;
+                    }
+                    if let Ok(event) = serde_json::from_str::<serde_json::Value>(&line) {
+                        let mut state = marker_state_for_task.lock().unwrap();
+                        match event.get("event").and_then(|e| e.as_str()) {
+                            Some("phase") => {
+                                state.current_phase =
+                                    event["value"].as_str().map(|s| s.to_string());
                             }
-                            if let Ok(event) = serde_json::from_str::<serde_json::Value>(&line) {
-                                let mut state = ms.lock().unwrap();
-                                match event.get("event").and_then(|e| e.as_str()) {
-                                    Some("phase") => {
-                                        state.current_phase =
-                                            event["value"].as_str().map(|s| s.to_string());
-                                    }
-                                    Some("epoch") => {
-                                        let n = event["value"].as_i64().unwrap_or(0);
-                                        state.current_phase = Some(format!("epoch:{}", n));
-                                    }
-                                    Some("tokens") => {
-                                        state.tokens_processed = event["count"].as_i64();
-                                    }
-                                    Some("step") => {
-                                        state.training_step = event["value"].as_i64();
-                                    }
-                                    Some("loss") => {
-                                        state.loss = event["value"].as_f64();
-                                    }
-                                    Some("learning_rate") => {
-                                        state.learning_rate = event["value"].as_f64();
-                                    }
-                                    Some("sequence_length") => {
-                                        state.sequence_length =
-                                            event["value"].as_i64().map(|n| n as i32);
-                                    }
-                                    _ => {
-                                        eprintln!("[sdk] Unknown marker event: {}", line);
-                                    }
-                                }
-                            } else {
-                                eprintln!("[sdk] Failed to parse marker event: {}", line);
+                            Some("epoch") => {
+                                let n = event["value"].as_i64().unwrap_or(0);
+                                state.current_phase = Some(format!("epoch:{}", n));
                             }
+                            Some("tokens") => {
+                                state.tokens_processed = event["count"].as_i64();
+                            }
+                            Some("step") => {
+                                state.training_step = event["value"].as_i64();
+                            }
+                            Some("loss") => {
+                                state.loss = event["value"].as_f64();
+                            }
+                            Some("learning_rate") => {
+                                state.learning_rate = event["value"].as_f64();
+                            }
+                            Some("sequence_length") => {
+                                state.sequence_length =
+                                    event["value"].as_i64().map(|n| n as i32);
+                            }
+                            // accuracy, custom, and other SDK markers are
+                            // silently accepted — they don't map to the CLI's
+                            // fixed-schema Record fields.
+                            _ => {}
                         }
-                    });
+                    }
                 }
-                Err(e) => {
-                    eprintln!("[sdk] Socket accept error: {}", e);
-                    break;
-                }
+                Err(_) => break, // pipe closed (child exited)
             }
         }
-        let _ = std::fs::remove_file(&socket_path_for_task);
     });
 
     // --- Spawn the target process ---
-    // Inject ECOCODE_SOCKET and ECOCODE_RUN_ID so the Python SDK running inside
+    // Inject ECOCODE_MARKER_FD and ECOCODE_RUN_ID so the Python SDK running inside
     // the child process can attach to this run in attached mode.
+    // The child inherits the pipe write-end FD and writes markers to it.
+    let write_fd_raw = {
+        use std::os::unix::io::AsRawFd;
+        pipe_write_fd.as_raw_fd()
+    };
     let mut child = Command::new(&args.command[0])
         .args(&args.command[1..])
-        .env("ECOCODE_SOCKET", &socket_path)
+        .env("ECOCODE_MARKER_FD", write_fd_raw.to_string())
         .env("ECOCODE_RUN_ID", run_id.to_string())
         .spawn()
         .map_err(|e| format!("Failed to execute '{}': {}", args.command[0], e))?;
+
+    // Close the write-end in the parent — only the child writes markers.
+    drop(pipe_write_fd);
     
 
     let child_pid_raw = child.id();
@@ -731,9 +732,6 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
         .complete_run(run_id, final_status, Some(run_ended_at.as_str()))
         .await?;
     exporter.run_summary(run_id).await?;
-
-    // Clean up the SDK socket file
-    let _ = std::fs::remove_file(&socket_path);
 
     // Restore the default panic hook now that the child is done.
     let _ = std::panic::take_hook();

@@ -4,22 +4,24 @@ EcoCode Python SDK
 Track energy consumption of ML training and inference runs — phases, epochs,
 token counts, optimizer steps, loss, learning rate, and sequence length.
 
-Works in two modes (auto-detected):
+Three equivalent usage patterns:
 
-  Attached mode  — CLI is running with sudo:
-      sudo ecocode -o online --api-key eco_... -- python train.py
-
-      inside train.py:
-          import ecocode
-          with ecocode.run() as r:
-              r.mark("phase", "forward")
-              r.log_step(100)
-
-  Standalone mode — no CLI, no sudo required:
-      import ecocode
-      with ecocode.run("experiment", api_key="eco_...", project_id=42) as r:
+  Context manager:
+      with ecocode.run("experiment", api_key="eco_...") as r:
           r.mark("phase", "forward")
           r.log_loss(1.45)
+
+  Decorator:
+      @ecocode.track("experiment", api_key="eco_...")
+      def train(): ...
+
+  Explicit start/stop:
+      r = ecocode.run("experiment", api_key="eco_...")
+      r.start()
+      train()
+      r.stop()
+
+Attached mode (CLI wrapping) is auto-detected from environment variables.
 
 ML Phase labels (use these consistently for cross-run comparisons):
   Pretraining / SFT : data_loading, tokenization, forward, backward,
@@ -46,9 +48,9 @@ from __future__ import annotations
 from functools import wraps
 from typing import Callable, Optional, TypeVar
 
-from ._core import EcoCodeRun
+from ._run import EcoCodeRun
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __all__ = ["run", "track", "EcoCodeRun"]
 
 F = TypeVar("F", bound=Callable)

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
@@ -16,11 +16,12 @@ import { EnvironmentalImpact } from '@/components/run/EnvironmentalImpact'
 import { MLMetricsBar } from '@/components/run/MLMetricsBar'
 import { PhaseTimeline } from '@/components/charts/PhaseTimeline'
 import { TrainingMetricsChart } from '@/components/charts/TrainingMetricsChart'
-import { Run } from '@/lib/mock-data'
+import { Run, MetricRecord } from '@/lib/mock-data'
 import { fetchRunMeta, fetchRunRecords } from '@/lib/api'
 import { BackendRecordPoint, mapRecord } from '@/lib/api/client'
 import { format } from 'date-fns'
 import { minIntervalMs } from '@/lib/utils'
+import { buildDirectSseUrl } from '@/lib/data-source'
 
 // Keep at most this many records in the chart display window.
 // The offset ref tracks the true backend count independently, so capping
@@ -40,6 +41,8 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
   const [paramId, setParamId] = useState<string | null>(null)
   // Tracks how many records we already have so incremental polls only fetch the diff
   const recordOffsetRef = useRef(0)
+  // Deduplication: tracks record IDs already merged so SSE + polling don't double-count
+  const seenIdsRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     const initParams = async () => {
@@ -81,8 +84,9 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
         try {
           const records = await fetchRunRecords(paramId)
           if (cancelled) return
-          // Set offset immediately so the first poll doesn't re-fetch these records
+          // Set offset + seed dedup set so SSE/polling don't re-count these records
           recordOffsetRef.current = records.length
+          seenIdsRef.current = new Set(records.map(r => r.id))
           setRun((prev) => {
             if (!prev) return null
             const count = records.length
@@ -127,51 +131,59 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
     return () => { cancelled = true }
   }, [paramId])
 
-  // Live updates via SSE: the backend pushes each new record as it is ingested.
-  // EventSource auto-reconnects on drop; on reconnect we backfill any missed records.
+  // Helper: merge newly-fetched records into the existing run state.
+  // Deduplicates against seenIdsRef so SSE + polling never double-count.
+  const mergeRecords = useCallback((incoming: MetricRecord[]) => {
+    const fresh = incoming.filter(r => !seenIdsRef.current.has(r.id))
+    if (fresh.length === 0) return
+    for (const r of fresh) seenIdsRef.current.add(r.id)
+    const prevOffset = recordOffsetRef.current
+    recordOffsetRef.current += fresh.length
+    setRun((prev) => {
+      if (!prev) return null
+      const addCpu  = fresh.reduce((s, r) => s + r.cpu_energy,  0) / 3600
+      const addGpu  = fresh.reduce((s, r) => s + r.gpu_energy,  0) / 3600
+      const addMem  = fresh.reduce((s, r) => s + r.mem_energy,  0) / 3600
+      const addIgpu = fresh.reduce((s, r) => s + r.igpu_energy, 0) / 3600
+      const totalCpuEnergy  = prev.totalCpuEnergy  + addCpu
+      const totalGpuEnergy  = prev.totalGpuEnergy  + addGpu
+      const totalMemEnergy  = prev.totalMemEnergy  + addMem
+      const totalIgpuEnergy = prev.totalIgpuEnergy + addIgpu
+      const totalEnergy = totalCpuEnergy + totalGpuEnergy + totalMemEnergy + totalIgpuEnergy
+      const carbonFootprint = (totalEnergy / 1000) * (prev.carbonIntensityUsed ?? 445)
+      const newCount = prevOffset + fresh.length
+      const avgCpuUsage = newCount > 0
+        ? (prev.avgCpuUsage * prevOffset + fresh.reduce((s, r) => s + r.cpu_usage, 0)) / newCount
+        : prev.avgCpuUsage
+      const avgGpuUsage = newCount > 0
+        ? (prev.avgGpuUsage * prevOffset + fresh.reduce((s, r) => s + r.gpu_usage, 0)) / newCount
+        : prev.avgGpuUsage
+      const avgMemUsage = newCount > 0
+        ? (prev.avgMemUsage * prevOffset + fresh.reduce((s, r) => s + r.mem_usage, 0)) / newCount
+        : prev.avgMemUsage
+      const allRecords = [...prev.records, ...fresh]
+      const records = allRecords.length > MAX_DISPLAY_RECORDS
+        ? allRecords.slice(-MAX_DISPLAY_RECORDS)
+        : allRecords
+      return { ...prev, records, totalEnergy, totalCpuEnergy, totalGpuEnergy, totalMemEnergy, totalIgpuEnergy, carbonFootprint, avgCpuUsage, avgGpuUsage, avgMemUsage }
+    })
+  }, [])
+
+  // Live updates: SSE (real-time push) + polling fallback (catches missed records).
   useEffect(() => {
     if (!paramId || !run || run.status !== 'running') return
 
-    const es = new EventSource('/api/sse')
-    // Distinguish initial connect (no backfill needed) from reconnect (backfill gap)
+    // --- SSE: real-time push from backend ---
+    let sseOpen = false
+    const es = new EventSource(buildDirectSseUrl('/api/sse'))
     let hasConnected = false
 
     es.onopen = () => {
+      sseOpen = true
       if (hasConnected && recordOffsetRef.current > 0) {
-        // Reconnect — fetch records missed while the connection was down
-        fetchRunRecords(paramId, 200, recordOffsetRef.current).then((missed) => {
-          if (missed.length === 0) return
-          const prevOffset = recordOffsetRef.current
-          recordOffsetRef.current += missed.length
-          setRun((prev) => {
-            if (!prev) return null
-            const addCpu  = missed.reduce((s, r) => s + r.cpu_energy,  0) / 3600
-            const addGpu  = missed.reduce((s, r) => s + r.gpu_energy,  0) / 3600
-            const addMem  = missed.reduce((s, r) => s + r.mem_energy,  0) / 3600
-            const addIgpu = missed.reduce((s, r) => s + r.igpu_energy, 0) / 3600
-            const totalCpuEnergy  = prev.totalCpuEnergy  + addCpu
-            const totalGpuEnergy  = prev.totalGpuEnergy  + addGpu
-            const totalMemEnergy  = prev.totalMemEnergy  + addMem
-            const totalIgpuEnergy = prev.totalIgpuEnergy + addIgpu
-            const totalEnergy = totalCpuEnergy + totalGpuEnergy + totalMemEnergy + totalIgpuEnergy
-            const carbonFootprint = (totalEnergy / 1000) * (prev.carbonIntensityUsed ?? 445)
-            const newCount = prevOffset + missed.length
-            const avgCpuUsage = newCount > 0
-              ? (prev.avgCpuUsage * prevOffset + missed.reduce((s, r) => s + r.cpu_usage, 0)) / newCount
-              : prev.avgCpuUsage
-            const avgGpuUsage = newCount > 0
-              ? (prev.avgGpuUsage * prevOffset + missed.reduce((s, r) => s + r.gpu_usage, 0)) / newCount
-              : prev.avgGpuUsage
-            const avgMemUsage = newCount > 0
-              ? (prev.avgMemUsage * prevOffset + missed.reduce((s, r) => s + r.mem_usage, 0)) / newCount
-              : prev.avgMemUsage
-            const allRecords = [...prev.records, ...missed]
-            const records = allRecords.length > MAX_DISPLAY_RECORDS
-              ? allRecords.slice(-MAX_DISPLAY_RECORDS)
-              : allRecords
-            return { ...prev, records, totalEnergy, totalCpuEnergy, totalGpuEnergy, totalMemEnergy, totalIgpuEnergy, carbonFootprint, avgCpuUsage, avgGpuUsage, avgMemUsage }
-          })
-        }).catch(() => { /* ignore backfill errors */ })
+        fetchRunRecords(paramId, 200, recordOffsetRef.current)
+          .then(mergeRecords)
+          .catch(() => {})
       }
       hasConnected = true
     }
@@ -179,23 +191,23 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
     es.onmessage = (e) => {
       let raw: BackendRecordPoint
       try { raw = JSON.parse(e.data) as BackendRecordPoint } catch { return }
-      // Filter for this specific run — the SSE stream carries all runs' records
       if (raw.run_id !== Number(paramId)) return
 
       const record = mapRecord(raw)
+      const rid = record.id
+      if (seenIdsRef.current.has(rid)) return
+      seenIdsRef.current.add(rid)
       recordOffsetRef.current += 1
       const newOffset = recordOffsetRef.current
 
       setRun((prev) => {
         if (!prev) return null
-        // Incremental energy update — O(1), not O(n)
         const totalCpuEnergy  = prev.totalCpuEnergy  + record.cpu_energy  / 3600
         const totalGpuEnergy  = prev.totalGpuEnergy  + record.gpu_energy  / 3600
         const totalMemEnergy  = prev.totalMemEnergy  + record.mem_energy  / 3600
         const totalIgpuEnergy = prev.totalIgpuEnergy + record.igpu_energy / 3600
         const totalEnergy = totalCpuEnergy + totalGpuEnergy + totalMemEnergy + totalIgpuEnergy
         const carbonFootprint = (totalEnergy / 1000) * (prev.carbonIntensityUsed ?? 445)
-        // Incremental weighted average using the true backend count
         const prevCount = newOffset - 1
         const avgCpuUsage = newOffset > 0
           ? (prev.avgCpuUsage * prevCount + record.cpu_usage) / newOffset
@@ -214,9 +226,19 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
       })
     }
 
-    es.onerror = () => { /* EventSource handles reconnect automatically */ }
+    es.onerror = () => { sseOpen = false }
 
-    // Separate slow poll to detect run completion (status not carried in SSE payload)
+    // --- Polling fallback: only runs when SSE is disconnected ---
+    const poll = async () => {
+      if (sseOpen) return
+      try {
+        const newRecords = await fetchRunRecords(paramId, 200, recordOffsetRef.current)
+        mergeRecords(newRecords)
+      } catch { /* ignore */ }
+    }
+    const pollInterval = setInterval(poll, 1000)
+
+    // --- Status poll: detect run completion ---
     const statusCheck = async () => {
       try {
         const meta = await fetchRunMeta(paramId)
@@ -229,9 +251,10 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
 
     return () => {
       es.close()
+      clearInterval(pollInterval)
       clearInterval(statusInterval)
     }
-  }, [paramId, run?.status])
+  }, [paramId, run?.status, mergeRecords])
 
   if (loading) {
     return (

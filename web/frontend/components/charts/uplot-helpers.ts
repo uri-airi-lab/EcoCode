@@ -15,6 +15,13 @@ export interface TooltipPluginOpts {
   formatY?: (val: number, seriesIdx: number) => string
   /** Unit suffix displayed after y values (e.g. ' W', '%'). */
   unit?: string
+  /**
+   * Override how the displayed value is read for a given series.
+   * `u` is the uPlot instance, `seriesIdx` is 1-based (matches u.data index),
+   * `dataIdx` is the cursor data index.
+   * Return null to hide that series row in the tooltip.
+   */
+  getValue?: (u: any, seriesIdx: number, dataIdx: number) => number | null
 }
 
 /**
@@ -71,7 +78,7 @@ export function makeTooltipPlugin(opts: TooltipPluginOpts): { hooks: object } {
           const timeLabel = formatX ? formatX(ts) : format(new Date(ts), 'HH:mm:ss')
           let html = `<div style="font-weight:600;margin-bottom:6px;color:#e2e8f0">${timeLabel}</div>`
           for (let i = 1; i < u.data.length; i++) {
-            const val = (u.data[i] as number[])?.[idx]
+            const val = opts.getValue ? opts.getValue(u, i, idx) : (u.data[i] as number[])?.[idx]
             if (val == null) continue
             const label = labels[i - 1] ?? `Series ${i}`
             const color = colors[i - 1] ?? '#888'

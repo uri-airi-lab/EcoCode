@@ -128,7 +128,7 @@ export function UtilizationChart({ runs: runsProp, data, runId }: UtilizationCha
 
   const seriesLabels = useMemo(() => {
     const base = ['CPU Usage', gpuCount > 1 ? 'GPU Usage (Avg)' : 'GPU Usage', 'Memory Usage']
-    if (gpuCount > 1) {
+    if (gpuCount > 0) {
       for (let i = 0; i < gpuCount; i++) base.push(`GPU ${i}`)
     }
     return base
@@ -136,7 +136,7 @@ export function UtilizationChart({ runs: runsProp, data, runId }: UtilizationCha
 
   const seriesColors = useMemo(() => {
     const base = [chartColor(1), chartColor(2), chartColor(3)]
-    if (gpuCount > 1) {
+    if (gpuCount > 0) {
       for (let i = 0; i < gpuCount; i++) base.push(chartColor((i % 6) + 1))
     }
     return base
@@ -172,7 +172,7 @@ export function UtilizationChart({ runs: runsProp, data, runId }: UtilizationCha
       { label: 'CPU', stroke: chartColor(1), fill: chartColor(1, 0.1), width: 2 },
       { label: 'GPU', stroke: chartColor(2), fill: chartColor(2, 0.1), width: 2 },
       { label: 'Mem', stroke: chartColor(3), fill: chartColor(3, 0.1), width: 2 },
-      ...Array.from({ length: gpuCount > 1 ? gpuCount : 0 }, (_, i) => ({
+      ...Array.from({ length: gpuCount }, (_, i) => ({
         label: `GPU ${i}`,
         stroke: chartColor((i % 6) + 1),
         width: 1,

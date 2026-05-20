@@ -15,6 +15,7 @@ mod cli;
 mod configs;
 mod exporter;
 mod monitor;
+mod monitor_headless;
 
 use cli::{Cli, TopCommand};
 
@@ -23,6 +24,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     match cli.command {
         TopCommand::Run(args) => monitor::run_monitoring(args).await,
+        TopCommand::Monitor(args) => monitor_headless::run_headless_monitor(args).await,
         TopCommand::Config { action } => configs::handle_config_command(action),
     }
 }

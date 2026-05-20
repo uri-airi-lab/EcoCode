@@ -1,10 +1,10 @@
 [build-system]
-requires = ["maturin>=1.5,<2.0"]
-build-backend = "maturin"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "ecocode"
-version = "0.1.0"
+version = "0.2.0"
 description = "Python SDK for EcoCode — energy and carbon tracking for ML training and inference."
 requires-python = ">=3.9"
 license = { text = "MIT" }
@@ -21,22 +21,20 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "Programming Language :: Rust",
 ]
 
-# No Python runtime dependencies — sensors and HTTP are in compiled Rust
+# Zero runtime dependencies — HTTP via stdlib urllib.request,
+# energy monitoring via the bundled ecocode CLI binary.
 dependencies = []
 
 [project.optional-dependencies]
 hf        = ["transformers>=4.30.0"]
 trl       = ["trl>=0.7.0"]
-lightning = ["pytorch-lightning>=2.0.0"]
+lightning  = ["pytorch-lightning>=2.0.0"]
 keras     = ["keras>=3.0.0"]
 onnx      = ["onnxruntime>=1.16.0"]
 all       = ["transformers>=4.30.0", "trl>=0.7.0", "keras>=3.0.0", "onnxruntime>=1.16.0"]
-dev       = ["pytest>=7.0.0", "pytest-mock>=3.0.0", "responses>=0.25.0"]
+dev       = ["pytest>=7.0.0", "pytest-mock>=3.0.0"]
 
-[tool.maturin]
-features = ["pyo3/extension-module"]
-python-source = "."
-module-name = "ecocode._core"
+[tool.hatch.build.targets.wheel]
+packages = ["ecocode"]

@@ -46,7 +46,7 @@ Most tools that claim GPU monitoring report whole-device power and divide it eve
 
 ### Language and runtime agnostic
 
-CodeCarbon requires Python and instruments code through decorators or context managers. EcoCode wraps any executable — `ecocode -- python train.py`, `ecocode -- ./simulation`, `ecocode -- node server.js` — with no changes to the target program.
+CodeCarbon requires Python and instruments code through decorators or context managers. EcoCode wraps any executable — `ecocode run -- python train.py`, `ecocode run -- ./simulation`, `ecocode run -- node server.js` — with no changes to the target program. The Python SDK is also fork-safe (no native threads in the Python process), unlike tools that use in-process sampling threads.
 
 ### Comparison table
 
@@ -70,26 +70,27 @@ Scaphandre is the closest alternative on the measurement side — it is also RAP
 
 ## Architecture
 
-The system has four independent layers: a Rust CLI that wraps any process and reads hardware energy counters, a Python SDK (Rust extension via PyO3) that instruments ML scripts from inside, an Axum REST backend that stores and serves measurements, and a Next.js frontend that visualises runs in real time via Server-Sent Events.
+The system has four independent layers: a Rust CLI that wraps any process and reads hardware energy counters, a pure Python SDK that instruments ML scripts from inside, an Axum REST backend that stores and serves measurements, and a Next.js frontend that visualises runs in real time via Server-Sent Events.
 
 ```mermaid
 flowchart TD
-    UserCLI(["User — CLI mode\nsudo ecocode -- python train.py"])
+    UserCLI(["User — CLI mode\necocode run -- python train.py"])
     UserSDK(["User — SDK mode\npython train.py"])
 
     subgraph Core["ecocode/crates/core/ — Shared sensor library"]
         direction TB
         core_rapl["sensor/rapl.rs\nRAPL sysfs reader\nPer-socket energy in μJ\nWrap-around correction"]
         core_gpu["sensor/gpu.rs\nNVML GPU reader\nPer-device energy + utilisation\nPer-process attribution"]
-        core_http["http_client.rs\nBlocking HTTP client\nUsed by SDK sampler thread\nto POST records to backend"]
-        core_pid["sensor/mod.rs\nget_process_tree_pids()\nRecursive child PID walker\nshared by CLI and SDK"]
+        core_http["http_client.rs\nBlocking HTTP client\nUsed by monitor subprocess\nto POST records to backend"]
+        core_pid["sensor/mod.rs\nget_process_tree_pids()\nRecursive child PID walker"]
     end
 
     subgraph CLI["EcoCode CLI — ecocode/src/"]
         direction TB
         cli["cli.rs\nAll CLI flags via clap:\n--output  --interval  --project\n--api-key  --intensity  --price"]
-        main_cli["main.rs\nEntry point: routes to monitor loop\nor config subcommands"]
-        monitor["monitor.rs\nSpawns target process\nPer-tick sampling loop\nUnix socket listener for SDK markers\nWrites final run summary"]
+        main_cli["main.rs\nEntry point: routes to monitor loop,\nheadless monitor, or config"]
+        monitor["monitor.rs\nSpawns target process\nPer-tick sampling loop\nPipe reader for SDK markers\nWrites final run summary"]
+        monitor_hl["monitor_headless.rs\nHeadless monitor subprocess\nReads markers from stdin\nPOSTs records to backend\nUsed by SDK standalone mode"]
         carbon_tbl["carbon.rs\n50-country static CO2 table\n(IEA 2025 gCO2eq/kWh)"]
 
         subgraph Exporters["exporter/"]
@@ -103,21 +104,12 @@ flowchart TD
         end
     end
 
-    subgraph SDK["Python SDK — python-sdk/src/"]
+    subgraph SDK["Python SDK — python-sdk/ecocode/"]
         direction TB
-        lib_rs["lib.rs — EcoCodeRun PyO3 class\nContext manager + all log_* methods\nMode detection: Standalone vs Attached"]
-
-        subgraph StandaloneMode["Standalone mode"]
-            sampler["sampler.rs\necocode-sampler thread:\nreads RAPL + NVML + sysinfo\nevery interval seconds\nFull process tree tracking"]
-            reporter["ecocode-reporter thread\nReceives Record via mpsc channel\nPOSTs to backend (blocking HTTP)"]
-            markers["Arc<Mutex<MarkerState>>\nphase · loss · step · tokens\nlr · seq_len · accuracy\nUpdated from Python thread"]
-            sampler --> |"mpsc::send(Record)"| reporter
-            markers --> |"Mutex::lock() snapshot"| sampler
-        end
-
-        subgraph AttachedMode["Attached mode"]
-            socket_cli["socket_client.rs\nUnixStream to CLI socket\nSends NDJSON marker events\n{event, value} per log_* call"]
-        end
+        run_py["_run.py — EcoCodeRun class\nContext manager + start/stop\nMode detection: Standalone vs Attached\nSpawns monitor subprocess"]
+        pipe_py["_pipe.py\nPipeWriter · InheritedFdWriter · NullWriter\nNDJSON over pipe"]
+        http_py["_http.py\nEcoCodeHTTPClient (stdlib urllib)\nRun creation + completion"]
+        integrations["integrations/\nHuggingFace · TRL · Lightning\nDeepSpeed · vLLM · Keras · ONNX"]
     end
 
     subgraph Backend["Web Backend — web/backend/src/"]
@@ -175,13 +167,16 @@ flowchart TD
     exp_o -- "POST /api/ingest\nBearer API key" --> ingest
 
     %% SDK standalone path
-    UserSDK --> lib_rs --> sampler
-    sampler --> core_rapl & core_gpu & core_pid
-    reporter --> core_http --> ingest
+    UserSDK --> run_py
+    run_py --> http_py -- "create/complete run" --> ingest
+    run_py --> |"subprocess.Popen"| monitor_hl
+    monitor_hl --> core_rapl & core_gpu & core_pid
+    monitor_hl --> core_http --> ingest
+    run_py --> pipe_py -- "NDJSON markers\nvia stdin pipe" --> monitor_hl
 
     %% SDK attached path
-    lib_rs --> |"Attached mode\nlog_* calls"| socket_cli
-    socket_cli -- "NDJSON over\nUnix socket" --> monitor
+    run_py --> |"Attached mode\nlog_* calls"| pipe_py
+    pipe_py -- "NDJSON over\ninherited pipe FD" --> monitor
 
     %% Backend → DB
     ingest --> rec_db & run_db --> DB
@@ -197,29 +192,28 @@ flowchart TD
     auth_pg --> a_mod --> a_jwt & a_pw
     a_mw -. "validates every protected request" .-> BAPI
 
-    %% Core shared by both CLI and SDK
-    Core -. "statically linked into\nboth CLI binary and SDK .so" .-> CLI
-    Core -. "statically linked into\nboth CLI binary and SDK .so" .-> SDK
+    %% Core shared by CLI
+    Core -. "statically linked into\nthe CLI binary" .-> CLI
 ```
 
 ### Data flow summary
 
 **CLI path**
-1. `ecocode -- python train.py` — `cli.rs` parses flags, `monitor.rs` spawns the child and starts the tick loop.
+1. `ecocode run -- python train.py` — `cli.rs` parses flags, `monitor.rs` spawns the child and starts the tick loop.
 2. On every tick, the CLI calls `ecocode-core` (`rapl.rs`, `gpu.rs`) for sensor reads, builds a `Record`, and routes it to the selected exporter.
 3. With `--output online`, `online.rs` POSTs the record to the backend (`/api/ingest/run/{id}/record`) authenticated with a Bearer API key.
 
 **Python SDK standalone path**
-1. `ecocode.run().__enter__()` POSTs to create a run, then spawns two Rust threads: `ecocode-sampler` (sensor reads via `ecocode-core`) and `ecocode-reporter` (blocking HTTP POSTs).
-2. `run.log_loss(1.45)` acquires a `Mutex` and updates `MarkerState` in shared memory — zero IPC cost.
-3. The sampler snapshots marker state on each tick, sends the `Record` over an `mpsc` channel to the reporter, which POSTs it to the backend.
+1. `ecocode.run().__enter__()` POSTs to create a run, then spawns the `ecocode monitor` subprocess which handles all sensor reads and record reporting.
+2. `run.log_loss(1.45)` writes `{"event":"loss","value":1.45}\n` to the subprocess's stdin pipe — a single kernel buffer write taking ~1 microsecond.
+3. The monitor subprocess reads markers from stdin, merges them with RAPL/NVML/proc energy data on each tick, and POSTs combined records to the backend. The Python process contains zero native threads.
 
 **Python SDK attached path**
-1. The CLI runs as root, creates the run, binds a Unix socket, and injects `ECOCODE_SOCKET` + `ECOCODE_RUN_ID` into the child process environment.
-2. The SDK detects those variables, connects to the socket, and sends no HTTP. All sensor reads are done by the CLI.
-3. `run.log_loss(1.45)` serialises `{"event":"loss","value":1.45}\n` and writes it over the Unix socket. The CLI reads it and attaches it to the next hardware record it collects.
+1. The CLI creates the run, creates an OS pipe, and injects `ECOCODE_MARKER_FD` (write-end FD) + `ECOCODE_RUN_ID` into the child process environment. All sensor reads are done by the CLI.
+2. The SDK detects those variables and writes markers to the inherited pipe FD. No subprocess is spawned by the SDK — the CLI is the monitor.
+3. `run.log_loss(1.45)` serialises `{"event":"loss","value":1.45}\n` and writes it to the pipe. The CLI reads it and attaches it to the next hardware record it collects.
 
-**Backend → Frontend**
+**Backend to Frontend**
 4. The Axum backend inserts each record into PostgreSQL and broadcasts it via `sse.rs`.
 5. The Next.js frontend holds an open SSE connection (`use-sse.ts`). Each incoming record is appended to chart state — the run dashboard updates live without polling.
 
@@ -231,8 +225,8 @@ EcoCode has two independent tools you can use together or separately:
 
 | Tool | What it is | Who should use it |
 |------|-----------|-------------------|
-| **CLI** | Wraps any process (`python`, `./simulation`, `node server.js`) and monitors its energy from the outside. Requires `sudo`. | Anyone who wants to measure energy without modifying code, or who wants attached mode with higher RAPL accuracy |
-| **Python SDK** | A native Rust extension imported directly inside a Python script. No `sudo` required. | ML researchers and engineers who want in-code control over phases, loss, steps, tokens, and other training metrics |
+| **CLI** | Wraps any process (`python`, `./simulation`, `node server.js`) and monitors its energy from the outside. | Anyone who wants to measure energy without modifying code, or who wants attached mode with the CLI's terminal output |
+| **Python SDK** | A pure Python library that spawns a monitor subprocess for energy tracking. Install with `pip install ecocode`. | ML researchers and engineers who want in-code control over phases, loss, steps, tokens, and other training metrics |
 
 Both tools report to the same [web dashboard](https://blacktree-5d3c8de6.eastus.azurecontainerapps.io) and use the same API key.
 
@@ -243,13 +237,11 @@ Both tools report to the same [web dashboard](https://blacktree-5d3c8de6.eastus.
 | Requirement | CLI | Python SDK |
 |-------------|:---:|:----------:|
 | Linux (kernel 3.10+) | Required | Required |
-| Rust 1.70+ | Required (to build) | Required (to build) |
-| `sudo` / root access | Required | Not required |
+| Rust 1.70+ | Required (to build from source) | Not required |
 | NVIDIA drivers (NVML) | Optional — GPU monitoring | Optional — GPU monitoring |
 | Python 3.9+ | Not required | Required |
-| Maturin | Not required | Required (build backend) |
 
-Install Rust if you do not have it:
+Install Rust if you want to build the CLI from source:
 
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
@@ -294,32 +286,32 @@ cargo build --release
 
 ```bash
 # Monitor any process — live output to terminal
-sudo ./target/release/ecocode -- python train.py
+ecocode run -- python train.py
 
 # Send results to the web dashboard
-sudo ./target/release/ecocode -o online -p "my-project" -- python train.py
+ecocode run -o online -p "my-project" -- python train.py
 
 # Save to CSV
-sudo ./target/release/ecocode -o csv -f results.csv -- python train.py
+ecocode run -o csv -f results.csv -- python train.py
 
 # Save to JSON
-sudo ./target/release/ecocode -o json -f results.json -- python train.py
+ecocode run -o json -f results.json -- python train.py
 
 # Write a formatted log file
-sudo ./target/release/ecocode -o logfile -f run.log -- python train.py
+ecocode run -o logfile -f run.log -- python train.py
 
 # Save locally to SQLite (no backend needed)
-sudo ./target/release/ecocode -o local --collaborator "alice" -- python train.py
+ecocode run -o local --collaborator "alice" -- python train.py
 
 # Expose a Prometheus /metrics endpoint on port 9091
-sudo ./target/release/ecocode -o prometheus -- python train.py
+ecocode run -o prometheus -- python train.py
 
 # Custom sampling interval (default: 1 second)
-sudo ./target/release/ecocode -i 0.5 -o online -- python train.py
+ecocode run -i 0.5 -o online -- python train.py
 
 # Monitor any executable, not just Python
-sudo ./target/release/ecocode -o online -- ./my_simulation
-sudo ./target/release/ecocode -o online -- node server.js
+ecocode run -o online -- ./my_simulation
+ecocode run -o online -- node server.js
 ```
 
 **CLI flag reference:**
@@ -348,18 +340,24 @@ ecocode config clear-api-key       # remove saved key
 
 ### Option 2 — Python SDK
 
-**Use this when:** you are writing a Python ML training or inference script and want to log phases, loss, learning rate, tokens, and other training metrics alongside energy data. No `sudo` required.
+**Use this when:** you are writing a Python ML training or inference script and want to log phases, loss, learning rate, tokens, and other training metrics alongside energy data.
+
+The Python SDK is a pure Python library with zero compiled dependencies. It spawns the `ecocode` CLI binary as a subprocess for energy monitoring — no Rust toolchain, no compilation, no `sudo` required.
 
 **Step 1: Install**
 
 ```bash
+pip install ecocode                # core SDK + bundled monitor binary
+pip install ecocode[hf]            # with HuggingFace Trainer callback
+pip install ecocode[all]           # with all framework integrations
+```
+
+Or install from source for development:
+
+```bash
 git clone https://github.com/MohamedAziz-Khezami/EcoCode.git
 cd EcoCode/python-sdk
-
-pip install maturin                # build backend — needed once
-pip install -e ".[gpu]"            # with GPU energy tracking (recommended)
-pip install -e ".[all]"            # with all framework callbacks
-pip install -e "."                 # core only (CPU + memory, no GPU)
+pip install -e ".[all]"
 ```
 
 **Step 2: Get an API key**
@@ -368,17 +366,43 @@ Same as above — dashboard → Settings → Developer → Generate Key.
 
 **Step 3: Add three lines to your script**
 
+Three equivalent usage patterns are supported:
+
 ```python
+# Context manager (recommended)
 import ecocode
 
 with ecocode.run("my-experiment", api_key="eco_...") as run:
-    # your existing training code goes here, unchanged
     for epoch in range(epochs):
         run.log_epoch(epoch)
         for batch in loader:
             loss = model(batch)
             run.log_loss(loss.item())
             run.log_step(global_step)
+```
+
+```python
+# Decorator
+import ecocode
+
+@ecocode.track("my-experiment", api_key="eco_...")
+def train():
+    for epoch in range(epochs):
+        ...
+
+train()
+```
+
+```python
+# Explicit start/stop (for Jupyter notebooks and long-lived servers)
+import ecocode
+
+run = ecocode.run("my-experiment", api_key="eco_...")
+run.start()
+
+# ... training or serving code ...
+
+run.stop()
 ```
 
 The run appears on the dashboard automatically. No other configuration needed — the backend URL is built into the SDK.
@@ -411,11 +435,11 @@ See `python-sdk/README.md` for the full callback list and ML marker API referenc
 
 ### Option 3 — CLI + Python SDK together (attached mode)
 
-**Use this when:** you want both the CLI's guaranteed RAPL file access (root) and the SDK's in-code marker API (phase, loss, step, tokens), with zero measurement overhead on the training process.
+**Use this when:** you want the CLI's terminal output, export format control, and run lifecycle management, combined with the SDK's in-code marker API (phase, loss, step, tokens).
 
 ```bash
-# 1. Start the CLI as root — it creates the run and starts sampling
-sudo ./target/release/ecocode -o online -p "my-project" -- python train.py
+# 1. Start the CLI — it creates the run, creates a pipe, and starts sampling
+ecocode run -o online -p "my-project" -- python train.py
 ```
 
 ```python
@@ -428,7 +452,7 @@ with ecocode.run() as run:   # no api_key needed
     run.log_loss(1.23)
 ```
 
-The CLI injects `ECOCODE_SOCKET` and `ECOCODE_RUN_ID` into the child process environment. The SDK detects them and switches to attached mode automatically — no code change needed beyond importing ecocode.
+The CLI injects `ECOCODE_MARKER_FD` (a pipe file descriptor) and `ECOCODE_RUN_ID` into the child process environment. The SDK detects them and switches to attached mode automatically — markers are written to the pipe, and the CLI merges them with energy data. No subprocess is spawned by the SDK in this mode.
 
 ---
 
@@ -497,11 +521,12 @@ Environmental equivalents derived from the run's CO2 figure:
 ecocode/
 ├── ecocode/             # Rust CLI binary + exporters
 │   ├── src/
-│   │   ├── main.rs          # Entry point; routes to monitor loop or config subcommands
-│   │   ├── cli.rs           # clap argument definitions (all CLI flags)
-│   │   ├── monitor.rs       # Core sampling loop; process spawning; Unix socket listener
-│   │   ├── carbon.rs        # CO2 calculation formula + 50-country static table (IEA 2025)
-│   │   ├── configs.rs       # `ecocode config` subcommand handler
+│   │   ├── main.rs              # Entry point; routes to monitor, headless monitor, or config
+│   │   ├── cli.rs               # clap argument definitions (all CLI flags)
+│   │   ├── monitor.rs           # Core sampling loop; process spawning; pipe reader for SDK markers
+│   │   ├── monitor_headless.rs  # Headless monitor subprocess (used by SDK standalone mode)
+│   │   ├── carbon.rs            # CO2 calculation formula + 50-country static table (IEA 2025)
+│   │   ├── configs.rs           # `ecocode config` subcommand handler
 │   │   └── exporter/
 │   │       ├── mod.rs           # Exporter trait + Record / GpuMetric / SocketMetric types
 │   │       ├── terminal.rs      # Live table to stdout
@@ -512,19 +537,18 @@ ecocode/
 │   │       ├── prometheus.rs    # Prometheus /metrics endpoint on :9091
 │   │       ├── logfile.rs       # Human-readable log file
 │   │       └── dual.rs          # Fan-out: sends to both primary + online simultaneously
-│   └── crates/core/         # Shared sensor library (CLI and Python SDK both depend on this)
+│   └── crates/core/         # Shared sensor library
 │       └── src/
 │           ├── sensor/rapl.rs   # RAPL sysfs reader (scan, read, delta, wrap-around)
 │           ├── sensor/gpu.rs    # NVML GPU reader (per-device + per-process attribution)
-│           └── http_client.rs   # Blocking HTTP client for Python SDK sampler thread
+│           └── http_client.rs   # Blocking HTTP client for headless monitor
 │
-├── python-sdk/          # Python SDK (Rust extension via PyO3 + Maturin)
-│   ├── src/
-│   │   ├── lib.rs           # EcoCodeRun PyO3 class — context manager and all log_* methods
-│   │   ├── sampler.rs       # Background sampling + reporter threads (standalone mode)
-│   │   └── socket_client.rs # Unix domain socket client for attached mode
-│   ├── ecocode/             # Pure-Python public API layer
+├── python-sdk/          # Pure Python SDK (zero compiled dependencies)
+│   ├── ecocode/
 │   │   ├── __init__.py      # run() and track() factory functions
+│   │   ├── _run.py          # EcoCodeRun class — context manager, start/stop, marker API
+│   │   ├── _pipe.py         # Pipe IPC writers: PipeWriter, InheritedFdWriter, NullWriter
+│   │   ├── _http.py         # HTTP client for run creation/completion (stdlib urllib)
 │   │   └── integrations/    # Callbacks: HuggingFace, TRL, Lightning, DeepSpeed, vLLM, Keras, ONNX
 │   └── demo_*.py            # End-to-end examples for each supported framework
 │
@@ -576,19 +600,18 @@ ecocode/
 
 ## Python SDK
 
-The Python SDK provides a context manager and decorator API for instrumenting ML training scripts. It is a Rust extension module built with PyO3 and Maturin, using the same RAPL and NVML sensor code as the CLI.
+The Python SDK provides a context manager, decorator, and explicit start/stop API for instrumenting ML training scripts. It is a pure Python library with zero compiled dependencies — energy monitoring is handled by the `ecocode` CLI binary spawned as a subprocess.
 
 ### Installation
 
 ```bash
-cd python-sdk
-pip install -e ".[gpu]"          # with GPU support (recommended)
-pip install -e ".[all]"          # with all framework integrations
+pip install ecocode               # from PyPI (includes bundled CLI binary)
+pip install ecocode[all]          # with all framework integrations
 ```
 
 ### Standalone Mode
 
-No CLI required. The SDK manages run creation and hardware sampling internally.
+No CLI required. The SDK creates the run on the backend, spawns the `ecocode monitor` subprocess for energy sampling, and communicates markers via a stdin pipe.
 
 ```python
 import ecocode
@@ -620,23 +643,39 @@ with ecocode.run(
             run.log_tokens(tokens_seen)
 ```
 
-> **CPU energy in standalone mode:** GPU energy (NVML) is always available without root. CPU energy requires read access to the RAPL sysfs interface (`/sys/class/powercap/intel-rapl/`). On machines where these files are not world-readable by default, run the following once to enable CPU energy tracking for all future standalone runs:
+The SDK is fork-safe: the Python process contains zero native threads, so `os.fork()` (PyTorch DataLoader workers, DDP) works without deadlocks. For DDP, only rank 0 activates monitoring — other ranks operate in no-op mode automatically.
+
+> **CPU energy in standalone mode:** GPU energy (NVML) is always available without root. CPU energy requires read access to the RAPL sysfs interface (`/sys/class/powercap/intel-rapl/`). On machines where these files are not world-readable by default, run the following once to enable CPU energy tracking:
 > ```bash
 > sudo chmod o+r /sys/class/powercap/intel-rapl/*/energy_uj
 > sudo chmod o+r /sys/class/powercap/intel-rapl/*/*/energy_uj
 > ```
-> Without this, standalone mode still works — CPU energy silently falls back to `0.0` and all other metrics (GPU, memory, phases, loss, etc.) are unaffected.
 
-### Attached Mode (CLI + sudo)
+### Explicit Start/Stop
 
-The CLI handles energy sampling; the SDK sends only semantic markers via a Unix socket.
+For Jupyter notebooks, long-lived servers, or scripts where a context manager does not fit:
+
+```python
+import ecocode
+
+run = ecocode.run("notebook-experiment", api_key="eco_...")
+run.start()
+
+# ... training across multiple notebook cells or a long-lived server ...
+
+run.stop()
+```
+
+### Attached Mode (CLI + SDK)
+
+The CLI handles energy sampling; the SDK sends only semantic markers via a pipe.
 
 ```bash
-sudo ecocode -o online --api-key eco_... -p my-project -- python train.py
+ecocode run -o online --api-key eco_... -p my-project -- python train.py
 ```
 
 ```python
-# train.py — no api_key needed; ECOCODE_SOCKET + ECOCODE_RUN_ID are injected by CLI
+# train.py — no api_key needed; ECOCODE_MARKER_FD + ECOCODE_RUN_ID are injected by CLI
 import ecocode
 
 with ecocode.run() as run:
@@ -676,10 +715,10 @@ See `python-sdk/README.md` for the full ML marker API reference and integration 
 
 ```bash
 # Run baseline and optimized variants back-to-back
-sudo ecocode -o online --project "efficiency-study" --name "fp32-baseline" \
+ecocode run -o online --project "efficiency-study" --name "fp32-baseline" \
     -- python train.py --precision fp32
 
-sudo ecocode -o online --project "efficiency-study" --name "bf16-amp" \
+ecocode run -o online --project "efficiency-study" --name "bf16-amp" \
     -- python train.py --precision bf16
 
 # The dashboard's run comparison panel shows side-by-side energy and CO2 figures
@@ -689,7 +728,7 @@ sudo ecocode -o online --project "efficiency-study" --name "bf16-amp" \
 
 ```bash
 # In GitHub Actions or similar CI:
-sudo ecocode -o online \
+ecocode run -o online \
     --project "ci-energy" \
     --name "commit-${GITHUB_SHA:0:8}" \
     -- python run_benchmarks.py
@@ -699,7 +738,7 @@ sudo ecocode -o online \
 
 ```bash
 # Write to CSV and open in pandas / Excel
-sudo ecocode -o csv -f results.csv -- python train.py
+ecocode run -o csv -f results.csv -- python train.py
 
 # Query with pandas
 import pandas as pd
@@ -712,7 +751,7 @@ print(f"Peak CPU usage:   {df['cpu_usage'].max():.1f}%")
 
 ```bash
 # Expose metrics
-sudo ecocode -o prometheus -- python train.py
+ecocode run -o prometheus -- python train.py
 # Prometheus scrapes http://localhost:9091/metrics
 # Import the EcoCode Grafana dashboard JSON from web/grafana/
 ```
@@ -737,9 +776,10 @@ with ecocode.run("llama3-serving", api_key="eco_...", project_id=5) as r:
 | Variable | Component | Description |
 |----------|-----------|-------------|
 | `ECOCODE_API_KEY` | CLI, SDK | API key for the online exporter |
-| `ECOCODE_API_URL` | CLI, SDK | Backend base URL (default: `http://localhost:3001`) |
-| `ECOCODE_SOCKET` | SDK | Unix socket path injected by CLI in attached mode |
+| `ECOCODE_API_URL` | CLI, SDK | Backend base URL (default: `https://ecocode.app`) |
+| `ECOCODE_MARKER_FD` | SDK | Pipe file descriptor injected by CLI in attached mode |
 | `ECOCODE_RUN_ID` | SDK | Run ID injected by CLI in attached mode |
+| `RANK` / `LOCAL_RANK` | SDK | DDP rank detection — only rank 0 activates monitoring |
 | `DATABASE_URL` | Backend | PostgreSQL connection string |
 | `CORS_ORIGIN` | Backend | Allowed frontend origin (default: `http://localhost:3000`) |
 | `RUST_LOG` | Backend | Log level: `trace` / `debug` / `info` / `warn` / `error` |
@@ -755,7 +795,7 @@ with ecocode.run("llama3-serving", api_key="eco_...", project_id=5) as r:
 - [ ] **VSCode extension**: Add UI for running and viewing energy results in VSCode.
 - [ ] **Frontend performance for long runs**: The run detail page fetches all records in a single request. Runs longer than a few hours produce thousands of records. Implement virtual scroll with paginated record fetching.
 - [ ] **CSV/JSON exporter summaries**: The terminal and logfile exporters print a final energy summary; CSV and JSON do not. Implement `run_summary()` for these exporters.
-- [ ] **SDK PyPI distribution**: Set up Maturin CI wheels for Linux (x86_64, aarch64) and publish the SDK to PyPI so users can install with `pip install ecocode` without a local Rust build.
+- [ ] **SDK PyPI distribution**: Build platform-specific wheels for the `ecocode-monitor` binary package and publish both `ecocode` and `ecocode-monitor` to PyPI.
 - [ ] **A global map view**: of all the runs with circles centered at their location (for the runs that have a location). If the user is not logged in, show public runs only. If logged in, show all runs. Clicking a circle should show a popup with the run details.
 
 ---

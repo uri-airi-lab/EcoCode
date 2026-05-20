@@ -182,14 +182,15 @@ export function CumulativePowerChart({ runs: runsProp, data, runId }: Cumulative
         labels: SERIES_LABELS,
         colors: SERIES_COLORS,
         formatX: v => format(new Date(v), 'HH:mm:ss'),
-        // Show individual (non-cumulative) values by reading directly from series index
-        formatY: (val, i) => {
-          // The cumulative series values: we report the increment, not the total
-          // ts[0]=cpu, ts[1]=cpu+gpu, ts[2]=cpu+gpu+mem, ts[3]=total
-          // This is handled at data-build time — tooltip shows cumulative totals
-          return val.toFixed(2)
-        },
         unit: ' W',
+        // Each series is cumulative (cpu, cpu+gpu, cpu+gpu+mem, total).
+        // Subtract the previous series to get the individual component value.
+        getValue: (u, i, idx) => {
+          const curr = (u.data[i] as number[])?.[idx]
+          if (curr == null) return null
+          const prev = i > 1 ? ((u.data[i - 1] as number[])?.[idx] ?? 0) : 0
+          return curr - prev
+        },
       }),
     ],
     hooks: {

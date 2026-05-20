@@ -70,11 +70,7 @@ pub fn get_gpu_energy_by_pid(
 ) -> (f64, f64, u64) {
     let stats = match device.process_utilization_stats(timestamp) {
         Ok(s) => s,
-        Err(e) => {
-            eprintln!(
-                "[ecocode] Warning: Fetching process utilization: {}, maybe it stopped running on the GPU.",
-                e
-            );
+        Err(_) => {
             return (0.0, 0.0, timestamp);
         }
     };

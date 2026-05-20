@@ -53,3 +53,5 @@ data/
 **/*.so.*
 
 CLAUDE.md
+
+checkpoints/

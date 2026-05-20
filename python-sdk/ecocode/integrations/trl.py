@@ -47,7 +47,8 @@ class EcoCodeSFTCallback(_Base):
 
     def on_train_begin(self, args, state, control, **kwargs):
         self._run.mark("phase", "data_loading")
-        seq_len = getattr(args, "max_seq_length", None)
+        # max_seq_length was renamed to max_length in TRL 0.14+; check both
+        seq_len = getattr(args, "max_length", None) or getattr(args, "max_seq_length", None)
         if seq_len:
             self._run.log_sequence_length(int(seq_len))
 
@@ -95,7 +96,8 @@ class EcoCodeDPOCallback(_Base):
 
     def on_train_begin(self, args, state, control, **kwargs):
         self._run.mark("phase", "data_loading")
-        seq_len = getattr(args, "max_seq_length", None)
+        # max_seq_length was renamed to max_length in TRL 0.14+; check both
+        seq_len = getattr(args, "max_length", None) or getattr(args, "max_seq_length", None)
         if seq_len:
             self._run.log_sequence_length(int(seq_len))
 
@@ -145,7 +147,10 @@ class EcoCodeGRPOCallback(_Base):
 
     def on_train_begin(self, args, state, control, **kwargs):
         self._run.mark("phase", "data_loading")
-        seq_len = getattr(args, "max_seq_length", None) or getattr(args, "max_completion_length", None)
+        # max_seq_length was renamed to max_length in TRL 0.14+; also check max_completion_length for GRPO
+        seq_len = (getattr(args, "max_length", None)
+                   or getattr(args, "max_seq_length", None)
+                   or getattr(args, "max_completion_length", None))
         if seq_len:
             self._run.log_sequence_length(int(seq_len))
 

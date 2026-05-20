@@ -10,15 +10,17 @@ pub struct Cli {
     pub command: TopCommand,
 }
 
-/// Top-level subcommands. Used in main.rs to dispatch commands, either `run` or `config`.
-/// claps handles the matching and validation of arguments.
+/// Top-level subcommands. Used in main.rs to dispatch commands, either `run`, `monitor`, or `config`.
+/// clap handles the matching and validation of arguments.
 #[derive(Subcommand, Debug)]
 pub enum TopCommand {
     /// Monitor the energy consumption of a command.
-    Run(RunArgs), //Tuple-like variant, accesed by position: ecocode run [ARGS]
+    Run(RunArgs),
+    /// Headless energy monitor for an existing run (used by the Python SDK).
+    /// Reads semantic markers from stdin and posts combined records to the backend.
+    Monitor(MonitorArgs),
     /// Manage EcoCode configuration.
     Config {
-        //Struct-like variant, accesed by name: ecocode config <SUBCOMMAND> [ARGS]
         #[command(subcommand)]
         action: ConfigAction,
     },
@@ -89,4 +91,22 @@ pub struct RunArgs {
     /// The command to monitor, passed after `--`.
     #[arg(trailing_var_arg = true, required = true)]
     pub command: Vec<String>,
+}
+
+/// CLI arguments for the headless monitor (`ecocode monitor`).
+/// This subcommand is spawned by the Python SDK as a subprocess.
+/// It reads markers from stdin and posts combined energy + marker records to the backend.
+#[derive(Args, Debug)]
+pub struct MonitorArgs {
+    /// Run ID (already created by the Python SDK).
+    #[arg(long)]
+    pub run_id: i64,
+
+    /// PID of the process to monitor (the Python training process).
+    #[arg(long)]
+    pub pid: u32,
+
+    /// Sampling interval in seconds.
+    #[arg(long, default_value = "1.0")]
+    pub interval: f64,
 }

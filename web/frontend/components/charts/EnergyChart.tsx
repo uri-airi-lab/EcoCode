@@ -176,7 +176,7 @@ export function EnergyChart({ runs: runsProp, data, runId }: EnergyChartProps) {
 
   const seriesLabels = useMemo(() => {
     const base = ['CPU Power (W)', gpuCount > 1 ? 'GPU Power (W) (Total)' : 'GPU Power (W)', 'Memory Power (W)', 'iGPU Power (W)']
-    if (gpuCount > 1) {
+    if (gpuCount > 0) {
       for (let i = 0; i < gpuCount; i++) base.push(`GPU ${i}`)
     }
     return base
@@ -184,7 +184,7 @@ export function EnergyChart({ runs: runsProp, data, runId }: EnergyChartProps) {
 
   const seriesColors = useMemo(() => {
     const base = [chartColor(1), chartColor(2), chartColor(3), chartColor(4)]
-    if (gpuCount > 1) {
+    if (gpuCount > 0) {
       for (let i = 0; i < gpuCount; i++) base.push(chartColor((i % 6) + 1))
     }
     return base
@@ -219,7 +219,7 @@ export function EnergyChart({ runs: runsProp, data, runId }: EnergyChartProps) {
       { label: 'GPU', stroke: chartColor(2), fill: chartColor(2, 0.05), width: 2 },
       { label: 'Mem', stroke: chartColor(3), fill: chartColor(3, 0.05), width: 2 },
       { label: 'iGPU', stroke: chartColor(4), fill: chartColor(4, 0.05), width: 2 },
-      ...Array.from({ length: gpuCount > 1 ? gpuCount : 0 }, (_, i) => ({
+      ...Array.from({ length: gpuCount }, (_, i) => ({
         label: `GPU ${i}`,
         stroke: chartColor((i % 6) + 1),
         width: 1,
