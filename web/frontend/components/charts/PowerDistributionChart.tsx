@@ -70,18 +70,18 @@ export function PowerDistributionChart({ record, prevRecord }: PowerDistribution
               paddingAngle={2}
             >
               {sourceData.map((entry, i) => (
-                <Cell key={i} fill={entry.color} stroke="hsl(222 47% 11%)" strokeWidth={2} />
+                <Cell key={i} fill={entry.color} stroke="hsl(220 12% 10%)" strokeWidth={2} />
               ))}
             </Pie>
             <Tooltip
               formatter={(value: number) => [`${value.toFixed(2)} W`]}
-              contentStyle={{ background: 'hsl(222 47% 10%)', border: '1px solid hsl(217.2 32.6% 17.5%)', borderRadius: 4, fontSize: 11 }}
-              itemStyle={{ color: 'hsl(215 20.2% 65.1%)' }}
+              contentStyle={{ background: 'hsl(220 12% 10%)', border: '1px solid hsl(220 8% 18%)', borderRadius: 4, fontSize: 11 }}
+              itemStyle={{ color: 'hsl(220 5% 60%)' }}
             />
             <Legend
               iconType="square"
               iconSize={10}
-              wrapperStyle={{ fontSize: 10, color: 'hsl(215 20.2% 65.1%)' }}
+              wrapperStyle={{ fontSize: 10, color: 'hsl(220 5% 60%)' }}
             />
           </PieChart>
         </ResponsiveContainer>

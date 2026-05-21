@@ -17,7 +17,7 @@ function formatDate(timestamp: number | null): string {
 function statusTone(status: string) {
   switch (status) {
     case 'running':
-      return 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+      return 'bg-green-500/20 text-green-300 border-green-500/30'
     case 'failed':
       return 'bg-red-500/20 text-red-300 border-red-500/30'
     case 'canceled':
@@ -206,7 +206,7 @@ export default function AdminPage() {
                         <span
                           className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium ${
                             project.activeRuns.length > 0
-                              ? 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+                              ? 'bg-green-500/20 text-green-300 border-green-500/30'
                               : 'bg-white/5 text-muted-foreground border-white/10 backdrop-blur-sm'
                           }`}
                         >

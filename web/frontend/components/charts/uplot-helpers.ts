@@ -40,8 +40,8 @@ export function makeTooltipPlugin(opts: TooltipPluginOpts): { hooks: object } {
         tooltip = document.createElement('div')
         tooltip.style.cssText = [
           'position:absolute',
-          'background:hsl(222 47% 10%)',
-          'border:1px solid hsl(217.2 32.6% 17.5%)',
+          'background:hsl(220 12% 10%)',
+          'border:1px solid hsl(220 8% 18%)',
           'border-radius:4px',
           'padding:8px 12px',
           'pointer-events:none',
@@ -49,7 +49,7 @@ export function makeTooltipPlugin(opts: TooltipPluginOpts): { hooks: object } {
           'z-index:10',
           'font-size:11px',
           'font-family:var(--font-jetbrains-mono,monospace)',
-          'color:hsl(215 20.2% 65.1%)',
+          'color:hsl(220 5% 60%)',
           'white-space:nowrap',
           'min-width:130px',
         ].join(';')
@@ -114,6 +114,6 @@ export function makeTooltipPlugin(opts: TooltipPluginOpts): { hooks: object } {
 }
 
 /** Shared axis style constants for a dark-theme uPlot chart. */
-export const AXIS_STROKE = 'hsl(215 20.2% 65.1%)'
+export const AXIS_STROKE = 'hsl(220 5% 60%)'
 export const GRID_STROKE = 'rgba(255,255,255,0.05)'
 export const AXIS_FONT = '10px sans-serif'

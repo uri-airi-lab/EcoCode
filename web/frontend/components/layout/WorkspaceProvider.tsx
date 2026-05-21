@@ -35,6 +35,11 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [dropdownOpen, setDropdownOpen] = useState(false)
 
   const load = useCallback(async () => {
+    // The root path is the public landing page — skip auth entirely
+    if (typeof window !== 'undefined' && window.location.pathname === '/') {
+      setLoading(false)
+      return
+    }
     try {
       const res = await fetch('/api/workspaces', { 
         credentials: 'include',

@@ -8,24 +8,33 @@ export function middleware(request: NextRequest) {
   const isAuthPage = pathname === '/login' || pathname === '/register'
   const isApiRoute = pathname.startsWith('/api')
   const isStaticRoute = pathname.startsWith('/_next') || pathname === '/favicon.ico'
+  // The root path is the public landing page — no auth required
+  const isPublicPage = pathname === '/'
 
   if (isApiRoute || isStaticRoute) {
     return NextResponse.next()
   }
 
-  if (!token && !isAuthPage) {
+  if (!token && !isAuthPage && !isPublicPage) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
   if (token && isAuthPage) {
-    // We don't know the workspace slug here, so we redirect to / 
-    // which should ideally fetch user workspaces and redirect to the first one
-    return NextResponse.redirect(new URL('/', request.url))
+    return NextResponse.redirect(new URL('/dashboard', request.url))
   }
 
   return NextResponse.next()
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+  matcher: [
+    /*
+     * Match all request paths EXCEPT:
+     * - _next/static (static files)
+     * - _next/image (image optimisation)
+     * - Static asset extensions (images, fonts, media)
+     * - favicon.ico
+     */
+    '/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:png|jpg|jpeg|gif|svg|webp|ico|woff|woff2|ttf|otf|mp4|mp3|pdf)).*)',
+  ],
 }

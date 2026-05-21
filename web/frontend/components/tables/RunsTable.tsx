@@ -86,7 +86,7 @@ export function RunsTable({ runs, onRunDeleted }: RunsTableProps) {
       case 'finished':
         return <Check className="w-4 h-4 text-primary" />
       case 'running':
-        return <Clock className="w-4 h-4 text-blue-400 animate-spin" />
+        return <Clock className="w-4 h-4 text-green-400 animate-spin" />
       case 'failed':
         return <X className="w-4 h-4 text-red-400" />
       case 'canceled':

@@ -239,7 +239,7 @@ export function TrainingMetricsChart({ records }: TrainingMetricsChartProps) {
               ctx.stroke()
               ctx.setLineDash([])
               ctx.font = '9px sans-serif'
-              ctx.fillStyle = 'hsl(215 20.2% 65.1%)'
+              ctx.fillStyle = 'hsl(220 5% 60%)'
               ctx.fillText(`Epoch ${ep.epoch}`, x + 3, u.bbox.top + 10)
               ctx.setLineDash([4, 4])
             }

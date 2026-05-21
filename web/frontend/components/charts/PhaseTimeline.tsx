@@ -12,7 +12,7 @@ const PHASE_COLORS: Record<string, { bg: string; text: string; label: string }> 
   warmup:          { bg: 'bg-indigo-400/70',  text: 'text-indigo-50', label: 'Warmup'          },
   forward:         { bg: 'bg-sky-500/80',     text: 'text-white',     label: 'Forward'         },
   backward:        { bg: 'bg-sky-600/80',     text: 'text-white',     label: 'Backward'        },
-  optimizer_step:  { bg: 'bg-blue-600/80',    text: 'text-white',     label: 'Optimizer Step'  },
+  optimizer_step:  { bg: 'bg-cyan-700/80',    text: 'text-white',     label: 'Optimizer Step'  },
   eval:            { bg: 'bg-violet-600/80',  text: 'text-white',     label: 'Eval'            },
   checkpoint_save: { bg: 'bg-amber-500/80',   text: 'text-white',     label: 'Checkpoint'      },
   policy_rollout:  { bg: 'bg-cyan-500/80',    text: 'text-white',     label: 'Policy Rollout'  },

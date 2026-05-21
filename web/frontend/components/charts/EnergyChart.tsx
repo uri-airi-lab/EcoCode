@@ -256,7 +256,7 @@ export function EnergyChart({ runs: runsProp, data, runId }: EnergyChartProps) {
             if (sep.name) {
               ctx.setLineDash([])
               ctx.font = '10px sans-serif'
-              ctx.fillStyle = 'hsl(215 20.2% 65.1%)'
+              ctx.fillStyle = 'hsl(220 5% 60%)'
               ctx.fillText(sep.name, x + 4, u.bbox.top + 12)
               ctx.setLineDash([6, 6])
             }

@@ -30,7 +30,10 @@ export default function Dashboard() {
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [currentRun, setCurrentRun] = useState<Run | null>(null)
   const [loading, setLoading] = useState(true)
+  const [fetchError, setFetchError] = useState<string | null>(null)
+  const [pollStalled, setPollStalled] = useState(false)
   const recordOffsetRef = useRef(0)
+  const failCountRef = useRef(0)
 
   useEffect(() => {
     if (workspaceLoading) return
@@ -38,6 +41,7 @@ export default function Dashboard() {
 
     const fetchData = async () => {
       setLoading(true)
+      setFetchError(null)
       let latestRunId: string | null = null
 
       // Phase 1: load summaries — finishes fast, shows metric cards + project table.
@@ -65,6 +69,7 @@ export default function Dashboard() {
           console.error('Failed to fetch data:', error)
           setRuns([])
           setProjects([])
+          setFetchError('Could not reach the server. Check your connection and try refreshing.')
         }
       } finally {
         // Reveal the page now — metric cards and project table are ready.
@@ -100,10 +105,14 @@ export default function Dashboard() {
   useEffect(() => {
     if (!currentRun || currentRun.status !== 'running') return
 
+    failCountRef.current = 0
+    setPollStalled(false)
+
     const poll = async () => {
       try {
         const offset = recordOffsetRef.current
         const newRecords = await fetchRunRecords(currentRun.id, 200, offset)
+        failCountRef.current = 0
         if (newRecords.length === 0) return
 
         recordOffsetRef.current += newRecords.length
@@ -119,7 +128,13 @@ export default function Dashboard() {
             avgMemUsage: count > 0 ? merged.reduce((s, r) => s + r.mem_usage, 0) / count : prev.avgMemUsage,
           }
         })
-      } catch { /* ignore */ }
+      } catch {
+        failCountRef.current += 1
+        if (failCountRef.current >= 5) {
+          clearInterval(id)
+          setPollStalled(true)
+        }
+      }
     }
 
     const id = setInterval(poll, POLL_INTERVAL_MS)
@@ -158,21 +173,21 @@ export default function Dashboard() {
     }
   }, [runs])
 
-  // Calculate trends (comparing last two runs)
+  // Calculate trends (comparing the two most recent runs)
   const trend = useMemo(() => {
     if (runs.length < 2) return null
 
-    const prevRun = runs[runs.length - 2]
-    const lastRun = runs[runs.length - 1]
+    const lastRun  = runs[0]  // most recent
+    const prevRun  = runs[1]  // one before
 
     return {
       energyTrend:
         prevRun.totalEnergy === 0
-          ? lastRun.totalEnergy === 0 ? 0 : 100
+          ? null
           : ((prevRun.totalEnergy - lastRun.totalEnergy) / prevRun.totalEnergy) * 100,
       carbonTrend:
         prevRun.carbonFootprint === 0
-          ? lastRun.carbonFootprint === 0 ? 0 : 100
+          ? null
           : ((prevRun.carbonFootprint - lastRun.carbonFootprint) / prevRun.carbonFootprint) * 100,
     }
   }, [runs])
@@ -188,50 +203,60 @@ export default function Dashboard() {
                 <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold tracking-tight text-foreground">
                   System Overview
                 </h1>
-                <div className="px-2 py-0.5 rounded text-[10px] font-bold bg-primary/10 text-primary uppercase tracking-tighter flex items-center gap-1 animate-pulse">
-                  <div className="w-1 h-1 rounded-full bg-primary" />
-                  Live
-                </div>
+                {pollStalled ? (
+                  <div className="px-2 py-0.5 rounded text-[10px] font-bold bg-destructive/10 text-destructive uppercase tracking-tighter flex items-center gap-1">
+                    <div className="w-1 h-1 rounded-full bg-destructive" />
+                    Stalled
+                  </div>
+                ) : (
+                  <div className="px-2 py-0.5 rounded text-[10px] font-bold bg-primary/10 text-primary uppercase tracking-tighter flex items-center gap-1 animate-pulse">
+                    <div className="w-1 h-1 rounded-full bg-primary" />
+                    Live
+                  </div>
+                )}
               </div>
               <p className="text-sm md:text-base text-muted-foreground/80 max-w-2xl">
                 Real-time monitoring of energy consumption, computational efficiency, and environmental impact metrics.
               </p>
             </div>
-            <StartRunModal 
-              projects={projects} 
+            <StartRunModal
+              projects={projects}
               onProjectCreated={() => {
                 fetchAllProjects().then(setProjects)
-              }} 
+              }}
             />
           </div>
         </div>
 
+        {/* Error banner */}
+        {fetchError && (
+          <div className="mb-6 flex items-start gap-3 px-4 py-3 rounded-lg border border-destructive/30 bg-destructive/10 text-sm text-destructive">
+            <span className="mt-0.5 shrink-0">⚠</span>
+            <span>{fetchError}</span>
+          </div>
+        )}
 
-        {/* Project Overview */}
-        {/* Metrics Row */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-0 items-stretch border border-border rounded-xl overflow-hidden mb-12 glass-strong">
-          <section className="lg:col-span-7 p-6 border-b lg:border-b-0 lg:border-r border-border relative">
-            <div className="absolute top-0 left-0 w-full h-1 bg-primary/20" />
-            <h4 className="text-[10px] font-bold text-primary uppercase tracking-[0.2em] mb-6 flex items-center gap-2">
-              <Activity className="w-3 h-3" />
-              Computational Impact
-            </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {/* Metrics */}
+        <div className="space-y-3 mb-12">
+          {/* Computational Impact — flat 3-column */}
+          <div className="border border-border rounded-xl overflow-hidden glass-strong">
+            <div className="px-6 pt-5 pb-3 border-b border-border flex items-center gap-2">
+              <Activity className="w-3 h-3 text-primary" />
+              <h4 className="text-[10px] font-bold text-primary uppercase tracking-[0.2em]">Computational Impact</h4>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-px bg-border">
               <MetricCard
                 icon={Leaf}
                 label="Carbon Footprint"
                 value={stats.totalCarbonFootprint > 1000 ? (stats.totalCarbonFootprint / 1000).toFixed(4) : stats.totalCarbonFootprint.toFixed(4)}
                 unit={stats.totalCarbonFootprint > 1000 ? 'kg CO₂' : 'g CO₂'}
                 trend={
-                  trend
-                    ? {
-                      value: trend.carbonTrend,
-                      direction: trend.carbonTrend > 0 ? 'up' : 'down',
-                    }
+                  trend?.carbonTrend != null
+                    ? { value: trend.carbonTrend, direction: trend.carbonTrend > 0 ? 'down' : 'up' }
                     : undefined
                 }
                 loading={loading}
-                className="bg-primary/5 border-primary/10"
+                className="rounded-none bg-card border-none bg-primary/5"
               />
               <MetricCard
                 icon={Coins}
@@ -239,7 +264,7 @@ export default function Dashboard() {
                 value={stats.totalCost.toFixed(4)}
                 unit={stats.currency}
                 loading={loading}
-                className="bg-primary/5 border-primary/10"
+                className="rounded-none bg-card border-none bg-amber-500/5"
               />
               <MetricCard
                 icon={Zap}
@@ -247,39 +272,29 @@ export default function Dashboard() {
                 value={stats.totalEnergy.toFixed(4)}
                 unit="Wh"
                 trend={
-                  trend
-                    ? {
-                      value: trend.energyTrend,
-                      direction: trend.energyTrend > 0 ? 'up' : 'down',
-                    }
+                  trend?.energyTrend != null
+                    ? { value: trend.energyTrend, direction: trend.energyTrend > 0 ? 'down' : 'up' }
                     : undefined
                 }
                 loading={loading}
-                className="bg-primary/5 border-primary/10"
+                className="rounded-none bg-card border-none"
               />
             </div>
-          </section>
+          </div>
 
-          <section className="lg:col-span-5 p-6 relative">
-            <div className="absolute top-0 left-0 w-full h-1 bg-primary/10" />
-            <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] mb-6 flex items-center gap-2">
-              <Zap className="w-3 h-3" />
-              Workspace Efficiency
-            </h4>
-            <div className="grid grid-cols-2 sm:grid-cols-2 gap-4">
-              <MetricCard
-                icon={Clock}
-                label="Core Hours"
-                value={(stats.totalCoreHours / 24).toFixed(4)}
-                unit="hrs"
-                loading={loading}
-                className="bg-blue-500/5 border-blue-500/10"
-              />
-              <MetricCard icon={Activity} label="Avg CPU" value={stats.avgCpuUsage.toFixed(4)} unit="%" loading={loading} className="bg-blue-500/5 border-blue-500/10" />
-              <MetricCard icon={Activity} label="Avg GPU" value={stats.avgGpuUsage.toFixed(4)} unit="%" loading={loading} className="bg-blue-500/5 border-blue-500/10" />
-              <MetricCard icon={Activity} label="Avg Mem" value={stats.avgMemUsage.toFixed(4)} unit="%" loading={loading} className="bg-blue-500/5 border-blue-500/10" />
+          {/* Workspace Efficiency — flat 4-column */}
+          <div className="border border-border rounded-xl overflow-hidden glass-strong">
+            <div className="px-6 pt-5 pb-3 border-b border-border flex items-center gap-2">
+              <Zap className="w-3 h-3 text-muted-foreground" />
+              <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em]">Workspace Efficiency</h4>
             </div>
-          </section>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-border">
+              <MetricCard icon={Clock}    label="Core Hours" value={(stats.totalCoreHours / 24).toFixed(4)} unit="hrs" loading={loading} className="rounded-none bg-card border-none bg-green-500/5" />
+              <MetricCard icon={Activity} label="Avg CPU"    value={stats.avgCpuUsage.toFixed(4)}           unit="%"   loading={loading} className="rounded-none bg-card border-none bg-green-500/5" />
+              <MetricCard icon={Activity} label="Avg GPU"    value={stats.avgGpuUsage.toFixed(4)}           unit="%"   loading={loading} className="rounded-none bg-card border-none bg-green-500/5" />
+              <MetricCard icon={Activity} label="Avg Mem"    value={stats.avgMemUsage.toFixed(4)}           unit="%"   loading={loading} className="rounded-none bg-card border-none bg-green-500/5" />
+            </div>
+          </div>
         </div>
 
         {/* Sustainability Impact */}
@@ -306,13 +321,32 @@ export default function Dashboard() {
           </div>
         )} */}
 
+        {/* No-runs empty state */}
+        {!loading && !fetchError && runs.length === 0 && (
+          <div className="mb-12 flex flex-col items-center justify-center py-16 border border-dashed border-border rounded-xl text-center gap-4">
+            <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
+              <Activity className="w-6 h-6 text-primary" />
+            </div>
+            <div>
+              <p className="text-base font-semibold text-foreground mb-1">No runs yet</p>
+              <p className="text-sm text-muted-foreground max-w-xs">
+                Start your first run to see energy, carbon, and cost metrics here.
+              </p>
+            </div>
+            <StartRunModal
+              projects={projects}
+              onProjectCreated={() => fetchAllProjects().then(setProjects)}
+            />
+          </div>
+        )}
+
         {/* Charts */}
         {loading ? (
           <div className="mb-8">
             <div className="chart-container flex items-center justify-center py-12">
               <div className="flex flex-col items-center gap-3">
-                <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
-                <p className="text-sm text-muted-foreground">Loading dashboard data...</p>
+                <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+                <p className="text-sm text-muted-foreground">Loading dashboard data…</p>
               </div>
             </div>
           </div>
@@ -326,7 +360,6 @@ export default function Dashboard() {
                     <div className="xl:col-span-2">
                       <EnergyChart runs={runData} />
                     </div>
-
                   </div>
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
                     <CumulativePowerChart runs={runData} />
@@ -335,6 +368,11 @@ export default function Dashboard() {
                 </>
               )
             })()}
+          </div>
+        ) : runs.length > 0 ? (
+          <div className="mb-8 flex flex-col items-center justify-center py-12 border border-dashed border-border rounded-xl text-center gap-2">
+            <Zap className="w-6 h-6 text-muted-foreground/40" />
+            <p className="text-sm text-muted-foreground">Chart data unavailable for the latest run.</p>
           </div>
         ) : null}
 

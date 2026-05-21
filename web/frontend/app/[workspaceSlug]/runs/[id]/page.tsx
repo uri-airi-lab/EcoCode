@@ -289,7 +289,7 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
     run.status === 'finished'
       ? 'bg-emerald-500/20 text-emerald-300'
       : run.status === 'running'
-        ? 'bg-blue-500/20 text-blue-300'
+        ? 'bg-green-500/20 text-green-300'
         : run.status === 'canceled'
           ? 'bg-amber-500/20 text-amber-300'
           : 'bg-red-500/20 text-red-300'

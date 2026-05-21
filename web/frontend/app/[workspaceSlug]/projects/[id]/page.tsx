@@ -177,70 +177,70 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                     </TabsList>
 
                     <TabsContent value="overview" className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                        <div className="space-y-12">
-                            {/* Key Metrics Row */}
-                            <div className="grid grid-cols-1 lg:grid-cols-12 gap-0 items-stretch border border-border rounded-xl overflow-hidden">
-                                <div className="lg:col-span-7 p-6 bg-emerald-500/[0.02]">
-                                    <h4 className="text-xs font-bold text-emerald-500 uppercase tracking-widest mb-4 flex items-center gap-2">
-                                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                        <div className="space-y-6">
+                            {/* Key Metrics — flat 5-column grid */}
+                            <div className="border border-border rounded-xl overflow-hidden">
+                                <div className="flex items-center gap-6 px-6 pt-5 pb-3 border-b border-border">
+                                    <span className="text-xs font-bold text-emerald-500 uppercase tracking-widest flex items-center gap-1.5">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
                                         Impact Overview
-                                    </h4>
-                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                                        <MetricCard
-                                            icon={Leaf}
-                                            label="Total Carbon"
-                                            value={project.totalCo2G > 1000 ? (project.totalCo2G / 1000).toFixed(4) : project.totalCo2G.toFixed(4)}
-                                            unit={project.totalCo2G > 1000 ? 'kg CO₂' : 'g CO₂'}
-                                            loading={loading}
-                                            className="bg-emerald-500/10 border-emerald-500/20"
-                                        />
-                                        <MetricCard
-                                            icon={Coins}
-                                            label="Total Cost"
-                                            value={project.totalCost.toFixed(4)}
-                                            unit={project.currency}
-                                            loading={loading}
-                                            className="bg-amber-500/10 border-amber-500/20"
-                                        />
-                                        <MetricCard icon={Zap} label="Total Energy" value={project.totalEnergy.toFixed(4)} unit="Wh" loading={loading} />
-                                    </div>
-                                </div>
-                                <div className="lg:col-span-5 p-6 bg-blue-500/[0.02] border-t lg:border-t-0 lg:border-l border-border">
-                                    <h4 className="text-xs font-bold text-blue-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                                        <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                                    </span>
+                                    <span className="text-xs font-bold text-green-400 uppercase tracking-widest flex items-center gap-1.5">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
                                         Execution Stats
-                                    </h4>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                        <MetricCard icon={Folder} label="Total Runs" value={project.totalRuns.toString()} loading={loading} className="bg-blue-500/5 border-blue-500/10" />
-                                        <MetricCard icon={Clock} label="Core Hours" value={(totalCoreHours / 24).toFixed(4)} unit="hrs" loading={loading} className="bg-blue-500/5 border-blue-500/10" />
-                                    </div>
+                                    </span>
+                                </div>
+                                <div className="grid grid-cols-2 md:grid-cols-5 gap-px bg-border">
+                                    <MetricCard
+                                        icon={Leaf}
+                                        label="Total Carbon"
+                                        value={project.totalCo2G > 1000 ? (project.totalCo2G / 1000).toFixed(4) : project.totalCo2G.toFixed(4)}
+                                        unit={project.totalCo2G > 1000 ? 'kg CO₂' : 'g CO₂'}
+                                        loading={loading}
+                                        className="rounded-none bg-card border-none bg-emerald-500/5"
+                                    />
+                                    <MetricCard
+                                        icon={Coins}
+                                        label="Total Cost"
+                                        value={project.totalCost.toFixed(4)}
+                                        unit={project.currency}
+                                        loading={loading}
+                                        className="rounded-none bg-card border-none bg-amber-500/5"
+                                    />
+                                    <MetricCard icon={Zap} label="Total Energy" value={project.totalEnergy.toFixed(4)} unit="Wh" loading={loading} className="rounded-none bg-card border-none" />
+                                    <MetricCard icon={Folder} label="Total Runs" value={project.totalRuns.toString()} loading={loading} className="rounded-none bg-card border-none bg-green-500/5" />
+                                    <MetricCard icon={Clock} label="Core Hours" value={(totalCoreHours / 24).toFixed(4)} unit="hrs" loading={loading} className="rounded-none bg-card border-none bg-green-500/5" />
                                 </div>
                             </div>
 
-                            {/* Detailed Breakdown Row */}
-                            <div className="grid grid-cols-1 lg:grid-cols-12 gap-0 items-stretch border border-border rounded-xl overflow-hidden">
-                                <div className="lg:col-span-7 p-6 bg-amber-500/[0.02]">
-                                    <h4 className="text-xs font-bold text-amber-500 uppercase tracking-widest mb-4 flex items-center gap-2">
-                                        <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                            {/* Energy Breakdown — flat 4-column grid */}
+                            <div className="border border-border rounded-xl overflow-hidden">
+                                <div className="px-6 pt-5 pb-3 border-b border-border">
+                                    <span className="text-xs font-bold text-amber-500 uppercase tracking-widest flex items-center gap-1.5">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />
                                         Energy Breakdown
-                                    </h4>
-                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                                        <MetricCard icon={Zap} label="CPU" value={project.totalCpuEnergy.toFixed(4)} unit="Wh" loading={loading} className="bg-amber-500/5 border-amber-500/10" />
-                                        <MetricCard icon={Zap} label="GPU" value={project.totalGpuEnergy.toFixed(4)} unit="Wh" loading={loading} className="bg-amber-500/5 border-amber-500/10" />
-                                        <MetricCard icon={Zap} label="Memory" value={project.totalMemEnergy.toFixed(4)} unit="Wh" loading={loading} className="bg-amber-500/5 border-amber-500/10" />
-                                        <MetricCard icon={Zap} label="iGPU" value={project.totalIgpuEnergy.toFixed(4)} unit="Wh" loading={loading} className="bg-amber-500/5 border-amber-500/10" />
-                                    </div>
+                                    </span>
                                 </div>
-                                <div className="lg:col-span-5 p-6 bg-purple-500/[0.02] border-t lg:border-t-0 lg:border-l border-border">
-                                    <h4 className="text-xs font-bold text-purple-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                                        <div className="w-1.5 h-1.5 rounded-full bg-purple-500" />
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-border">
+                                    <MetricCard icon={Zap} label="CPU" value={project.totalCpuEnergy.toFixed(4)} unit="Wh" loading={loading} className="rounded-none bg-card border-none bg-amber-500/5" />
+                                    <MetricCard icon={Zap} label="GPU" value={project.totalGpuEnergy.toFixed(4)} unit="Wh" loading={loading} className="rounded-none bg-card border-none bg-amber-500/5" />
+                                    <MetricCard icon={Zap} label="Memory" value={project.totalMemEnergy.toFixed(4)} unit="Wh" loading={loading} className="rounded-none bg-card border-none bg-amber-500/5" />
+                                    <MetricCard icon={Zap} label="iGPU" value={project.totalIgpuEnergy.toFixed(4)} unit="Wh" loading={loading} className="rounded-none bg-card border-none bg-amber-500/5" />
+                                </div>
+                            </div>
+
+                            {/* Average Performance — flat 3-column grid */}
+                            <div className="border border-border rounded-xl overflow-hidden">
+                                <div className="px-6 pt-5 pb-3 border-b border-border">
+                                    <span className="text-xs font-bold text-purple-400 uppercase tracking-widest flex items-center gap-1.5">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-purple-500 inline-block" />
                                         Average Performance
-                                    </h4>
-                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                                        <MetricCard icon={Activity} label="CPU" value={project.avgCpuUsage.toFixed(4)} unit="%" loading={loading} className="bg-purple-500/5 border-purple-500/10" />
-                                        <MetricCard icon={Activity} label="GPU" value={project.avgGpuUsage.toFixed(4)} unit="%" loading={loading} className="bg-purple-500/5 border-purple-500/10" />
-                                        <MetricCard icon={Activity} label="Mem" value={project.avgMemUsage.toFixed(4)} unit="%" loading={loading} className="bg-purple-500/5 border-purple-500/10" />
-                                    </div>
+                                    </span>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-px bg-border">
+                                    <MetricCard icon={Activity} label="Avg CPU" value={project.avgCpuUsage.toFixed(4)} unit="%" loading={loading} className="rounded-none bg-card border-none bg-purple-500/5" />
+                                    <MetricCard icon={Activity} label="Avg GPU" value={project.avgGpuUsage.toFixed(4)} unit="%" loading={loading} className="rounded-none bg-card border-none bg-purple-500/5" />
+                                    <MetricCard icon={Activity} label="Avg Mem" value={project.avgMemUsage.toFixed(4)} unit="%" loading={loading} className="rounded-none bg-card border-none bg-purple-500/5" />
                                 </div>
                             </div>
                         </div>

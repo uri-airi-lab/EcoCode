@@ -16,7 +16,7 @@ export function chartColor(n: number, alpha?: number): string {
   // SSR fallback
   if (typeof window === 'undefined') {
     const defaults: Record<number, string> = {
-      1: '217 91% 60%',  // blue
+      1: '142 80% 52%',  // green
       2: '27 96% 61%',   // orange
       3: '142 71% 45%',  // green
       4: '262 83% 58%',  // purple

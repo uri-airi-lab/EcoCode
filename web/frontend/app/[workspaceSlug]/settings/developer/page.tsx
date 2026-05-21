@@ -121,115 +121,106 @@ export default function DeveloperSettingsPage() {
         {/* Usage Guide Section */}
         <div className="mb-8 bg-card border border-border rounded-md overflow-hidden">
           <div className="p-6 border-b border-border">
-            <h2 className="text-lg font-semibold mb-2">Using Your API Key</h2>
+            <h2 className="text-lg font-semibold mb-1">Using Your API Key</h2>
             <p className="text-sm text-muted-foreground">
-              There are three ways to provide your API key to the EcoCode CLI
+              Three ways to provide your API key to the EcoCode CLI
             </p>
           </div>
 
-          <div className="p-6 space-y-6">
-            {/* Method 1: Saved Config */}
-            <div className="space-y-2">
-              <div className="flex items-start gap-3">
-                <div className="bg-primary/15 text-primary rounded-md px-2.5 py-1 text-xs font-bold shrink-0 mt-0.5">
-                  RECOMMENDED
-                </div>
-                <div className="flex-1">
-                  <h3 className="font-semibold text-sm mb-1">1. Save Once (Persistent Config)</h3>
-                  <p className="text-xs text-muted-foreground mb-3">
-                    Save your API key once and never enter it again. The key is stored in{' '}
-                    <code className="text-primary bg-background px-1.5 py-0.5 rounded font-mono">~/.ecocode/config.json</code>
-                  </p>
-                  <div className="bg-background rounded-md p-3 border border-border">
-                    <code className="text-xs text-primary font-mono block">
-                      # Save your API key once<br />
-                      ecocode config set-api-key YOUR_API_KEY<br />
-                      <br />
-                      # Now use without --api-key flag<br />
-                      ecocode run --output online -- python train.py
-                    </code>
-                  </div>
-                </div>
+          <div className="divide-y divide-border">
+            {/* Method 1 */}
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-3">
+                <span className="w-6 h-6 rounded-full bg-primary/15 text-primary text-xs font-bold flex items-center justify-center shrink-0">1</span>
+                <h3 className="font-semibold text-sm">Save Once (Persistent Config)</h3>
+                <span className="ml-auto text-[10px] font-bold bg-primary/15 text-primary px-2 py-0.5 rounded">RECOMMENDED</span>
+              </div>
+              <p className="text-xs text-muted-foreground mb-3 ml-9">
+                Save your API key once and never enter it again. Stored in{' '}
+                <code className="text-primary bg-background px-1.5 py-0.5 rounded font-mono">~/.ecocode/config.json</code>
+              </p>
+              <div className="ml-9 bg-background rounded-md p-3 border border-border">
+                <code className="text-xs text-primary font-mono block leading-relaxed">
+                  # Save your API key once<br />
+                  ecocode config set-api-key YOUR_API_KEY<br />
+                  <br />
+                  # Now run without --api-key<br />
+                  ecocode run --output online -- python train.py
+                </code>
               </div>
             </div>
 
-            {/* Method 2: Environment Variable */}
-            <div className="space-y-2">
-              <div className="flex items-start gap-3">
-                <div className="bg-chart-1/20 text-chart-1 rounded-md px-2.5 py-1 text-xs font-bold shrink-0 mt-0.5">
-                  CI/CD
-                </div>
-                <div className="flex-1">
-                  <h3 className="font-semibold text-sm mb-1">2. Environment Variable</h3>
-                  <p className="text-xs text-muted-foreground mb-3">
-                    Great for CI/CD pipelines, Docker containers, or shell profiles. Overrides saved config.
-                  </p>
-                  <div className="bg-background rounded-md p-3 border border-border">
-                    <code className="text-xs text-chart-1 font-mono block">
-                      # Set for current session<br />
-                      export ECOCODE_API_KEY=YOUR_API_KEY<br />
-                      <br />
-                      # Or add to ~/.bashrc or ~/.zshrc<br />
-                      echo &apos;export ECOCODE_API_KEY=YOUR_KEY&apos; &gt;&gt; ~/.bashrc<br />
-                      <br />
-                      # Use the CLI<br />
-                      ecocode run --output online -- python train.py
-                    </code>
-                  </div>
-                </div>
+            {/* Method 2 */}
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-3">
+                <span className="w-6 h-6 rounded-full bg-chart-1/20 text-chart-1 text-xs font-bold flex items-center justify-center shrink-0">2</span>
+                <h3 className="font-semibold text-sm">Environment Variable</h3>
+                <span className="ml-auto text-[10px] font-bold bg-chart-1/20 text-chart-1 px-2 py-0.5 rounded">CI/CD</span>
+              </div>
+              <p className="text-xs text-muted-foreground mb-3 ml-9">
+                Ideal for CI/CD pipelines, Docker containers, or shell profiles. Overrides saved config.
+              </p>
+              <div className="ml-9 bg-background rounded-md p-3 border border-border">
+                <code className="text-xs text-chart-1 font-mono block leading-relaxed">
+                  # Set for current session<br />
+                  export ECOCODE_API_KEY=YOUR_API_KEY<br />
+                  <br />
+                  # Or add to ~/.bashrc / ~/.zshrc<br />
+                  echo &apos;export ECOCODE_API_KEY=YOUR_KEY&apos; &gt;&gt; ~/.bashrc<br />
+                  <br />
+                  ecocode run --output online -- python train.py
+                </code>
               </div>
             </div>
 
-            {/* Method 3: Command Line */}
-            <div className="space-y-2">
-              <div className="flex items-start gap-3">
-                <div className="bg-chart-2/20 text-chart-2 rounded-md px-2.5 py-1 text-xs font-bold shrink-0 mt-0.5">
-                  OVERRIDE
-                </div>
-                <div className="flex-1">
-                  <h3 className="font-semibold text-sm mb-1">3. Command-Line Flag</h3>
-                  <p className="text-xs text-muted-foreground mb-3">
-                    Provide the key directly in the command. Overrides both saved config and environment variable.
-                  </p>
-                  <div className="bg-background rounded-md p-3 border border-border">
-                    <code className="text-xs text-chart-2 font-mono block">
-                      ecocode run --output online --api-key YOUR_API_KEY -- python train.py
-                    </code>
-                  </div>
-                </div>
+            {/* Method 3 */}
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-3">
+                <span className="w-6 h-6 rounded-full bg-chart-2/20 text-chart-2 text-xs font-bold flex items-center justify-center shrink-0">3</span>
+                <h3 className="font-semibold text-sm">Command-Line Flag</h3>
+                <span className="ml-auto text-[10px] font-bold bg-chart-2/20 text-chart-2 px-2 py-0.5 rounded">OVERRIDE</span>
+              </div>
+              <p className="text-xs text-muted-foreground mb-3 ml-9">
+                Pass the key inline. Overrides both saved config and environment variable.
+              </p>
+              <div className="ml-9 bg-background rounded-md p-3 border border-border">
+                <code className="text-xs text-chart-2 font-mono block leading-relaxed">
+                  ecocode run --output online --api-key YOUR_API_KEY -- python train.py
+                </code>
               </div>
             </div>
 
-            {/* Priority Order */}
-            <div className="bg-background border border-border rounded-md p-4">
-              <h4 className="text-xs font-semibold text-foreground mb-2 flex items-center gap-2">
-                <svg className="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                Priority Order (Highest to Lowest)
-              </h4>
-              <ol className="text-xs text-muted-foreground space-y-1 ml-6">
-                <li className="list-decimal">Command-line flag <code className="text-chart-2 bg-card px-1 py-0.5 rounded font-mono text-[10px]">--api-key</code></li>
-                <li className="list-decimal">Environment variable <code className="text-chart-1 bg-card px-1 py-0.5 rounded font-mono text-[10px]">ECOCODE_API_KEY</code></li>
-                <li className="list-decimal">Saved config file <code className="text-primary bg-card px-1 py-0.5 rounded font-mono text-[10px]">~/.ecocode/config.json</code></li>
-              </ol>
-            </div>
+            {/* Priority + Extra commands */}
+            <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
+              {/* Priority order */}
+              <div className="bg-background border border-border rounded-md p-4">
+                <h4 className="text-xs font-bold text-foreground uppercase tracking-widest mb-3">Priority Order</h4>
+                <ol className="space-y-2">
+                  {[
+                    { label: '--api-key flag',      color: 'text-chart-2', badge: 'bg-chart-2/15' },
+                    { label: 'ECOCODE_API_KEY env', color: 'text-chart-1', badge: 'bg-chart-1/15' },
+                    { label: '~/.ecocode/config',   color: 'text-primary',  badge: 'bg-primary/15' },
+                  ].map((item, i) => (
+                    <li key={i} className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span className={`w-4 h-4 rounded-full ${item.badge} ${item.color} text-[10px] font-bold flex items-center justify-center shrink-0`}>{i + 1}</span>
+                      <code className={`${item.color} font-mono`}>{item.label}</code>
+                    </li>
+                  ))}
+                </ol>
+              </div>
 
-            {/* Additional Commands */}
-            <div className="border-t border-border pt-4">
-              <h4 className="text-xs font-semibold text-foreground mb-3">Additional Config Commands</h4>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="bg-background rounded-md p-3 border border-border">
-                  <code className="text-xs text-foreground font-mono block mb-1">
-                    ecocode config show
-                  </code>
-                  <p className="text-[10px] text-muted-foreground">View current configuration</p>
-                </div>
-                <div className="bg-background rounded-md p-3 border border-border">
-                  <code className="text-xs text-foreground font-mono block mb-1">
-                    ecocode config clear-api-key
-                  </code>
-                  <p className="text-[10px] text-muted-foreground">Remove saved API key</p>
+              {/* Additional commands */}
+              <div className="bg-background border border-border rounded-md p-4">
+                <h4 className="text-xs font-bold text-foreground uppercase tracking-widest mb-3">Config Commands</h4>
+                <div className="space-y-3">
+                  <div>
+                    <code className="text-xs text-foreground font-mono">ecocode config show</code>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">View current configuration</p>
+                  </div>
+                  <div>
+                    <code className="text-xs text-foreground font-mono">ecocode config clear-api-key</code>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Remove saved API key</p>
+                  </div>
                 </div>
               </div>
             </div>

@@ -24,7 +24,17 @@ export default function LoginPage() {
       })
 
       if (res.ok) {
-        window.location.href = '/'
+        try {
+          const wsRes = await fetch('/api/workspaces', { credentials: 'include', cache: 'no-store' })
+          if (wsRes.ok) {
+            const workspaces = await wsRes.json()
+            window.location.href = workspaces.length > 0 ? `/${workspaces[0].slug}` : '/create-workspace'
+          } else {
+            window.location.href = '/create-workspace'
+          }
+        } catch {
+          window.location.href = '/create-workspace'
+        }
       } else {
         const data = await res.text()
         setError(data || 'Invalid credentials')

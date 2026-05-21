@@ -14,26 +14,26 @@ body {
 
 @layer base {
   :root {
-    --background: 222 47% 7%;
+    --background: 220 15% 7%;
     --foreground: 210 40% 98%;
-    --card: 222 47% 10%;
+    --card: 220 12% 10%;
     --card-foreground: 210 40% 98%;
-    --popover: 222 47% 7%;
+    --popover: 220 15% 7%;
     --popover-foreground: 210 40% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
+    --primary: 142 80% 52%;
+    --primary-foreground: 0 0% 5%;
+    --secondary: 220 8% 17%;
     --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 91.2% 59.8%;
-    --accent-foreground: 210 40% 98%;
+    --muted: 220 8% 17%;
+    --muted-foreground: 220 5% 60%;
+    --accent: 142 80% 52%;
+    --accent-foreground: 0 0% 5%;
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 224.3 76.3% 48%;
-    --chart-1: 217 91% 60%;
+    --border: 220 8% 18%;
+    --input: 220 8% 18%;
+    --ring: 142 80% 42%;
+    --chart-1: 142 80% 52%;
     --chart-2: 27 96% 61%;
     --chart-3: 189 94% 43%;
     --chart-4: 262 83% 58%;
@@ -101,7 +101,46 @@ body {
     content: "";
     @apply absolute top-0 right-0 w-24 h-24 bg-primary/5 blur-3xl rounded-full pointer-events-none;
   }
-}
+
+  /* ── Landing page utilities ─────────────────────────────────── */
+
+  .landing-grid {
+    background-image:
+      radial-gradient(circle at 1px 1px, hsl(var(--border) / 0.5) 1px, transparent 0);
+    background-size: 32px 32px;
+  }
+
+  .landing-hero-glow {
+    background: radial-gradient(ellipse 60% 50% at 50% -10%, hsl(var(--primary) / 0.18), transparent);
+  }
+
+  .landing-section-glow-left {
+    background: radial-gradient(ellipse 40% 60% at -5% 50%, hsl(var(--primary) / 0.10), transparent);
+  }
+
+  .landing-section-glow-right {
+    background: radial-gradient(ellipse 40% 60% at 105% 50%, hsl(var(--primary) / 0.10), transparent);
+  }
+
+  .code-block {
+    @apply bg-neutral-950 border border-border rounded-lg p-4 font-mono text-sm leading-relaxed overflow-x-auto;
+  }
+
+  .landing-card {
+    @apply bg-card border border-border rounded-xl p-6 transition-all duration-300;
+  }
+
+  .landing-card:hover {
+    @apply border-primary/40;
+    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.15), 0 8px 32px -8px hsl(var(--primary) / 0.20);
+  }
+
+  .comparison-highlight {
+    @apply text-primary font-semibold;
+  }
+
+
+} /* end @layer components */
 
 @keyframes fadeIn {
   from {
