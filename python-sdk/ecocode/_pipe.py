@@ -29,9 +29,16 @@ class PipeWriter:
 
 
 class InheritedFdWriter:
-    """Writes markers to an inherited file descriptor (attached mode)."""
+    """Writes markers to an inherited file descriptor (attached mode).
+
+    The *fd* argument **must** be pre-validated by the caller (``_run.py``)
+    using ``_validation.validate_marker_fd`` before this class is instantiated.
+    That function ensures the FD is > 2 (not stdin/stdout/stderr) and is an
+    open file descriptor in the current process. (CS-FD-001)
+    """
 
     def __init__(self, fd: int) -> None:
+        # fd is already validated by validate_marker_fd in _run.py
         self._file = os.fdopen(fd, "w", closefd=True)
 
     def send(self, event: dict[str, Any]) -> None:

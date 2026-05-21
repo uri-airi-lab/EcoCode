@@ -20,6 +20,7 @@ from __future__ import annotations
 import os
 import platform
 import shutil
+import stat
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -27,8 +28,38 @@ from typing import Any, Optional
 
 from ._http import EcoCodeHTTPClient
 from ._pipe import InheritedFdWriter, NullWriter, PipeWriter
+from ._validation import (
+    validate_api_key,
+    validate_base_url,
+    validate_marker_fd,
+    validate_run_id,
+)
 
 _DEFAULT_BASE_URL = "https://ecocode.app"
+
+# CS-CRED-001: Allowlist of environment variables forwarded to the monitor
+# subprocess. Passing the full parent environment ({**os.environ, ...}) would
+# spread every secret in the process environment into the child — visible via
+# /proc/<pid>/environ on Linux. Only forward what the monitor actually needs.
+_SUBPROCESS_ENV_PASSTHROUGH = frozenset({
+    # Shell / runtime essentials
+    "PATH", "HOME", "USER", "LOGNAME", "SHELL",
+    "LANG", "LC_ALL", "LC_CTYPE", "LANGUAGE",
+    "TMPDIR", "TMP", "TEMP",
+    "XDG_RUNTIME_DIR", "XDG_DATA_DIRS",
+    # Dynamic linker — required for native extensions
+    "LD_LIBRARY_PATH", "LD_PRELOAD",
+    "DYLD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH",  # macOS
+    # NVIDIA / CUDA
+    "CUDA_VISIBLE_DEVICES", "CUDA_HOME", "CUDA_PATH",
+    "NVML_LIBRARY_PATH", "NVIDIA_VISIBLE_DEVICES",
+    # AMD ROCm
+    "ROCR_VISIBLE_DEVICES", "HIP_VISIBLE_DEVICES", "HSA_OVERRIDE_GFX_VERSION",
+    # Intel oneAPI
+    "ONEAPI_DEVICE_SELECTOR", "ZE_AFFINITY_MASK",
+    # System hardware detection
+    "SYSTEM_ROOT", "SYSTEMROOT",
+})
 
 
 class EcoCodeRun:
@@ -44,11 +75,17 @@ class EcoCodeRun:
         interval: float = 1.0,
     ) -> None:
         self._name = name
-        self._api_key = api_key or os.environ.get("ECOCODE_API_KEY")
+
+        # Resolve API key and base URL from arguments then environment, and
+        # validate both eagerly so misconfiguration fails at construction time
+        # rather than at the first network call. (CS-CRED-002, CS-SSRF-001)
+        raw_key = api_key or os.environ.get("ECOCODE_API_KEY")
+        self._api_key: Optional[str] = validate_api_key(raw_key) if raw_key else None
+
+        raw_url = base_url or os.environ.get("ECOCODE_API_URL", _DEFAULT_BASE_URL)
+        self._base_url: str = validate_base_url(raw_url)
+
         self._project_id = project_id
-        self._base_url = base_url or os.environ.get(
-            "ECOCODE_API_URL", _DEFAULT_BASE_URL
-        )
         self._interval = interval
         self._run_id: Optional[int] = None
         self._monitor_proc: Optional[subprocess.Popen] = None
@@ -71,8 +108,30 @@ class EcoCodeRun:
 
         if env_run_id and env_marker_fd:
             self._mode = "attached"
-            self._run_id = int(env_run_id)
-            self._pipe = InheritedFdWriter(int(env_marker_fd))
+
+            # CS-INT-001: Validate run ID is a sane positive integer rather than
+            # blindly casting whatever the env var contains.
+            try:
+                self._run_id = validate_run_id(env_run_id)
+            except ValueError as exc:
+                raise ValueError(
+                    f"[ecocode] Invalid ECOCODE_RUN_ID: {exc}"
+                ) from exc
+
+            # CS-FD-001: Validate the inherited FD before opening it. A tampered
+            # ECOCODE_MARKER_FD=1 would redirect all marker writes to stdout.
+            try:
+                fd = validate_marker_fd(env_marker_fd)
+                self._pipe = InheritedFdWriter(fd)
+            except ValueError as exc:
+                import warnings
+                warnings.warn(
+                    f"[ecocode] Ignoring invalid ECOCODE_MARKER_FD: {exc} — "
+                    "phase markers will not be recorded for this run.",
+                    stacklevel=3,
+                )
+                self._pipe = NullWriter()
+
             return self
 
         # Standalone mode: SDK creates run + spawns monitor
@@ -104,6 +163,45 @@ class EcoCodeRun:
                 "Or reinstall:    pip install ecocode"
             )
 
+        # CS-EXEC-001: Verify the resolved binary is actually executable and
+        # warn if it was found outside a set of expected trusted locations.
+        # This catches the case where a malicious binary named 'ecocode' has
+        # been prepended to PATH by a compromised shell profile or dependency.
+        try:
+            bin_stat = os.stat(ecocode_bin)
+            if not (bin_stat.st_mode & stat.S_IXUSR):
+                raise RuntimeError(
+                    f"[ecocode] Resolved binary '{ecocode_bin}' is not executable."
+                )
+        except OSError as exc:
+            raise RuntimeError(
+                f"[ecocode] Cannot stat binary '{ecocode_bin}': {exc}"
+            ) from exc
+
+        _trusted_prefixes = (
+            sys.prefix,                       # active Python venv / conda env
+            os.path.expanduser("~/.local"),   # user-local installs
+            "/usr", "/opt", "/bin", "/sbin",  # standard system locations
+        )
+        if not any(ecocode_bin.startswith(p) for p in _trusted_prefixes):
+            import warnings
+            warnings.warn(
+                f"[ecocode] Monitor binary resolved from an unexpected path: "
+                f"'{ecocode_bin}'. If you did not install EcoCode here, "
+                "check your PATH for unexpected entries.",
+                stacklevel=3,
+            )
+
+        # CS-CRED-001: Build a minimal environment for the monitor subprocess.
+        # Never forward the full parent environment — it exposes every secret
+        # present in os.environ via /proc/<pid>/environ on Linux.
+        safe_env: dict[str, str] = {
+            k: v
+            for k, v in os.environ.items()
+            if k in _SUBPROCESS_ENV_PASSTHROUGH
+        }
+        safe_env["ECOCODE_API_KEY"] = self._api_key  # type: ignore[assignment]
+
         self._mode = "standalone"
         self._monitor_proc = subprocess.Popen(
             [
@@ -119,7 +217,7 @@ class EcoCodeRun:
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            env={**os.environ, "ECOCODE_API_KEY": self._api_key},
+            env=safe_env,
         )
 
         # Give the monitor a moment to start and detect early crashes.
@@ -209,38 +307,69 @@ def _collect_system_info() -> dict:
     }
     try:
         with open("/proc/meminfo") as f:
-            for line in f:
+            # CS-DOS-001: Guard against bind-mounted or crafted /proc/meminfo
+            # that could be arbitrarily large. The real kernel file has ~50
+            # entries; bail out if we exceed that to avoid memory exhaustion.
+            for i, line in enumerate(f):
+                if i >= 60:
+                    break
                 if line.startswith("MemTotal:"):
-                    kb = int(line.split()[1])
-                    info["ram_gb"] = round(kb / 1_048_576, 1)
+                    parts = line.split()
+                    if len(parts) >= 2 and parts[1].isdigit():
+                        kb = int(parts[1])
+                        info["ram_gb"] = round(kb / 1_048_576, 1)
                     break
     except OSError:
         pass
     return info
 
 
+# CS-LEAK-001: Expanded set of flag names that precede a secret value.
+# Keep this set lower-cased; matching is done case-insensitively.
+_SENSITIVE_FLAG_NAMES: frozenset[str] = frozenset({
+    # EcoCode / generic auth
+    "--api-key", "--api_key", "--token", "-k", "-t",
+    # HuggingFace
+    "--hf-token", "--hf_token", "--huggingface-token", "--huggingface_token",
+    # Weights & Biases
+    "--wandb-key", "--wandb_key", "--wandb-api-key",
+    # OpenAI / generic LLM providers
+    "--openai-key", "--openai_key", "--openai-api-key", "--openai_api_key",
+    # Generic secret/password flags
+    "--password", "--passwd", "--secret",
+    "--access-token", "--access_token",
+    "--auth-token", "--auth_token",
+    "--bearer", "--private-key", "--private_key",
+    "--credentials", "--key",
+})
+
+
 def _sanitize_command(args: list[str]) -> str:
-    """Sanitize sensitive keys (like API keys/tokens) from sys.argv."""
-    sensitive_keys = {"--api-key", "--token", "-k", "-t"}
+    """Sanitize sensitive flag values (like API keys/tokens) from sys.argv.
+
+    CS-LEAK-001: The original set only covered four flags. The expanded set
+    covers all common ML tooling secret flags so they are never transmitted
+    to the backend in the run's 'command' field.
+    """
     sanitized = []
     skip_next = False
     for i, arg in enumerate(args):
         if skip_next:
             skip_next = False
             continue
-        
+
         if "=" in arg:
             key, val = arg.split("=", 1)
-            if key.lower() in sensitive_keys:
+            if key.lower() in _SENSITIVE_FLAG_NAMES:
                 sanitized.append(f"{key}=********")
             else:
                 sanitized.append(arg)
-        elif arg.lower() in sensitive_keys:
+        elif arg.lower() in _SENSITIVE_FLAG_NAMES:
             sanitized.append(arg)
             if i + 1 < len(args):
                 sanitized.append("********")
                 skip_next = True
         else:
             sanitized.append(arg)
-            
+
     return " ".join(sanitized)

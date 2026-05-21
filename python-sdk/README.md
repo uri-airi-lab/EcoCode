@@ -85,7 +85,8 @@ The SDK manages the entire run lifecycle itself:
 4. `run.log_loss(1.45)` writes `{"event":"loss","value":1.45}\n` to the subprocess's stdin pipe — a single kernel buffer write taking ~1 microsecond. The Python process has **zero native threads**, making it fully fork-safe.
 5. On `__exit__` (or `.stop()`), the SDK closes the pipe, waits for the subprocess to flush its final record and exit, then marks the run `finished` or `failed`.
 
-> **CPU energy:** GPU energy (NVML) is always available without root. CPU energy requires read access to the RAPL sysfs interface. On machines where these files are not world-readable by default, run the following once:
+> [!TIP]
+> **CPU Energy Permissions:** GPU energy (NVML) is always available without root. However, CPU energy requires read access to the RAPL sysfs interface. On systems where these files are not world-readable by default, run the following commands once to enable CPU energy tracking:
 > ```bash
 > sudo chmod o+r /sys/class/powercap/intel-rapl/*/energy_uj
 > sudo chmod o+r /sys/class/powercap/intel-rapl/*/*/energy_uj

@@ -164,10 +164,6 @@ pub fn get_gpu_energy_by_pid(
 
 
 
-
-
-
-
 /// Computes per-PID GPU energy/utilization for ALL GPUs in one call.
 pub fn get_all_gpu_energies_by_pid(
     devices: &[Device],

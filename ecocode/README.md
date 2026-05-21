@@ -359,7 +359,8 @@ RAPL counters are exposed by the Linux kernel at:
 
 **Wrap-around correction:** The counters are 32-bit or 64-bit integers that reset to 0 when they reach `max_energy_range_uj`. EcoCode tracks the running maximum and adds the ceiling when a backward jump is detected: `delta = (max - prev) + curr`.
 
-**Root requirement:** RAPL counters are typically readable only by root. At startup, the CLI runs `sudo chmod -R +r /sys/class/powercap/intel-rapl/` to make them world-readable for the duration of the session.
+> [!IMPORTANT]
+> **Root & Permission Requirements:** RAPL counters are typically readable only by root. At startup, the CLI automatically runs `sudo chmod -R +r /sys/class/powercap/intel-rapl/` to make them world-readable for the duration of the monitoring session.
 
 ### NVML (GPU)
 

@@ -208,17 +208,14 @@ The frontend run detail page also does incremental polling (`setInterval`, 1 s) 
 
 ### With Docker Compose (recommended)
 
-```bash
-cd web
-
-# Copy and edit environment file
-cp .env.example .env
-# Minimum required variables:
-#   DATABASE_URL=postgresql://user:pass@db:5432/ecocode
-#   CORS_ORIGIN=http://localhost:3000
-
-docker compose up
-```
+> [!TIP]
+> **Recommended Setup:** The easiest way to deploy the entire web platform (database, backend, and frontend) is using Docker Compose.
+> Make sure to copy and configure the environment variables:
+> ```bash
+> cd web
+> cp .env.example .env
+> docker compose up -d
+> ```
 
 This starts:
 - `db` — PostgreSQL 16

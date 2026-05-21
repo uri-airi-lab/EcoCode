@@ -104,7 +104,12 @@ def main():
 
     base_url = os.environ.get("ECOCODE_API_URL", "http://localhost:3001")
     print(f"[test] Backend: {base_url}")
-    print(f"[test] API key: {api_key[:12]}...")
+    # CS-LEAK-002: Never print significant key material to stdout.
+    # The previous code printed the first 12 chars, leaking 8 chars of entropy.
+    # Show only the last 4 chars (like a credit card).
+    prefix = "ecocode_" if api_key.startswith("ecocode_") else "eco_"
+    masked_key = f"{prefix}****...{api_key[-4:]}" if len(api_key) > len(prefix) + 4 else f"{prefix}****"
+    print(f"[test] API key: {masked_key}")
     print(f"[test] PyTorch: {torch.__version__}")
     print(f"[test] Device:  CPU")
     print()

@@ -55,11 +55,17 @@ class EcoCodeORTWrapper:
         self._total_inferences += 1
         self._run.log_step(self._total_inferences)
 
-        # Estimate batch size from the first input tensor
+        # Estimate batch size from the first input tensor.
+        # CS-TYPE-002: Validate the shape value before forwarding. Some ONNX
+        # backends may return a symbolic/negative dimension for dynamic shapes;
+        # log only if the value is a concrete positive integer within a
+        # reasonable range to avoid corrupting dashboard aggregates.
         if input_feed:
             first_val = next(iter(input_feed.values()), None)
             if first_val is not None and hasattr(first_val, "shape"):
-                self._run.log_custom("batch_size", float(first_val.shape[0]))
+                batch_size = first_val.shape[0]
+                if isinstance(batch_size, int) and 0 < batch_size < 1_000_000:
+                    self._run.log_custom("batch_size", float(batch_size))
 
         t0 = time.perf_counter()
         result = self._session.run(output_names, input_feed, run_options)

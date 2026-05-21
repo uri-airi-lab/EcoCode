@@ -1,5 +1,6 @@
 import { LandingNavbar }        from '@/components/landing/LandingNavbar'
 import { HeroSection }          from '@/components/landing/HeroSection'
+import { HowItWorksSection }     from '@/components/landing/HowItWorksSection'
 import { FeatureCards }         from '@/components/landing/FeatureCards'
 import { ComparisonTable }      from '@/components/landing/ComparisonTable'
 import { ArchitectureDiagram }  from '@/components/landing/ArchitectureDiagram'
@@ -27,6 +28,9 @@ export default function RootPage() {
 
         {/* 📸 Screenshot A — Live run dashboard, full-width below hero */}
         <HeroScreenshot />
+
+        {/* § 1.5 — How it works step-by-step */}
+        <HowItWorksSection />
 
         {/* § 2 — Features */}
         <FeatureCards />

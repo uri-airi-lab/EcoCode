@@ -3,8 +3,18 @@
 from __future__ import annotations
 
 import json
+import ssl
+import urllib.parse
 import urllib.request
 from typing import Any, Optional
+
+# CS-HTTP-002: Cap response body at 1 MiB to prevent DoS via huge payloads.
+_MAX_RESPONSE_BYTES = 1_048_576  # 1 MiB
+
+# CS-HTTP-001: Reuse a single default SSL context (CERT_REQUIRED + check_hostname)
+# across all requests. Creating it once at module load is cheaper and guarantees
+# the same strict settings regardless of per-call defaults on the host platform.
+_SSL_CONTEXT = ssl.create_default_context()
 
 
 class EcoCodeHTTPClient:
@@ -12,18 +22,22 @@ class EcoCodeHTTPClient:
 
     def __init__(self, base_url: str, api_key: str) -> None:
         self._base_url = base_url.rstrip("/")
-        
+
+        # CS-WARN-001 / CS-HTTP-001: Reject plaintext HTTP for non-localhost targets.
+        # Using warnings.warn() here is insufficient because ML training scripts
+        # routinely call warnings.filterwarnings("ignore"), silently swallowing
+        # the alert while still transmitting credentials in plaintext.
+        # A hard ValueError is the only reliable guard.
         if self._base_url.lower().startswith("http://"):
-            import urllib.parse
-            import warnings
             parsed = urllib.parse.urlparse(self._base_url)
-            hostname = parsed.hostname or ""
-            if hostname.lower() not in ("localhost", "127.0.0.1", "::1"):
-                warnings.warn(
-                    f"Insecure connection warning: The target API url '{self._base_url}' uses unencrypted HTTP. "
-                    "Credentials and data will be transmitted in plaintext over the network.",
-                    UserWarning,
-                    stacklevel=2,
+            hostname = (parsed.hostname or "").lower()
+            if hostname not in ("localhost", "127.0.0.1", "::1", "[::1]"):
+                raise ValueError(
+                    f"Insecure HTTP endpoint '{self._base_url}' rejected. "
+                    "Transmitting your API key over plaintext HTTP exposes it to "
+                    "anyone on the network path. Use 'https://' instead. "
+                    "HTTP is only allowed for localhost addresses "
+                    "(localhost, 127.0.0.1, ::1) during local development."
                 )
 
         self._headers = {
@@ -37,9 +51,13 @@ class EcoCodeHTTPClient:
         req = urllib.request.Request(
             url, data=data, headers=self._headers, method="POST"
         )
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        # CS-HTTP-001: Pass the explicit SSL context so certificate validation is
+        # always enforced, even on platforms where the stdlib default may be lenient.
+        # CS-HTTP-002: Cap the response body at _MAX_RESPONSE_BYTES to prevent a
+        # malicious or misconfigured backend from exhausting memory.
+        with urllib.request.urlopen(req, timeout=10, context=_SSL_CONTEXT) as resp:
             if resp.status in (200, 201):
-                raw = resp.read()
+                raw = resp.read(_MAX_RESPONSE_BYTES)
                 if raw:
                     return json.loads(raw)
             return None

@@ -47,7 +47,7 @@ export const SCREENSHOTS: ScreenshotSlot[] = [
   },
   {
     id: 'gpu-socket-breakdown',
-    // src: '/screenshots/gpu-socket-breakdown.png',
+    src: '/screenshots/live-run-dashboard2.png',
     alt: 'EcoCode per-GPU and per-socket energy breakdown charts',
     label: 'Multi-GPU & Socket Breakdown',
     instructions:
