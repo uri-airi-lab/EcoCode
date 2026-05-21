@@ -49,9 +49,25 @@ fn make_carbon_config_response(row: CarbonConfigRow) -> CarbonConfigResponse {
 
 /// Handles GET requests to retrieve the carbon footprint config for a specific project.
 pub async fn get_carbon_config_handler(
+    auth_user: crate::auth::AuthUser,
     Path(project_id): Path<i64>,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let membership = sqlx::query(
+        "SELECT 1 FROM projects p
+         JOIN workspace_members wm ON p.workspace_id = wm.workspace_id
+         WHERE p.id = $1 AND wm.user_id = $2",
+    )
+    .bind(project_id)
+    .bind(auth_user.user_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(ApiError::internal)?;
+
+    if membership.is_none() {
+        return Err(ApiError::new(StatusCode::NOT_FOUND, "Project not found or access denied"));
+    }
+
     let row = crate::db::carbon::get_project_carbon_config(&state, project_id).await?;
     Ok(Json(make_carbon_config_response(row)))
 }
@@ -59,10 +75,37 @@ pub async fn get_carbon_config_handler(
 /// Handles PUT requests to update the carbon configuration for a project.
 /// Resolves geolocation and fetches initial real-time intensity if an API key is provided.
 pub async fn put_carbon_config_handler(
+    auth_user: crate::auth::AuthUser,
     Path(project_id): Path<i64>,
     State(state): State<AppState>,
     Json(body): Json<CarbonConfigUpdate>,
 ) -> Result<impl IntoResponse, ApiError> {
+    use sqlx::Row;
+    let role_row = sqlx::query(
+        "SELECT wm.role FROM projects p
+         JOIN workspace_members wm ON p.workspace_id = wm.workspace_id
+         WHERE p.id = $1 AND wm.user_id = $2",
+    )
+    .bind(project_id)
+    .bind(auth_user.user_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(ApiError::internal)?;
+
+    match role_row {
+        None => {
+            return Err(ApiError::new(StatusCode::NOT_FOUND, "Project not found or access denied"));
+        }
+        Some(r) => {
+            let role: String = r.get("role");
+            if role != "admin" {
+                return Err(ApiError::new(
+                    StatusCode::FORBIDDEN,
+                    "Only workspace admins can update carbon config",
+                ));
+            }
+        }
+    }
     let (lat, lon, resolved_address) = if let Some(addr) = &body.address {
         // Skip geocoding for empty/whitespace-only addresses
         if addr.trim().is_empty() {
@@ -208,9 +251,36 @@ pub async fn put_carbon_config_handler(
 
 /// Handles POST requests to explicitly force a refresh of the real-time carbon intensity from Electricity Maps.
 pub async fn post_refresh_carbon_intensity(
+    auth_user: crate::auth::AuthUser,
     Path(project_id): Path<i64>,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, ApiError> {
+    use sqlx::Row;
+    let role_row = sqlx::query(
+        "SELECT wm.role FROM projects p
+         JOIN workspace_members wm ON p.workspace_id = wm.workspace_id
+         WHERE p.id = $1 AND wm.user_id = $2",
+    )
+    .bind(project_id)
+    .bind(auth_user.user_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(ApiError::internal)?;
+
+    match role_row {
+        None => {
+            return Err(ApiError::new(StatusCode::NOT_FOUND, "Project not found or access denied"));
+        }
+        Some(r) => {
+            let role: String = r.get("role");
+            if role != "admin" {
+                return Err(ApiError::new(
+                    StatusCode::FORBIDDEN,
+                    "Only workspace admins can refresh carbon config",
+                ));
+            }
+        }
+    }
     let current = crate::db::carbon::get_project_carbon_config(&state, project_id).await?;
     let (intensity, intensity_src) = match (
         current.latitude,

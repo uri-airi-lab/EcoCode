@@ -84,7 +84,7 @@ class EcoCodeRun:
 
         self._client = EcoCodeHTTPClient(self._base_url, self._api_key)
         started_at = datetime.now(timezone.utc).isoformat()
-        command = " ".join(sys.argv) if hasattr(sys, "argv") and sys.argv else None
+        command = _sanitize_command(sys.argv) if hasattr(sys, "argv") and sys.argv else None
 
         self._run_id = self._client.create_run(
             project_id=self._project_id or 0,
@@ -217,3 +217,30 @@ def _collect_system_info() -> dict:
     except OSError:
         pass
     return info
+
+
+def _sanitize_command(args: list[str]) -> str:
+    """Sanitize sensitive keys (like API keys/tokens) from sys.argv."""
+    sensitive_keys = {"--api-key", "--token", "-k", "-t"}
+    sanitized = []
+    skip_next = False
+    for i, arg in enumerate(args):
+        if skip_next:
+            skip_next = False
+            continue
+        
+        if "=" in arg:
+            key, val = arg.split("=", 1)
+            if key.lower() in sensitive_keys:
+                sanitized.append(f"{key}=********")
+            else:
+                sanitized.append(arg)
+        elif arg.lower() in sensitive_keys:
+            sanitized.append(arg)
+            if i + 1 < len(args):
+                sanitized.append("********")
+                skip_next = True
+        else:
+            sanitized.append(arg)
+            
+    return " ".join(sanitized)

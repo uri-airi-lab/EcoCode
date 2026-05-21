@@ -480,3 +480,11 @@ export async function myFetch(payload: MyPayload): Promise<MyResponse> {
 ```
 
 ---
+
+## Third-Party Dependencies
+
+All Rust crates used by the backend (`axum`, `tokio`, `sqlx`, `serde`, `argon2`, `jsonwebtoken`, `reqwest`, `tower-http`, and others) and all npm packages used by the frontend (`react`, `next`, `@radix-ui/*`, `recharts`, `tailwindcss`, `zod`, and others) are licensed under MIT and/or Apache-2.0, with a small number of packages under the ISC license. All are permissive licenses that allow commercial use.
+
+See the [root README](../README.md#third-party-dependencies) for the full dependency audit.
+
+---

@@ -12,6 +12,20 @@ class EcoCodeHTTPClient:
 
     def __init__(self, base_url: str, api_key: str) -> None:
         self._base_url = base_url.rstrip("/")
+        
+        if self._base_url.lower().startswith("http://"):
+            import urllib.parse
+            import warnings
+            parsed = urllib.parse.urlparse(self._base_url)
+            hostname = parsed.hostname or ""
+            if hostname.lower() not in ("localhost", "127.0.0.1", "::1"):
+                warnings.warn(
+                    f"Insecure connection warning: The target API url '{self._base_url}' uses unencrypted HTTP. "
+                    "Credentials and data will be transmitted in plaintext over the network.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+
         self._headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",

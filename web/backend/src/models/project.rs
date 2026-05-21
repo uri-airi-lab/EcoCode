@@ -17,7 +17,7 @@ pub struct CreateProjectPayload {
 #[derive(Serialize, Clone, sqlx::FromRow)]
 pub struct Project {
     pub id: i64,
-    pub name: String,
+    pub name: Option<String>,
     pub workspace_slug: String,
 }
 

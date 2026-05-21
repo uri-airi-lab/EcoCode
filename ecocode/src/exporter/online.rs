@@ -185,14 +185,24 @@ impl Exporter for OnlineExporter {
         let url = format!("{}/api/projects", self.base_url);
         let res = self.client.get(&url).send().await?;
 
+        if !res.status().is_success() {
+            let status = res.status();
+            let body = res.text().await.unwrap_or_default();
+            return Err(format!(
+                "Failed to fetch projects (HTTP {}): {}",
+                status,
+                if body.is_empty() { "empty response".to_string() } else { body }
+            ).into());
+        }
+
         #[derive(Deserialize)]
         struct Project {
             id: i64,
-            name: String,
+            name: Option<String>,
         }
 
         let projects: Vec<Project> = res.json().await?;
-        let project = projects.into_iter().find(|p| p.name == project_name)
+        let project = projects.into_iter().find(|p| p.name.as_deref() == Some(project_name))
             .ok_or_else(|| format!("Project '{}' not found in your workspaces. Please create it first in the web app.", project_name))?;
 
         Ok(ProjectInfo {

@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { Leaf, Mail, Lock, ArrowRight, Loader2 } from 'lucide-react'
+import { safeWorkspaceHref } from '@/lib/navigation'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -28,7 +29,10 @@ export default function LoginPage() {
           const wsRes = await fetch('/api/workspaces', { credentials: 'include', cache: 'no-store' })
           if (wsRes.ok) {
             const workspaces = await wsRes.json()
-            window.location.href = workspaces.length > 0 ? `/${workspaces[0].slug}` : '/create-workspace'
+            // safeWorkspaceHref validates the slug before navigating (CWE-601 fix)
+            window.location.href = workspaces.length > 0
+              ? safeWorkspaceHref(workspaces[0].slug)
+              : '/create-workspace'
           } else {
             window.location.href = '/create-workspace'
           }

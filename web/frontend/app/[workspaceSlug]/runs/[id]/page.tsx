@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Leaf, Coins, Zap } from 'lucide-react'
 import { DashboardLayout } from '@/components/layout/DashboardLayout'
 import { EnergyChart } from '@/components/charts/EnergyChart'
 import { UtilizationChart } from '@/components/charts/UtilizationChart'
@@ -17,7 +17,7 @@ import { MLMetricsBar } from '@/components/run/MLMetricsBar'
 import { PhaseTimeline } from '@/components/charts/PhaseTimeline'
 import { TrainingMetricsChart } from '@/components/charts/TrainingMetricsChart'
 import { Run, MetricRecord } from '@/lib/mock-data'
-import { fetchRunMeta, fetchRunRecords } from '@/lib/api'
+import { fetchRunMeta, fetchRunRecords, fetchCarbonConfig, CarbonConfig } from '@/lib/api'
 import { BackendRecordPoint, mapRecord } from '@/lib/api/client'
 import { format } from 'date-fns'
 import { minIntervalMs } from '@/lib/utils'
@@ -36,6 +36,7 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
   const routeParams = useParams()
   const workspaceSlug = routeParams.workspaceSlug as string
   const [run, setRun] = useState<Run | null>(null)
+  const [carbonConfig, setCarbonConfig] = useState<CarbonConfig | null>(null)
   const [loading, setLoading] = useState(true)
   const [chartsLoading, setChartsLoading] = useState(true)
   const [paramId, setParamId] = useState<string | null>(null)
@@ -65,6 +66,14 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
         const meta = await fetchRunMeta(paramId)
         if (cancelled) return
         setRun(meta)
+
+        fetchCarbonConfig(Number(meta.projectId))
+          .then((config) => {
+            if (!cancelled) setCarbonConfig(config)
+          })
+          .catch((err) => {
+            console.error('Failed to fetch carbon config:', err)
+          })
       } catch (error) {
         if (!cancelled) {
           console.error('Failed to fetch run:', error)
@@ -285,6 +294,10 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
     )
   }
 
+  const derivedPrice = run.totalCost !== null && run.totalCost !== undefined && run.totalEnergy > 0
+    ? run.totalCost / ((run.totalEnergy * (run.pueUsed ?? 1.0)) / 1000.0)
+    : null
+
   const statusColor =
     run.status === 'finished'
       ? 'bg-emerald-500/20 text-emerald-300'
@@ -367,6 +380,49 @@ export default function RunDetailPage({ params }: RunDetailPageProps) {
                 totalCost={run.totalCost}
                 currency={run.currency}
               />
+            </div>
+
+            <div className="chart-container">
+              <h2 className="text-lg font-semibold text-foreground mb-4">
+                Calculation Settings Used
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="p-4 rounded-lg border border-border/40 bg-primary/[0.02] flex flex-col items-center justify-center text-center group hover:bg-primary/[0.05] transition-all duration-300">
+                  <Leaf className="w-4 h-4 text-muted-foreground/60 mb-2 group-hover:text-primary transition-colors" />
+                  <p className="text-[9px] font-bold text-muted-foreground/40 uppercase tracking-tighter mb-1">Carbon Intensity</p>
+                  <p className="text-sm font-mono font-bold text-foreground">
+                    {run.carbonIntensityUsed !== null && run.carbonIntensityUsed !== undefined
+                      ? `${run.carbonIntensityUsed.toFixed(2)} g/kWh`
+                      : carbonConfig
+                      ? `${carbonConfig.resolved_intensity_g_per_kwh.toFixed(2)} g/kWh`
+                      : '445.00 g/kWh (Default)'}
+                  </p>
+                </div>
+                
+                <div className="p-4 rounded-lg border border-border/40 bg-primary/[0.02] flex flex-col items-center justify-center text-center group hover:bg-primary/[0.05] transition-all duration-300">
+                  <Coins className="w-4 h-4 text-muted-foreground/60 mb-2 group-hover:text-primary transition-colors" />
+                  <p className="text-[9px] font-bold text-muted-foreground/40 uppercase tracking-tighter mb-1">Energy Price Rate</p>
+                  <p className="text-sm font-mono font-bold text-foreground">
+                    {derivedPrice !== null
+                      ? `${derivedPrice.toFixed(4)} ${run.currency || 'USD'}`
+                      : carbonConfig?.manual_cost_per_kwh !== null && carbonConfig?.manual_cost_per_kwh !== undefined
+                      ? `${carbonConfig.manual_cost_per_kwh.toFixed(4)} ${carbonConfig.manual_currency || 'USD'}`
+                      : 'Not Configured'}
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-lg border border-border/40 bg-primary/[0.02] flex flex-col items-center justify-center text-center group hover:bg-primary/[0.05] transition-all duration-300">
+                  <Zap className="w-4 h-4 text-muted-foreground/60 mb-2 group-hover:text-primary transition-colors" />
+                  <p className="text-[9px] font-bold text-muted-foreground/40 uppercase tracking-tighter mb-1">PUE Factor</p>
+                  <p className="text-sm font-mono font-bold text-foreground">
+                    {run.pueUsed !== null && run.pueUsed !== undefined
+                      ? run.pueUsed.toFixed(2)
+                      : carbonConfig
+                      ? carbonConfig.pue_factor.toFixed(2)
+                      : '1.00'}
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         </div>

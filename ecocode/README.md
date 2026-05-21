@@ -371,3 +371,13 @@ NVML (`nvml_wrapper` Rust crate) provides:
 GPU energy is attributed proportionally: if a process has 40% SM utilisation on a GPU that consumed 100 J in the last second, it is attributed 40 J.
 
 ---
+
+## Third-Party Dependencies
+
+All Rust crates used by this component (`clap`, `tokio`, `serde`, `sqlx`, `reqwest`, `warp`, `prometheus`, `sysinfo`, `nvml-wrapper`, and others) are licensed under MIT and/or Apache-2.0. These are permissive licenses that allow commercial use, modification, and distribution without restriction.
+
+**NVIDIA NVML:** The `nvml-wrapper` crate is MIT / Apache-2.0. The underlying NVML shared library (`libnvidia-ml.so`) is part of the NVIDIA driver and is loaded dynamically at runtime. EcoCode does not ship or redistribute this library — it must be present on the host as part of the user's NVIDIA driver installation.
+
+See the [root README](../README.md#third-party-dependencies) for the full dependency audit.
+
+---

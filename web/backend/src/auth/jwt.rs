@@ -18,10 +18,10 @@ pub(super) fn get_jwt_secret() -> String {
         .expect("JWT_SECRET environment variable must be set")
 }
 
-/// Generates a signed JWT encoding the user's ID with a 30-day expiry.
+/// Generates a signed JWT encoding the user's ID with a 7-day expiry.
 pub(super) fn generate_jwt(user_id: i64) -> Result<String, ApiError> {
     let expiration = Utc::now()
-        .checked_add_signed(Duration::days(30))
+        .checked_add_signed(Duration::days(7))
         .expect("valid timestamp")
         .timestamp();
 

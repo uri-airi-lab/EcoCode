@@ -23,7 +23,7 @@ interface ScreenshotSlot {
 export const SCREENSHOTS: ScreenshotSlot[] = [
   {
     id: 'live-run-dashboard',
-    // src: '/screenshots/live-run-dashboard.png',   ← add path once screenshot is taken
+    src: '/screenshots/live-run-dashboard.png',
     alt: 'EcoCode live run dashboard showing real-time energy charts and phase timeline',
     label: 'Live Run Dashboard',
     instructions:
@@ -35,7 +35,7 @@ export const SCREENSHOTS: ScreenshotSlot[] = [
   },
   {
     id: 'runs-list',
-    // src: '/screenshots/runs-list.png',
+    src: '/screenshots/runs-list.png',
     alt: 'EcoCode runs list showing multiple experiments with energy, CO₂ and duration columns',
     label: 'Runs List',
     instructions:
@@ -60,7 +60,7 @@ export const SCREENSHOTS: ScreenshotSlot[] = [
   },
   {
     id: 'carbon-impact',
-    // src: '/screenshots/carbon-impact.png',
+    src: '/screenshots/carbon-impact.png',
     alt: 'EcoCode environmental impact panel showing CO₂ equivalents in car distance, smartphone charges and trees',
     label: 'Carbon & Environmental Impact',
     instructions:

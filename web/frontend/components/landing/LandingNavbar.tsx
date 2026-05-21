@@ -3,6 +3,9 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Github, ArrowRight } from 'lucide-react'
+import { useWorkspace } from '@/components/layout/WorkspaceProvider'
+import { useRouter } from 'next/navigation'
+import { toast } from 'sonner'
 
 const NAV_LINKS = [
   { label: 'Features',      href: '#features' },
@@ -15,12 +18,32 @@ const NAV_LINKS = [
 export function LandingNavbar() {
   const [scrolled, setScrolled] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const { isAuthenticated, refresh } = useWorkspace()
+  const router = useRouter()
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20)
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
+
+  const handleLogout = async () => {
+    try {
+      const res = await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'include',
+      })
+      if (res.ok) {
+        toast.success('Logged out successfully')
+        refresh()
+        window.location.href = '/'
+      } else {
+        toast.error('Failed to logout')
+      }
+    } catch {
+      toast.error('An error occurred during logout')
+    }
+  }
 
   return (
     <header
@@ -68,19 +91,38 @@ export function LandingNavbar() {
               <Github className="w-4 h-4" />
               GitHub
             </a>
-            <Link
-              href="/login"
-              className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground rounded-md hover:bg-muted/50 transition-all duration-150"
-            >
-              Sign In
-            </Link>
-            <Link
-              href="/register"
-              className="flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium bg-primary text-primary-foreground rounded-md hover:brightness-110 transition-all duration-150 shadow-md shadow-primary/20"
-            >
-              Get Started
-              <ArrowRight className="w-3.5 h-3.5" />
-            </Link>
+            {isAuthenticated ? (
+              <>
+                <Link
+                  href="/dashboard"
+                  className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground rounded-md hover:bg-muted/50 transition-all duration-150"
+                >
+                  Dashboard
+                </Link>
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium bg-destructive/15 text-destructive hover:bg-destructive/25 rounded-md transition-all duration-150"
+                >
+                  Sign Out
+                </button>
+              </>
+            ) : (
+              <>
+                <Link
+                  href="/login"
+                  className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground rounded-md hover:bg-muted/50 transition-all duration-150"
+                >
+                  Sign In
+                </Link>
+                <Link
+                  href="/register"
+                  className="flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium bg-primary text-primary-foreground rounded-md hover:brightness-110 transition-all duration-150 shadow-md shadow-primary/20"
+                >
+                  Get Started
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
+              </>
+            )}
           </div>
 
           {/* Mobile hamburger */}
@@ -117,12 +159,31 @@ export function LandingNavbar() {
             <a href="#" className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:text-foreground rounded-md hover:bg-muted/50 transition-all">
               <Github className="w-4 h-4" /> GitHub
             </a>
-            <Link href="/login" className="px-3 py-2 text-sm text-muted-foreground hover:text-foreground rounded-md hover:bg-muted/50 transition-all" onClick={() => setMenuOpen(false)}>
-              Sign In
-            </Link>
-            <Link href="/register" className="flex items-center justify-center gap-1.5 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-md hover:brightness-110 transition-all" onClick={() => setMenuOpen(false)}>
-              Get Started <ArrowRight className="w-3.5 h-3.5" />
-            </Link>
+            {isAuthenticated ? (
+              <>
+                <Link href="/dashboard" className="px-3 py-2 text-sm text-muted-foreground hover:text-foreground rounded-md hover:bg-muted/50 transition-all" onClick={() => setMenuOpen(false)}>
+                  Dashboard
+                </Link>
+                <button
+                  onClick={() => {
+                    setMenuOpen(false)
+                    handleLogout()
+                  }}
+                  className="flex items-center justify-center gap-1.5 py-2 text-sm font-medium bg-destructive/15 text-destructive rounded-md hover:bg-destructive/25 transition-all"
+                >
+                  Sign Out
+                </button>
+              </>
+            ) : (
+              <>
+                <Link href="/login" className="px-3 py-2 text-sm text-muted-foreground hover:text-foreground rounded-md hover:bg-muted/50 transition-all" onClick={() => setMenuOpen(false)}>
+                  Sign In
+                </Link>
+                <Link href="/register" className="flex items-center justify-center gap-1.5 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-md hover:brightness-110 transition-all" onClick={() => setMenuOpen(false)}>
+                  Get Started <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
+              </>
+            )}
           </div>
         </div>
       )}

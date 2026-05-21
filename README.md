@@ -813,6 +813,19 @@ Contributions are welcome. Open an issue to discuss a change before submitting a
 
 ---
 
+## Third-Party Dependencies
+
+All third-party libraries used across the CLI, web backend, web frontend, and Python SDK are distributed under permissive open-source licenses. There are no GPL, LGPL, or AGPL dependencies anywhere in the stack. The project is safe to use and monetize commercially.
+
+| Component | Licenses in use |
+|-----------|----------------|
+| Rust CLI (`ecocode/`) | MIT, Apache-2.0, Unlicense |
+| Web backend (`web/backend/`) | MIT, Apache-2.0 |
+| Web frontend (`web/frontend/`) | MIT, Apache-2.0, ISC |
+| Python SDK (`python-sdk/`) | MIT, Apache-2.0 |
+
+**NVIDIA NVML note:** The `nvml-wrapper` Rust crate (MIT / Apache-2.0) is a thin wrapper around NVIDIA's NVML library (`libnvidia-ml.so`), which ships as part of the NVIDIA driver and is governed separately by NVIDIA's EULA. EcoCode does not ship or redistribute the NVML library — it is loaded at runtime from the user's existing NVIDIA driver installation. This is standard practice for GPU monitoring software. Enterprise deployments with strict legal review should note: GPU monitoring requires NVIDIA drivers to be installed independently by the end user.
+
 ## License
 
 Copyright (c) 2026 Mohamed Aziz Khezami. All Rights Reserved — see [LICENSE](LICENSE) for details.

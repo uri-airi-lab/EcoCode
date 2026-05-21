@@ -3,7 +3,7 @@
 /// Returns `true` when the `PRODUCTION` environment variable is set to `"true"`.
 /// Controls the `Secure` flag on auth cookies.
 pub(super) fn is_production() -> bool {
-    std::env::var("PRODUCTION").as_deref() == Ok("true")
+    std::env::var("PRODUCTION").as_deref() != Ok("false")
 }
 
 /// Hashes an API key string with SHA-256 and returns the lowercase hex digest.

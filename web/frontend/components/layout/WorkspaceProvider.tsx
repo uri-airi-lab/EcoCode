@@ -21,6 +21,7 @@ interface WorkspaceContextValue {
   workspaces: Workspace[]
   currentWorkspace: Workspace | null
   loading: boolean
+  isAuthenticated: boolean
   dropdownOpen: boolean
   setDropdownOpen: (open: boolean) => void
   refresh: () => void
@@ -32,14 +33,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [loading, setLoading] = useState(true)
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [dropdownOpen, setDropdownOpen] = useState(false)
 
   const load = useCallback(async () => {
-    // The root path is the public landing page — skip auth entirely
-    if (typeof window !== 'undefined' && window.location.pathname === '/') {
-      setLoading(false)
-      return
-    }
     try {
       const res = await fetch('/api/workspaces', { 
         credentials: 'include',
@@ -48,6 +45,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       if (res.ok) {
         const data: Workspace[] = await res.json()
         setWorkspaces(data)
+        setIsAuthenticated(true)
         
         // If the user has no workspaces, redirect to workspace creation page
         const path = window.location.pathname
@@ -56,6 +54,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
           window.location.href = '/create-workspace'
         }
       } else if (res.status === 401) {
+        setIsAuthenticated(false)
         // Token might be invalid or expired (e.g., after DB reset)
         // Clear the auth_token cookie to prevent the middleware redirect loop
         try {
@@ -63,8 +62,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         } catch {
           // ignore
         }
-        // Only redirect if not already on an auth page
-        if (!window.location.pathname.startsWith('/login') && !window.location.pathname.startsWith('/register')) {
+        // Only redirect if not already on an auth page or landing page
+        const path = window.location.pathname
+        const isPublicOrAuth = path === '/' || path.startsWith('/login') || path.startsWith('/register')
+        if (!isPublicOrAuth) {
           window.location.href = '/login'
         }
       }
@@ -86,8 +87,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   )
 
   const value = useMemo(
-    () => ({ workspaces, currentWorkspace, loading, dropdownOpen, setDropdownOpen, refresh: load }),
-    [workspaces, currentWorkspace, loading, dropdownOpen, load],
+    () => ({ workspaces, currentWorkspace, loading, isAuthenticated, dropdownOpen, setDropdownOpen, refresh: load }),
+    [workspaces, currentWorkspace, loading, isAuthenticated, dropdownOpen, load],
   )
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>

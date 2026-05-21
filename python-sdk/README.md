@@ -843,3 +843,11 @@ EPOCHS=30 BATCH_SIZE=256 LR=3e-4 API_KEY=eco_... python demo_training.py
 | Build backend | [Hatchling](https://hatch.pypa.io/) |
 | Dependencies | None (pure Python, stdlib only) |
 | Keywords | energy, carbon, ml, llm, monitoring, sustainability, rlhf, training |
+
+---
+
+## Third-Party Dependencies
+
+The SDK itself has zero runtime dependencies (pure Python, stdlib only). Optional framework extras (`transformers`, `trl`, `pytorch-lightning`, `keras`, `onnxruntime`) are all licensed under Apache-2.0 or MIT. The build backend (`hatchling`) is MIT. All are permissive licenses that allow commercial use.
+
+See the [root README](../README.md#third-party-dependencies) for the full dependency audit.

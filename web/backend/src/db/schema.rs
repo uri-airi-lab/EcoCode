@@ -13,6 +13,7 @@ pub async fn ensure_postgres_schema(db: &PgPool) -> Result<(), Box<dyn std::erro
             institution TEXT NOT NULL DEFAULT '',
             position TEXT NOT NULL DEFAULT '',
             use_case TEXT,
+            is_admin BOOLEAN NOT NULL DEFAULT FALSE,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )",
     )
@@ -30,6 +31,9 @@ pub async fn ensure_postgres_schema(db: &PgPool) -> Result<(), Box<dyn std::erro
         .execute(db)
         .await?;
     sqlx::query("ALTER TABLE users ADD COLUMN IF NOT EXISTS use_case TEXT")
+        .execute(db)
+        .await?;
+    sqlx::query("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE")
         .execute(db)
         .await?;
 

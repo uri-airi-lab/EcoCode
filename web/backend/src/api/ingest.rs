@@ -101,11 +101,35 @@ pub async fn ingest_run(
 /// Handles POST requests from the EcoCode CLI to append a new time-series metrics record.
 /// Saves CPU, GPU, Memory, and nested socket details into the database transactionally.
 pub async fn ingest_record(
-    _auth_user: auth::AuthUser,
+    auth_user: auth::AuthUser,
     Path(run_id): Path<i64>,
     State(state): State<AppState>,
     Json(payload): Json<IngestRecordData>,
 ) -> Result<impl IntoResponse, ApiError> {
+    // Verify workspace membership for the project linked to the run
+    let membership = sqlx::query(
+        "SELECT 1 FROM runs r
+         JOIN projects p ON r.project_id = p.id
+         JOIN workspace_members wm ON p.workspace_id = wm.workspace_id
+         WHERE r.id = $1 AND wm.user_id = $2",
+    )
+    .bind(run_id)
+    .bind(auth_user.user_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(ApiError::internal)?;
+
+    if membership.is_none() {
+        warn!(
+            user_id = auth_user.user_id,
+            run_id,
+            "Ingest record denied: user not a member of project workspace"
+        );
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "Access denied to project workspace for this run",
+        ));
+    }
     // Basic sanity checks — reject clearly invalid measurements.
     if payload.cpu_energy < 0.0 || payload.gpu_energy < 0.0 {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "Energy values must be non-negative"));
@@ -244,11 +268,35 @@ pub async fn ingest_record(
 
 /// Handles POST requests to store static hardware system information associated with a run.
 pub async fn ingest_system_info(
-    _auth_user: auth::AuthUser,
+    auth_user: auth::AuthUser,
     Path(run_id): Path<i64>,
     State(state): State<AppState>,
     Json(payload): Json<IngestSystemInfo>,
 ) -> Result<impl IntoResponse, ApiError> {
+    // Verify workspace membership for the project linked to the run
+    let membership = sqlx::query(
+        "SELECT 1 FROM runs r
+         JOIN projects p ON r.project_id = p.id
+         JOIN workspace_members wm ON p.workspace_id = wm.workspace_id
+         WHERE r.id = $1 AND wm.user_id = $2",
+    )
+    .bind(run_id)
+    .bind(auth_user.user_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(ApiError::internal)?;
+
+    if membership.is_none() {
+        warn!(
+            user_id = auth_user.user_id,
+            run_id,
+            "Ingest system info denied: user not a member of project workspace"
+        );
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "Access denied to project workspace for this run",
+        ));
+    }
     sqlx::query(
         "INSERT INTO run_system_info (run_id, cpu_name, cpu_cores, ram_gb, gpu_count, gpu_names)
          VALUES ($1, $2, $3, $4, $5, $6)
@@ -276,11 +324,35 @@ pub async fn ingest_system_info(
 /// Handles POST requests to mark a run as finished.
 /// Triggers the background calculation of the final footprint summary.
 pub async fn ingest_complete_run(
-    _auth_user: auth::AuthUser,
+    auth_user: auth::AuthUser,
     Path(run_id): Path<i64>,
     State(state): State<AppState>,
     Json(payload): Json<IngestCompletePayload>,
 ) -> Result<impl IntoResponse, ApiError> {
+    // Verify workspace membership for the project linked to the run
+    let membership = sqlx::query(
+        "SELECT 1 FROM runs r
+         JOIN projects p ON r.project_id = p.id
+         JOIN workspace_members wm ON p.workspace_id = wm.workspace_id
+         WHERE r.id = $1 AND wm.user_id = $2",
+    )
+    .bind(run_id)
+    .bind(auth_user.user_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(ApiError::internal)?;
+
+    if membership.is_none() {
+        warn!(
+            user_id = auth_user.user_id,
+            run_id,
+            "Ingest complete run denied: user not a member of project workspace"
+        );
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "Access denied to project workspace for this run",
+        ));
+    }
     sqlx::query("UPDATE runs SET status = $1, ended_at = $2 WHERE id = $3")
         .bind(&payload.status)
         .bind(&payload.ended_at)

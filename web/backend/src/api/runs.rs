@@ -230,10 +230,27 @@ pub async fn get_run(
 /// within that window at full available resolution (up to `limit` points).
 /// When absent, the existing paginated/step-sampled path is used.
 pub async fn get_record_points(
+    auth_user: auth::AuthUser,
     Path(run_id): Path<i64>,
     Query(pagination): Query<PaginationQuery>,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, ApiError> {
+    // Verify workspace membership
+    let membership_check = sqlx::query(
+        "SELECT 1 FROM runs r
+         JOIN projects p ON r.project_id = p.id
+         JOIN workspace_members wm ON p.workspace_id = wm.workspace_id
+         WHERE r.id = $1 AND wm.user_id = $2",
+    )
+    .bind(run_id)
+    .bind(auth_user.user_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(ApiError::internal)?;
+
+    if membership_check.is_none() {
+        return Err(ApiError::new(StatusCode::NOT_FOUND, "Run not found or access denied"));
+    }
     let limit = pagination.limit.unwrap_or(1000).min(5000);
     let offset = pagination.offset.unwrap_or(0);
 
@@ -383,27 +400,81 @@ pub async fn get_record_points(
 
 /// Handles GET requests to retrieve GPU-specific metrics for a run.
 pub async fn get_gpu_records(
+    auth_user: auth::AuthUser,
     Path(run_id): Path<i64>,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, ApiError> {
+    // Verify workspace membership
+    let membership_check = sqlx::query(
+        "SELECT 1 FROM runs r
+         JOIN projects p ON r.project_id = p.id
+         JOIN workspace_members wm ON p.workspace_id = wm.workspace_id
+         WHERE r.id = $1 AND wm.user_id = $2",
+    )
+    .bind(run_id)
+    .bind(auth_user.user_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(ApiError::internal)?;
+
+    if membership_check.is_none() {
+        return Err(ApiError::new(StatusCode::NOT_FOUND, "Run not found or access denied"));
+    }
+
     let gpu_records = crate::db::records::fetch_gpu_records_for_run(&state, run_id).await?;
     Ok((StatusCode::OK, Json(gpu_records)))
 }
 
 /// Handles GET requests to retrieve Socket-specific metrics for a run.
 pub async fn get_socket_records(
+    auth_user: auth::AuthUser,
     Path(run_id): Path<i64>,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, ApiError> {
+    // Verify workspace membership
+    let membership_check = sqlx::query(
+        "SELECT 1 FROM runs r
+         JOIN projects p ON r.project_id = p.id
+         JOIN workspace_members wm ON p.workspace_id = wm.workspace_id
+         WHERE r.id = $1 AND wm.user_id = $2",
+    )
+    .bind(run_id)
+    .bind(auth_user.user_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(ApiError::internal)?;
+
+    if membership_check.is_none() {
+        return Err(ApiError::new(StatusCode::NOT_FOUND, "Run not found or access denied"));
+    }
+
     let socket_records = crate::db::records::fetch_socket_records_for_run(&state, run_id).await?;
     Ok((StatusCode::OK, Json(socket_records)))
 }
 
 /// Handles GET requests to retrieve the aggregated summary of a run.
 pub async fn get_run_summary(
+    auth_user: auth::AuthUser,
     Path(run_id): Path<i64>,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, ApiError> {
+    // Verify workspace membership
+    let membership_check = sqlx::query(
+        "SELECT 1 FROM runs r
+         JOIN projects p ON r.project_id = p.id
+         JOIN workspace_members wm ON p.workspace_id = wm.workspace_id
+         WHERE r.id = $1 AND wm.user_id = $2",
+    )
+    .bind(run_id)
+    .bind(auth_user.user_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(ApiError::internal)?;
+
+    if membership_check.is_none() {
+        return Err(ApiError::new(StatusCode::NOT_FOUND, "Run not found or access denied"));
+    }
+
     let summary = crate::db::runs::fetch_run_summary(&state, run_id).await?;
 
     match summary {

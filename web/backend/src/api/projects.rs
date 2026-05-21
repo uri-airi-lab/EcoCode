@@ -124,7 +124,7 @@ pub async fn post_projects(
         StatusCode::CREATED,
         Json(Project {
             id,
-            name,
+            name: Some(name),
             workspace_slug,
         }),
     ))

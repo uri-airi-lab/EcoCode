@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { Activity, ArrowLeft, Folder, Zap, Clock } from 'lucide-react'
 import { DashboardLayout } from '@/components/layout/DashboardLayout'
 import { RecentRunsTable } from '@/components/tables/RecentRunsTable'
-import { ProjectDetail, fetchProjectRuns, fetchAllProjects, ProjectSummary, fetchProjectRunsPaginated, RunSummary } from '@/lib/api'
+import { ProjectDetail, fetchProjectRuns, fetchAllProjects, ProjectSummary, fetchProjectRunsPaginated, RunSummary, fetchCarbonConfig, CarbonConfig } from '@/lib/api'
 import { useParams } from 'next/navigation'
 import { MetricCard } from '@/components/MetricCard'
 import { CarbonSettings } from '@/components/run/CarbonSettings'
@@ -22,6 +22,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
     const routeParams = useParams()
     const workspaceSlug = routeParams.workspaceSlug as string
     const [project, setProject] = useState<ProjectDetail | null>(null)
+    const [carbonConfig, setCarbonConfig] = useState<CarbonConfig | null>(null)
     const [allProjects, setAllProjects] = useState<ProjectSummary[]>([])
     const [loading, setLoading] = useState(true)
     const [paramId, setParamId] = useState<string | null>(null)
@@ -50,9 +51,16 @@ export default function ProjectPage({ params }: ProjectPageProps) {
         const loadProject = async () => {
             setLoading(true)
             try {
-                const data = await fetchProjectRuns(paramId)
+                const [data, config] = await Promise.all([
+                    fetchProjectRuns(paramId),
+                    fetchCarbonConfig(Number(paramId)).catch(err => {
+                        console.error('Failed to fetch carbon config:', err)
+                        return null
+                    })
+                ])
                 if (!cancelled) {
                     setProject(data)
+                    setCarbonConfig(config)
                 }
             } catch (error) {
                 if (!cancelled) {
@@ -241,6 +249,45 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                                     <MetricCard icon={Activity} label="Avg CPU" value={project.avgCpuUsage.toFixed(4)} unit="%" loading={loading} className="rounded-none bg-card border-none bg-purple-500/5" />
                                     <MetricCard icon={Activity} label="Avg GPU" value={project.avgGpuUsage.toFixed(4)} unit="%" loading={loading} className="rounded-none bg-card border-none bg-purple-500/5" />
                                     <MetricCard icon={Activity} label="Avg Mem" value={project.avgMemUsage.toFixed(4)} unit="%" loading={loading} className="rounded-none bg-card border-none bg-purple-500/5" />
+                                </div>
+                            </div>
+
+                            {/* Configured Rates — flat 3-column grid */}
+                            <div className="border border-border rounded-xl overflow-hidden">
+                                <div className="px-6 pt-5 pb-3 border-b border-border">
+                                    <span className="text-xs font-bold text-sky-400 uppercase tracking-widest flex items-center gap-1.5">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-sky-500 inline-block" />
+                                        Configured Rates (For Calculations)
+                                    </span>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-px bg-border">
+                                    <MetricCard
+                                        icon={Leaf}
+                                        label="Carbon Intensity"
+                                        value={carbonConfig ? carbonConfig.resolved_intensity_g_per_kwh.toFixed(2) : '-'}
+                                        unit="g CO₂/kWh"
+                                        loading={loading}
+                                        className="rounded-none bg-card border-none bg-sky-500/5"
+                                    />
+                                    <MetricCard
+                                        icon={Coins}
+                                        label="Energy Price"
+                                        value={
+                                            carbonConfig && carbonConfig.manual_cost_per_kwh !== null
+                                                ? carbonConfig.manual_cost_per_kwh.toFixed(4)
+                                                : 'Not Configured'
+                                        }
+                                        unit={carbonConfig?.manual_currency || undefined}
+                                        loading={loading}
+                                        className="rounded-none bg-card border-none bg-sky-500/5"
+                                    />
+                                    <MetricCard
+                                        icon={Zap}
+                                        label="PUE Factor"
+                                        value={carbonConfig ? carbonConfig.pue_factor.toFixed(2) : '-'}
+                                        loading={loading}
+                                        className="rounded-none bg-card border-none bg-sky-500/5"
+                                    />
                                 </div>
                             </div>
                         </div>

@@ -11,15 +11,19 @@
 
 use axum::{
     Router,
-    http::Method,
+    http::{Method, StatusCode},
     http::header::{AUTHORIZATION, CONTENT_TYPE},
     routing::{delete, get, post},
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
+    extract::{State, ConnectInfo},
 };
 use dotenv::dotenv;
 use sqlx::postgres::PgPoolOptions;
 use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
 use tracing::info;
+use std::net::SocketAddr;
 
 pub mod api;
 pub mod auth;
@@ -66,10 +70,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Database schema verified");
 
     let (tx, _) = broadcast::channel::<String>(1000);
+    let rate_limiter = std::sync::Arc::new(crate::state::RateLimiter::new());
     let state = AppState {
         pool,
         tx: tx.clone(),
         db_url: db_url.clone(),
+        rate_limiter,
     };
 
     // Start background watcher for new records
@@ -136,6 +142,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "/api/ingest/run/{run_id}/complete",
             post(api::ingest::ingest_complete_run),
         )
+        .layer(middleware::from_fn(security_headers_middleware))
+        .layer(middleware::from_fn_with_state(state.clone(), rate_limit_middleware))
         .layer(
             CorsLayer::new()
                 .allow_origin(cors_origin.parse::<axum::http::HeaderValue>()
@@ -154,7 +162,58 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3001").await?;
     info!("Listening on 0.0.0.0:3001");
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
 
     Ok(())
+}
+
+async fn rate_limit_middleware(
+    State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    req: axum::extract::Request,
+    next: Next,
+) -> Response {
+    let path = req.uri().path();
+    if path == "/api/auth/register" || path == "/api/auth/login" || path == "/api/auth/change-password" {
+        let mut client_ip = addr.ip().to_string();
+        if let Some(xff) = req.headers().get("X-Forwarded-For") {
+            if let Ok(xff_str) = xff.to_str() {
+                if let Some(first_ip) = xff_str.split(',').next() {
+                    let trimmed = first_ip.trim();
+                    if !trimmed.is_empty() {
+                        client_ip = trimmed.to_string();
+                    }
+                }
+            }
+        } else if let Some(xri) = req.headers().get("X-Real-IP") {
+            if let Ok(xri_str) = xri.to_str() {
+                let trimmed = xri_str.trim();
+                if !trimmed.is_empty() {
+                    client_ip = trimmed.to_string();
+                }
+            }
+        }
+
+        if !state.rate_limiter.check_rate_limit(&client_ip) {
+            return (StatusCode::TOO_MANY_REQUESTS, "Too many requests. Please try again later.").into_response();
+        }
+    }
+
+    next.run(req).await
+}
+
+async fn security_headers_middleware(
+    req: axum::extract::Request,
+    next: Next,
+) -> Response {
+    let mut response = next.run(req).await;
+    
+    let headers = response.headers_mut();
+    headers.insert("X-Content-Type-Options", axum::http::HeaderValue::from_static("nosniff"));
+    headers.insert("X-Frame-Options", axum::http::HeaderValue::from_static("DENY"));
+    headers.insert("X-XSS-Protection", axum::http::HeaderValue::from_static("1; mode=block"));
+    headers.insert("Content-Security-Policy", axum::http::HeaderValue::from_static("default-src 'self'"));
+    headers.insert("Referrer-Policy", axum::http::HeaderValue::from_static("strict-origin-when-cross-origin"));
+    
+    response
 }

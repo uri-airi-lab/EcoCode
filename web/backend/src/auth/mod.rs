@@ -90,9 +90,15 @@ async fn register(
         .map_err(|e| ApiError::internal(e))?
         .to_string();
 
+    let user_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
+        .fetch_one(&state.pool)
+        .await
+        .map_err(ApiError::internal)?;
+    let is_admin = user_count == 0;
+
     let res = sqlx::query(
-        "INSERT INTO users (email, password_hash, full_name, institution, position, use_case)
-         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+        "INSERT INTO users (email, password_hash, full_name, institution, position, use_case, is_admin)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
     )
     .bind(&payload.email)
     .bind(&password_hash)
@@ -100,6 +106,7 @@ async fn register(
     .bind(payload.institution.trim())
     .bind(payload.position.trim())
     .bind(&payload.use_case)
+    .bind(is_admin)
     .fetch_one(&state.pool)
     .await
     .map_err(|e| {
