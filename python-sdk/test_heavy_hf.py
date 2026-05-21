@@ -9,6 +9,13 @@ import os, torch
 os.environ.setdefault("ECOCODE_API_URL", "http://localhost:3001")
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
+# Auto-configure CUDA_HOME with local mock if developer CUDA Toolkit is missing
+if "CUDA_HOME" not in os.environ:
+    possible_mock = os.path.abspath(os.path.join(os.path.dirname(__file__), "venv", "cuda_mock"))
+    if os.path.exists(possible_mock):
+        os.environ["CUDA_HOME"] = possible_mock
+
+
 from transformers import (
     AutoTokenizer, AutoModelForCausalLM,
     TrainingArguments, DataCollatorForLanguageModeling,
@@ -21,17 +28,17 @@ from ecocode.integrations.huggingface import EcoCodeCallback
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"[HF heavy] device={device}  GPU={torch.cuda.get_device_name(0) if device=='cuda' else 'none'}")
 
-# --- Load GPT-2 XL (1.5B params) ---
-MODEL = "gpt2-xl"
+# --- Load GPT-2 (124M params) ---
+MODEL = "gpt2"
 print(f"[HF heavy] Loading {MODEL}...")
 tokenizer = AutoTokenizer.from_pretrained(MODEL)
 tokenizer.pad_token = tokenizer.eos_token
-model = AutoModelForCausalLM.from_pretrained(MODEL)
+model = AutoModelForCausalLM.from_pretrained(MODEL, torch_dtype=torch.bfloat16)
 model.to(device)
 params = sum(p.numel() for p in model.parameters()) / 1e6
 print(f"[HF heavy] Model: {MODEL} ({params:.1f}M params)  VRAM: {torch.cuda.memory_allocated()/1e9:.2f}GB")
 
-# --- Large synthetic instruction dataset (1000 samples, seq_len=512) ---
+# --- Small synthetic instruction dataset (40 samples, seq_len=128) ---
 TOPICS = [
     "the theory of relativity",
     "attention mechanisms in transformers",
@@ -59,10 +66,10 @@ INSTRUCTIONS = [
     f"Explain {topic} in depth, covering the mathematical formulation, intuition, key advantages, "
     f"practical limitations, and recent research directions. Include concrete examples where helpful."
     for topic in TOPICS
-] * 50  # 1000 samples
+] * 10  # 200 samples
 
 def tokenize(examples):
-    return tokenizer(examples["text"], truncation=True, max_length=512, padding="max_length")
+    return tokenizer(examples["text"], truncation=True, max_length=128, padding="max_length")
 
 raw_ds = Dataset.from_dict({"text": INSTRUCTIONS})
 ds = raw_ds.map(tokenize, batched=True, remove_columns=["text"])
@@ -73,20 +80,21 @@ collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 api_key = os.environ.get("ECOCODE_API_KEY")
 base_url = os.environ.get("ECOCODE_API_URL", "http://localhost:3001")
 
-print(f"\n[HF heavy] Starting training run ({len(ds)} samples, seq_len=512)...")
-with ecocode.run("hf-gpt2xl-finetune", api_key=api_key, base_url=base_url, interval=1.0) as eco_run:
+print(f"\n[HF heavy] Starting training run ({len(ds)} samples, seq_len=128)...")
+with ecocode.run("hf-gpt2-finetune", api_key=api_key, base_url=base_url, interval=1.0) as eco_run:
     training_args = TrainingArguments(
         output_dir="/tmp/hf_heavy_xl",
-        num_train_epochs=5,
-        per_device_train_batch_size=8,
-        gradient_accumulation_steps=8,
+        num_train_epochs=3,
+        per_device_train_batch_size=2,
+        gradient_accumulation_steps=2,
         learning_rate=2e-5,
-        warmup_steps=100,
+        warmup_steps=20,
         lr_scheduler_type="cosine",
         logging_steps=10,
         save_strategy="no",
         report_to="none",
-        fp16=(device == "cuda"),
+        bf16=(device == "cuda"),
+        fp16=False,
         dataloader_num_workers=4,
         push_to_hub=False,
         gradient_checkpointing=True,

@@ -201,6 +201,7 @@ class EcoCodeRun:
             if k in _SUBPROCESS_ENV_PASSTHROUGH
         }
         safe_env["ECOCODE_API_KEY"] = self._api_key  # type: ignore[assignment]
+        safe_env["ECOCODE_API_URL"] = self._base_url
 
         self._mode = "standalone"
         self._monitor_proc = subprocess.Popen(
@@ -321,6 +322,26 @@ def _collect_system_info() -> dict:
                     break
     except OSError:
         pass
+
+    # Try to query nvidia-smi for GPU information
+    try:
+        nvidia_smi_bin = shutil.which("nvidia-smi")
+        if nvidia_smi_bin:
+            res = subprocess.run(
+                [nvidia_smi_bin, "--query-gpu=name", "--format=csv,noheader"],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=5,
+            )
+            if res.returncode == 0:
+                gpus = [line.strip() for line in res.stdout.strip().splitlines() if line.strip()]
+                if gpus:
+                    info["gpu_count"] = len(gpus)
+                    info["gpu_names"] = ", ".join(gpus)
+    except Exception:
+        pass
+
     return info
 
 
