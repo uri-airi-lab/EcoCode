@@ -176,27 +176,47 @@ pub fn scan_rapl_files() -> Result<Vec<RaplFile>, Box<dyn Error>> {
     let entries = read_dir(RAPL_PATH)?;
 
     for entry in entries {
-        //socket level lookout
-        let entry = entry.unwrap().path();
+        // socket level lookout
+        let entry = match entry {
+            Ok(e) => e.path(),
+            Err(_) => continue,
+        };
 
-        let dir_name = entry
-            .file_name()
-            .and_then(|name| name.to_str())
-            .ok_or_else(|| "Failed to convert directory name to string")?;
+        let dir_name = match entry.file_name().and_then(|name| name.to_str()) {
+            Some(name) => name,
+            None => continue,
+        };
 
         let socket: i16 = match re_socket.captures(dir_name).and_then(|c| c.get(1)) {
-            Some(m) => m.as_str().parse()?,
+            Some(m) => match m.as_str().parse() {
+                Ok(s) => s,
+                Err(_) => continue,
+            },
             None => continue, // skip non-socket dirs
         };
 
-        //domain level lookout
-        for sub_entry in entry.read_dir()? {
-            let mut ent = sub_entry.unwrap().path();
+        // domain level lookout
+        let sub_entries = match entry.read_dir() {
+            Ok(se) => se,
+            Err(_) => continue,
+        };
+
+        for sub_entry in sub_entries {
+            let ent_path = match sub_entry {
+                Ok(se) => se.path(),
+                Err(_) => continue,
+            };
+            let mut ent = ent_path.clone();
             let name_path = ent.join("name");
             let raw_name =
                 std::fs::read_to_string(name_path).unwrap_or_else(|_| "unknown".to_string());
-            let entf = ent.file_name().unwrap().to_str().unwrap();
-            if ent.is_dir() && re_domain.is_match(&entf) {
+            
+            let entf = match ent_path.file_name().and_then(|name| name.to_str()) {
+                Some(name) => name,
+                None => continue,
+            };
+
+            if ent.is_dir() && re_domain.is_match(entf) {
                 let name = match raw_name.trim() {
                     "core" => "cpu".to_string(),
                     "dram" => "dram".to_string(),
@@ -205,14 +225,22 @@ pub fn scan_rapl_files() -> Result<Vec<RaplFile>, Box<dyn Error>> {
                 };
                 let max_energy_path = ent.join("max_energy_range_uj");
                 ent.push("energy_uj");
-                let file = File::open(&ent)?;
+                let file = match File::open(&ent) {
+                    Ok(f) => f,
+                    Err(_) => continue,
+                };
                 let file = BufReader::new(file);
 
+                let max_energy = match get_max_energy(&max_energy_path) {
+                    Ok(me) => me,
+                    Err(_) => continue,
+                };
+
                 let file = RaplFile {
-                    socket: socket,
+                    socket,
                     domain: name,
-                    file: file,
-                    max_energy: get_max_energy(&max_energy_path)?,
+                    file,
+                    max_energy,
                     buffer: String::new(),
                 };
                 rapl_files.push(file);

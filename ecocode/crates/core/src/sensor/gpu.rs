@@ -177,13 +177,18 @@ pub fn get_all_gpu_energies_by_pid(
         .iter()
         .enumerate()
         .map(|(i, device)| {
+            let e1 = energies_1.get(i).copied().unwrap_or(0.0);
+            let e2 = energies_2.get(i).copied().unwrap_or(0.0);
+            let ts = timestamps.get(i).copied().unwrap_or(0);
+            let max_e = max_energies.get(i).copied().unwrap_or(0.0);
+
             let (energy_j, util_pct, next_ts) = get_gpu_energy_by_pid(
                 device,
                 pids,
-                energies_1[i],
-                energies_2[i],
-                timestamps[i],
-                max_energies[i],
+                e1,
+                e2,
+                ts,
+                max_e,
             );
             GpuPidResult {
                 device_index: i as u32,

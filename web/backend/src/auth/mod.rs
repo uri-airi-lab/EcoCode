@@ -82,6 +82,12 @@ async fn register(
             "Position is required",
         ));
     }
+    if payload.password.len() < 8 {
+        return Err(ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Password must be at least 8 characters",
+        ));
+    }
 
     let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();

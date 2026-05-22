@@ -52,6 +52,21 @@ pub async fn ingest_run(
 
     let ws_id: i64 = project_workspace.get("workspace_id");
 
+    if let Some(key_ws_id) = auth_user.workspace_id {
+        if key_ws_id != ws_id {
+            warn!(
+                user_id = auth_user.user_id,
+                workspace_id = ws_id,
+                key_workspace_id = key_ws_id,
+                "Ingest run denied: API key scoped to a different workspace"
+            );
+            return Err(ApiError::new(
+                StatusCode::FORBIDDEN,
+                "API key is not valid for this project's workspace",
+            ));
+        }
+    }
+
     let membership =
         sqlx::query("SELECT 1 FROM workspace_members WHERE workspace_id = $1 AND user_id = $2")
             .bind(ws_id)

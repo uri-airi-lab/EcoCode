@@ -294,7 +294,7 @@ export default function DeveloperSettingsPage() {
               </select>
               <button
                 onClick={handleGenerate}
-                disabled={generating || !keyName.trim() || selectedProjectId === ''}
+                disabled={generating || !keyName.trim()}
                 className="bg-primary hover:brightness-110 text-primary-foreground px-4 py-2 rounded-md font-medium text-sm flex items-center justify-center transition-all disabled:opacity-50 whitespace-nowrap"
               >
                 {generating ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}

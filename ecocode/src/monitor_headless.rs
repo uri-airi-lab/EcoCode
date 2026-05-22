@@ -159,9 +159,24 @@ pub async fn run_headless_monitor(args: MonitorArgs) -> Result<(), Box<dyn std::
 
     // --- Sensor initialisation ---
     let mut rapl_readers = scan_rapl_files()?;
-    let nvml = Nvml::init()?;
-    let devices = get_all_gpu_devices(&nvml)?;
-    let gpu_count = devices.len();
+    let nvml = match Nvml::init() {
+        Ok(n) => Some(n),
+        Err(e) => {
+            eprintln!("Warning: NVML initialization failed ({}). GPU metrics disabled.", e);
+            None
+        }
+    };
+    let devices = match &nvml {
+        Some(n) => match get_all_gpu_devices(n) {
+            Ok(d) => Some(d),
+            Err(e) => {
+                eprintln!("Warning: Failed to retrieve GPU devices ({}). GPU metrics disabled.", e);
+                None
+            }
+        },
+        None => None,
+    };
+    let gpu_count = devices.as_ref().map(|d| d.len()).unwrap_or(0);
 
     let pid = Pid::from(target_pid as usize);
     let mut sys = System::new_with_specifics(RefreshKind::everything());
@@ -170,13 +185,18 @@ pub async fn run_headless_monitor(args: MonitorArgs) -> Result<(), Box<dyn std::
 
     // --- Warm-up pass ---
     let mut cpu_energy_1 = get_all_energies(&mut rapl_readers)?;
-    let mut gpu_energies_1 = get_all_gpu_energies(&devices)?;
+    let mut gpu_energies_1 = devices
+        .as_ref()
+        .and_then(|devs| get_all_gpu_energies(devs).ok())
+        .unwrap_or_default();
     let mut gpu_max_energies: Vec<f64> = gpu_energies_1.clone();
     let mut gpu_timestamps: Vec<u64> = vec![0; gpu_count];
 
-    for (i, device) in devices.iter().enumerate() {
-        if let Ok(stats) = device.process_utilization_stats(gpu_timestamps[i]) {
-            gpu_timestamps[i] = stats.iter().map(|s| s.timestamp).max().unwrap_or(0);
+    if let Some(ref devs) = devices {
+        for (i, device) in devs.iter().enumerate() {
+            if let Ok(stats) = device.process_utilization_stats(gpu_timestamps[i]) {
+                gpu_timestamps[i] = stats.iter().map(|s| s.timestamp).max().unwrap_or(0);
+            }
         }
     }
 
@@ -300,15 +320,22 @@ pub async fn run_headless_monitor(args: MonitorArgs) -> Result<(), Box<dyn std::
             .collect();
 
         // --- GPU energy ---
-        let gpu_energies_2 = get_all_gpu_energies(&devices)?;
-        let gpu_results = get_all_gpu_energies_by_pid(
-            &devices,
-            &tree_pids,
-            &gpu_energies_1,
-            &gpu_energies_2,
-            &gpu_timestamps,
-            &gpu_max_energies,
-        );
+        let gpu_energies_2 = devices
+            .as_ref()
+            .and_then(|devs| get_all_gpu_energies(devs).ok())
+            .unwrap_or_default();
+        let gpu_results = if let Some(ref devs) = devices {
+            get_all_gpu_energies_by_pid(
+                devs,
+                &tree_pids,
+                &gpu_energies_1,
+                &gpu_energies_2,
+                &gpu_timestamps,
+                &gpu_max_energies,
+            )
+        } else {
+            Vec::new()
+        };
 
         let mut total_gpu_energy_j: f64 = 0.0;
         let mut total_gpu_util: f64 = 0.0;

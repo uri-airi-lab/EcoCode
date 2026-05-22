@@ -176,20 +176,31 @@ async fn rate_limit_middleware(
     let path = req.uri().path();
     if path == "/api/auth/register" || path == "/api/auth/login" || path == "/api/auth/change-password" {
         let mut client_ip = addr.ip().to_string();
-        if let Some(xff) = req.headers().get("X-Forwarded-For") {
-            if let Ok(xff_str) = xff.to_str() {
-                if let Some(first_ip) = xff_str.split(',').next() {
-                    let trimmed = first_ip.trim();
+        let ip = addr.ip();
+
+        let mut is_trusted = ip.is_loopback();
+        if !is_trusted {
+            if let Ok(trusted_env) = std::env::var("TRUSTED_PROXIES") {
+                is_trusted = trusted_env.split(',').any(|p| p.trim() == client_ip);
+            }
+        }
+
+        if is_trusted {
+            if let Some(xff) = req.headers().get("X-Forwarded-For") {
+                if let Ok(xff_str) = xff.to_str() {
+                    if let Some(first_ip) = xff_str.split(',').next() {
+                        let trimmed = first_ip.trim();
+                        if !trimmed.is_empty() {
+                            client_ip = trimmed.to_string();
+                        }
+                    }
+                }
+            } else if let Some(xri) = req.headers().get("X-Real-IP") {
+                if let Ok(xri_str) = xri.to_str() {
+                    let trimmed = xri_str.trim();
                     if !trimmed.is_empty() {
                         client_ip = trimmed.to_string();
                     }
-                }
-            }
-        } else if let Some(xri) = req.headers().get("X-Real-IP") {
-            if let Ok(xri_str) = xri.to_str() {
-                let trimmed = xri_str.trim();
-                if !trimmed.is_empty() {
-                    client_ip = trimmed.to_string();
                 }
             }
         }

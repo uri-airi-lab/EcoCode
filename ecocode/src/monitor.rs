@@ -371,14 +371,31 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
     let mut mem_usage = 0.0_f64;
 
     // --- NVML / GPU setup (multi-GPU) ---
-    let nvml = Nvml::init()?;
-    let devices = get_all_gpu_devices(&nvml)?;
-    let gpu_count = devices.len();
+    let nvml = match Nvml::init() {
+        Ok(n) => Some(n),
+        Err(e) => {
+            eprintln!("Warning: NVML initialization failed ({}). GPU metrics disabled.", e);
+            None
+        }
+    };
+    let devices = match &nvml {
+        Some(n) => match get_all_gpu_devices(n) {
+            Ok(d) => Some(d),
+            Err(e) => {
+                eprintln!("Warning: Failed to retrieve GPU devices ({}). GPU metrics disabled.", e);
+                None
+            }
+        },
+        None => None,
+    };
+    let gpu_count = devices.as_ref().map(|d| d.len()).unwrap_or(0);
 
     let mut gpu_names = Vec::new();
-    for dev in &devices {
-        if let Ok(name) = dev.name() {
-            gpu_names.push(name);
+    if let Some(ref devs) = devices {
+        for dev in devs {
+            if let Ok(name) = dev.name() {
+                gpu_names.push(name);
+            }
         }
     }
 
@@ -427,9 +444,11 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
     }
 
     println!("║  NVIDIA GPUs: {:36}║", gpu_count);
-    for (i, dev) in devices.iter().enumerate() {
-        if let Ok(name) = dev.name() {
-            println!("║    GPU {}: {:40}║", i, name);
+    if let Some(ref devs) = devices {
+        for (i, dev) in devs.iter().enumerate() {
+            if let Ok(name) = dev.name() {
+                println!("║    GPU {}: {:40}║", i, name);
+            }
         }
     }
 
@@ -464,7 +483,10 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
     #[allow(unused_assignments)]
     let mut cpu_energy_1 = get_all_energies(&mut rapl_readers)?;
     #[allow(unused_assignments)]
-    let mut gpu_energies_1 = get_all_gpu_energies(&devices)?;
+    let mut gpu_energies_1 = devices
+        .as_ref()
+        .and_then(|devs| get_all_gpu_energies(devs).ok())
+        .unwrap_or_default();
     #[allow(unused_assignments)]
     let mut gpu_max_energies: Vec<f64> = gpu_energies_1.clone();
 
@@ -478,12 +500,17 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
     //      spans from process spawn to tick 1 rather than a clean interval.
     {
         cpu_energy_1 = get_all_energies(&mut rapl_readers)?;
-        gpu_energies_1 = get_all_gpu_energies(&devices)?;
+        gpu_energies_1 = devices
+            .as_ref()
+            .and_then(|devs| get_all_gpu_energies(devs).ok())
+            .unwrap_or_default();
         gpu_max_energies = gpu_energies_1.clone();
 
-        for (i, device) in devices.iter().enumerate() {
-            if let Ok(stats) = device.process_utilization_stats(gpu_timestamps[i]) {
-                gpu_timestamps[i] = stats.iter().map(|s| s.timestamp).max().unwrap_or(0);
+        if let Some(ref devs) = devices {
+            for (i, device) in devs.iter().enumerate() {
+                if let Ok(stats) = device.process_utilization_stats(gpu_timestamps[i]) {
+                    gpu_timestamps[i] = stats.iter().map(|s| s.timestamp).max().unwrap_or(0);
+                }
             }
         }
 
@@ -614,15 +641,22 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
                 .collect();
 
             // --- GPU energy ---
-            let gpu_energies_2 = get_all_gpu_energies(&devices)?;
-            let gpu_results = get_all_gpu_energies_by_pid(
-                &devices,
-                &tree_pids,
-                &gpu_energies_1,
-                &gpu_energies_2,
-                &gpu_timestamps,
-                &gpu_max_energies,
-            );
+            let gpu_energies_2 = devices
+                .as_ref()
+                .and_then(|devs| get_all_gpu_energies(devs).ok())
+                .unwrap_or_default();
+            let gpu_results = if let Some(ref devs) = devices {
+                get_all_gpu_energies_by_pid(
+                    devs,
+                    &tree_pids,
+                    &gpu_energies_1,
+                    &gpu_energies_2,
+                    &gpu_timestamps,
+                    &gpu_max_energies,
+                )
+            } else {
+                Vec::new()
+            };
 
             let mut total_gpu_energy_j: f64 = 0.0;
             let mut total_gpu_util: f64 = 0.0;

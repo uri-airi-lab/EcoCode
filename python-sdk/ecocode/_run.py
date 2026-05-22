@@ -145,14 +145,24 @@ class EcoCodeRun:
         started_at = datetime.now(timezone.utc).isoformat()
         command = _sanitize_command(sys.argv) if hasattr(sys, "argv") and sys.argv else None
 
-        self._run_id = self._client.create_run(
-            project_id=self._project_id or 0,
-            name=self._name,
-            started_at=started_at,
-            command=command,
-        )
-
-        self._client.save_system_info(self._run_id, _collect_system_info())
+        try:
+            self._run_id = self._client.create_run(
+                project_id=self._project_id or 0,
+                name=self._name,
+                started_at=started_at,
+                command=command,
+            )
+            self._client.save_system_info(self._run_id, _collect_system_info())
+        except Exception as exc:
+            import warnings
+            warnings.warn(
+                f"[ecocode] EcoCode backend unreachable or failed to initialize run: {exc}. "
+                "Running in local fallback mode.",
+                category=UserWarning,
+                stacklevel=3,
+            )
+            self._mode = "noop"
+            return self
 
         # Spawn the energy monitor subprocess
         ecocode_bin = shutil.which("ecocode")
