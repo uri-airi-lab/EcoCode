@@ -13,13 +13,13 @@
 set -euo pipefail
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-RESOURCE_GROUP="ecocode-rg"
-LOCATION="eastus"                   # policy-allowed; matches Neon us-east-1
-ACR_NAME="ecocoderegistry"          # must be globally unique, lowercase, 5-50 chars
-ENVIRONMENT="ecocode-env"
-BACKEND_APP="backend"
-FRONTEND_APP="frontend"
-FRONTEND_CORS_URL="https://frontend.placeholder"
+RESOURCE_GROUP="${RESOURCE_GROUP:-your-resource-group}"
+LOCATION="${LOCATION:-eastus}"                   # Azure region
+ACR_NAME="${ACR_NAME:-yourregistry}"             # Must be globally unique, lowercase, 5-50 chars
+ENVIRONMENT="${ENVIRONMENT:-ecocode-env}"
+BACKEND_APP="${BACKEND_APP:-backend}"
+FRONTEND_APP="${FRONTEND_APP:-frontend}"
+FRONTEND_CORS_URL="${FRONTEND_CORS_URL:-https://your-frontend-domain.com}"
 
 # Load secrets from file
 ENV_FILE="$(dirname "$0")/backend/.env.azure"

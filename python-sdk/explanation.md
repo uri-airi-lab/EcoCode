@@ -125,7 +125,7 @@ python train.py
 
 - The SDK makes only **3 HTTP calls** total (create, system-info, complete). All per-tick record reporting is done by the Rust subprocess.
 - The Rust subprocess is a **separate OS process**, not a thread. This means the Python process has zero native threads, which is critical for `os.fork()` safety (PyTorch DataLoader, DDP).
-- If the pipe breaks (monitor crashes), all `log_*` calls silently no-op via `BrokenPipeError` handling in [_pipe.py](file:///home/mak/Desktop/ecocode/python-sdk/ecocode/_pipe.py).
+- If the pipe breaks (monitor crashes), all `log_*` calls silently no-op via `BrokenPipeError` handling in [_pipe.py](../python-sdk/ecocode/_pipe.py).
 
 ### 3.2 Attached Mode — Step by Step
 
@@ -173,7 +173,7 @@ ecocode run -o online --api-key eco_... -- python train.py
 
 ## 4. Module-by-Module Breakdown
 
-### 4.1 [__init__.py](file:///home/mak/Desktop/ecocode/python-sdk/ecocode/__init__.py) — Public API
+### 4.1 [__init__.py](../python-sdk/ecocode/__init__.py) — Public API
 
 Exposes three symbols:
 
@@ -196,7 +196,7 @@ def train():
         ...
 ```
 
-### 4.2 [_run.py](file:///home/mak/Desktop/ecocode/python-sdk/ecocode/_run.py) — Core `EcoCodeRun` Class
+### 4.2 [_run.py](../python-sdk/ecocode/_run.py) — Core `EcoCodeRun` Class
 
 This is the heart of the SDK. It manages:
 
@@ -215,7 +215,7 @@ This is the heart of the SDK. It manages:
 
 **Marker API** (line 162–187): All `mark()`, `log_epoch()`, `log_step()`, `log_tokens()`, `log_loss()`, `log_lr()`, `log_sequence_length()`, `log_accuracy()`, `log_custom()` methods simply serialize a JSON event and write it to the pipe.
 
-### 4.3 [_pipe.py](file:///home/mak/Desktop/ecocode/python-sdk/ecocode/_pipe.py) — IPC Writers
+### 4.3 [_pipe.py](../python-sdk/ecocode/_pipe.py) — IPC Writers
 
 Three implementations of the same interface:
 
@@ -245,7 +245,7 @@ All writers:
 - Serialize events as `json.dumps(event) + "\n"` (newline-delimited JSON)
 - Silently catch `BrokenPipeError` and `OSError` — if the monitor crashes, training continues unaffected
 
-### 4.4 [_http.py](file:///home/mak/Desktop/ecocode/python-sdk/ecocode/_http.py) — HTTP Client
+### 4.4 [_http.py](../python-sdk/ecocode/_http.py) — HTTP Client
 
 A minimal blocking HTTP client using **only stdlib** (`urllib.request`). Zero external dependencies. Used only for run lifecycle:
 
@@ -305,7 +305,7 @@ flowchart LR
     J -->|"HTTP POST<br/>every tick"| L
 ```
 
-### 5.2 The Rust Monitor Subprocess ([monitor_headless.rs](file:///home/mak/Desktop/ecocode/ecocode/src/monitor_headless.rs))
+### 5.2 The Rust Monitor Subprocess ([monitor_headless.rs](../ecocode/src/monitor_headless.rs))
 
 When the SDK spawns `ecocode monitor --run-id 42 --pid 12345 --interval 1.0`, this Rust binary:
 
@@ -327,7 +327,7 @@ When the SDK spawns `ecocode monitor --run-id 42 --pid 12345 --interval 1.0`, th
 
 4. **Exits** when stdin is closed (pipe EOF from SDK) or the target PID dies
 
-### 5.3 The Backend Ingestion Flow ([ingest.rs](file:///home/mak/Desktop/ecocode/web/backend/src/api/ingest.rs))
+### 5.3 The Backend Ingestion Flow ([ingest.rs](../web/backend/src/api/ingest.rs))
 
 The backend exposes four ingestion endpoints:
 
@@ -378,7 +378,7 @@ flowchart LR
     Pipe -->|"stdin"| Monitor
 ```
 
-### 6.1 [HuggingFace Transformers](file:///home/mak/Desktop/ecocode/python-sdk/ecocode/integrations/huggingface.py)
+### 6.1 [HuggingFace Transformers](../python-sdk/ecocode/integrations/huggingface.py)
 
 Extends `TrainerCallback`. Works with `Trainer` and `SFTTrainer`.
 
@@ -402,7 +402,7 @@ with ecocode.run("sft-llama3", api_key="eco_...") as eco_run:
 | `on_save` | `checkpoint_save` | — |
 | `on_train_end` | `done` | `tokens` from `num_input_tokens_seen` |
 
-### 6.2 [TRL (SFT / DPO / GRPO)](file:///home/mak/Desktop/ecocode/python-sdk/ecocode/integrations/trl.py)
+### 6.2 [TRL (SFT / DPO / GRPO)](../python-sdk/ecocode/integrations/trl.py)
 
 Three separate callbacks because each alignment paradigm has a **fundamentally different energy profile**:
 
@@ -421,7 +421,7 @@ with ecocode.run("dpo-run", api_key="eco_...") as eco_run:
     trainer.train()
 ```
 
-### 6.3 [PyTorch Lightning](file:///home/mak/Desktop/ecocode/python-sdk/ecocode/integrations/lightning.py)
+### 6.3 [PyTorch Lightning](../python-sdk/ecocode/integrations/lightning.py)
 
 Extends `pytorch_lightning.callbacks.Callback`:
 
@@ -435,7 +435,7 @@ with ecocode.run("pretrain", api_key="eco_...") as eco_run:
 
 Pulls loss from `trainer.callback_metrics` and LR from optimizer param groups.
 
-### 6.4 [DeepSpeed](file:///home/mak/Desktop/ecocode/python-sdk/ecocode/integrations/deepspeed.py)
+### 6.4 [DeepSpeed](../python-sdk/ecocode/integrations/deepspeed.py)
 
 **Manual hook object** (DeepSpeed has no TrainerCallback protocol). You call hooks explicitly:
 
@@ -459,7 +459,7 @@ with ecocode.run("pretrain-70b", api_key="eco_...") as eco_run:
 
 The `zero_stage` is logged as a one-time marker so the dashboard can compare communication overhead across ZeRO stages 0–3.
 
-### 6.5 [vLLM Inference](file:///home/mak/Desktop/ecocode/python-sdk/ecocode/integrations/vllm.py)
+### 6.5 [vLLM Inference](../python-sdk/ecocode/integrations/vllm.py)
 
 Two helpers:
 
@@ -483,7 +483,7 @@ tracker.on_generation_end(total_tokens=1124)   # logs tokens
 > [!TIP]
 > **Why track prefill vs decode separately?** Prefill is compute-bound (energy ∝ prompt_length²). Decode is memory-bandwidth-bound (energy per token is much lower). Knowing the split helps optimise prompt length and batching strategies.
 
-### 6.6 [Keras / TensorFlow](file:///home/mak/Desktop/ecocode/python-sdk/ecocode/integrations/keras.py)
+### 6.6 [Keras / TensorFlow](../python-sdk/ecocode/integrations/keras.py)
 
 Extends `keras.callbacks.Callback` (with fallback to `tf.keras`):
 ```python
@@ -495,7 +495,7 @@ with ecocode.run("keras-train", api_key="eco_...") as eco_run:
 
 **Bonus:** Automatically forwards any **unknown numeric metrics** from Keras `logs` through `log_custom()` — custom Keras metrics (precision, recall, etc.) are tracked with zero extra code.
 
-### 6.7 [ONNX Runtime](file:///home/mak/Desktop/ecocode/python-sdk/ecocode/integrations/onnxruntime.py)
+### 6.7 [ONNX Runtime](../python-sdk/ecocode/integrations/onnxruntime.py)
 
 Wraps `onnxruntime.InferenceSession`:
 ```python
@@ -690,18 +690,18 @@ if rank is not None and int(rank) != 0:
 
 | File | Purpose |
 |------|---------|
-| [__init__.py](file:///home/mak/Desktop/ecocode/python-sdk/ecocode/__init__.py) | Public API: `run()`, `track()`, `EcoCodeRun` |
-| [_run.py](file:///home/mak/Desktop/ecocode/python-sdk/ecocode/_run.py) | Core class: mode detection, run lifecycle, marker API |
-| [_pipe.py](file:///home/mak/Desktop/ecocode/python-sdk/ecocode/_pipe.py) | `PipeWriter`, `InheritedFdWriter`, `NullWriter` |
-| [_http.py](file:///home/mak/Desktop/ecocode/python-sdk/ecocode/_http.py) | Stdlib HTTP client (3 endpoints) |
-| [huggingface.py](file:///home/mak/Desktop/ecocode/python-sdk/ecocode/integrations/huggingface.py) | HuggingFace Trainer callback |
-| [trl.py](file:///home/mak/Desktop/ecocode/python-sdk/ecocode/integrations/trl.py) | TRL SFT/DPO/GRPO callbacks |
-| [lightning.py](file:///home/mak/Desktop/ecocode/python-sdk/ecocode/integrations/lightning.py) | PyTorch Lightning callback |
-| [deepspeed.py](file:///home/mak/Desktop/ecocode/python-sdk/ecocode/integrations/deepspeed.py) | DeepSpeed manual hook object |
-| [vllm.py](file:///home/mak/Desktop/ecocode/python-sdk/ecocode/integrations/vllm.py) | vLLM middleware + InferencePhaseTracker |
-| [keras.py](file:///home/mak/Desktop/ecocode/python-sdk/ecocode/integrations/keras.py) | Keras 3 / tf.keras callback |
-| [onnxruntime.py](file:///home/mak/Desktop/ecocode/python-sdk/ecocode/integrations/onnxruntime.py) | ONNX Runtime session wrapper |
-| [monitor_headless.rs](file:///home/mak/Desktop/ecocode/ecocode/src/monitor_headless.rs) | Rust monitor subprocess (sensors + marker reader) |
-| [cli.rs](file:///home/mak/Desktop/ecocode/ecocode/src/cli.rs) | CLI argument definitions (`MonitorArgs`) |
-| [ingest.rs](file:///home/mak/Desktop/ecocode/web/backend/src/api/ingest.rs) | Backend ingestion API (4 endpoints) |
-| [runs.rs](file:///home/mak/Desktop/ecocode/web/backend/src/api/runs.rs) | Backend runs API (list, detail, records, delete) |
+| [__init__.py](../python-sdk/ecocode/__init__.py) | Public API: `run()`, `track()`, `EcoCodeRun` |
+| [_run.py](../python-sdk/ecocode/_run.py) | Core class: mode detection, run lifecycle, marker API |
+| [_pipe.py](../python-sdk/ecocode/_pipe.py) | `PipeWriter`, `InheritedFdWriter`, `NullWriter` |
+| [_http.py](../python-sdk/ecocode/_http.py) | Stdlib HTTP client (3 endpoints) |
+| [huggingface.py](../python-sdk/ecocode/integrations/huggingface.py) | HuggingFace Trainer callback |
+| [trl.py](../python-sdk/ecocode/integrations/trl.py) | TRL SFT/DPO/GRPO callbacks |
+| [lightning.py](../python-sdk/ecocode/integrations/lightning.py) | PyTorch Lightning callback |
+| [deepspeed.py](../python-sdk/ecocode/integrations/deepspeed.py) | DeepSpeed manual hook object |
+| [vllm.py](../python-sdk/ecocode/integrations/vllm.py) | vLLM middleware + InferencePhaseTracker |
+| [keras.py](../python-sdk/ecocode/integrations/keras.py) | Keras 3 / tf.keras callback |
+| [onnxruntime.py](../python-sdk/ecocode/integrations/onnxruntime.py) | ONNX Runtime session wrapper |
+| [monitor_headless.rs](../ecocode/src/monitor_headless.rs) | Rust monitor subprocess (sensors + marker reader) |
+| [cli.rs](../ecocode/src/cli.rs) | CLI argument definitions (`MonitorArgs`) |
+| [ingest.rs](../web/backend/src/api/ingest.rs) | Backend ingestion API (4 endpoints) |
+| [runs.rs](../web/backend/src/api/runs.rs) | Backend runs API (list, detail, records, delete) |

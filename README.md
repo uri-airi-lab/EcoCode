@@ -6,7 +6,7 @@
 
 **High-precision, multi-GPU energy monitoring for sustainable software development**
 
-[![License](https://img.shields.io/badge/license-All%20Rights%20Reserved-red.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
 
 </div>

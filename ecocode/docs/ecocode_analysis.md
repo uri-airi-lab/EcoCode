@@ -93,9 +93,9 @@ sequenceDiagram
 
 ### Critical Flow Functions and Files
 
-*   **[`main`](file:///home/ai-lab1/Desktop/aziz/EcoCode/ecocode/src/main.rs#L23-L30)** in `src/main.rs`: Entry point. Parses arguments and dispatches command to `run_monitoring`, `run_headless_monitor`, or `handle_config_command`.
-*   **[`run_monitoring`](file:///home/ai-lab1/Desktop/aziz/EcoCode/ecocode/src/monitor.rs#L102-L748)** in `src/monitor.rs`: Manages the entire monitoring pipeline for `ecocode run`. It resolves dependencies, initializes the system/GPU sensors, prepares the IPC pipe, handles panic safety (kills child if parent panics to avoid orphans), and runs the primary measurement tick loop.
-*   **[`run_headless_monitor`](file:///home/ai-lab1/Desktop/aziz/EcoCode/ecocode/src/monitor_headless.rs#L84-L398)** in `src/monitor_headless.rs`: Manages headless execution for `ecocode monitor`. It receives markers over `stdin` from the Python SDK, performs periodic energy queries, and calls backend ingestion APIs.
+*   **[`main`](../../ecocode/src/main.rs#L23-L30)** in `src/main.rs`: Entry point. Parses arguments and dispatches command to `run_monitoring`, `run_headless_monitor`, or `handle_config_command`.
+*   **[`run_monitoring`](../../ecocode/src/monitor.rs#L102-L748)** in `src/monitor.rs`: Manages the entire monitoring pipeline for `ecocode run`. It resolves dependencies, initializes the system/GPU sensors, prepares the IPC pipe, handles panic safety (kills child if parent panics to avoid orphans), and runs the primary measurement tick loop.
+*   **[`run_headless_monitor`](../../ecocode/src/monitor_headless.rs#L84-L398)** in `src/monitor_headless.rs`: Manages headless execution for `ecocode monitor`. It receives markers over `stdin` from the Python SDK, performs periodic energy queries, and calls backend ingestion APIs.
 *   **Warm-up Pass (`src/monitor.rs` L485-498)**: Performed immediately before starting the loop. It captures baseline NVML/RAPL counters and registers baseline sysinfo CPU snapshots. This filters out CUDA context creation overhead and prevents standard library load spikes from polluting the first telemetry point.
 
 ---
@@ -105,7 +105,7 @@ sequenceDiagram
 EcoCode features a highly-optimized sensor system in `crates/core` to query CPU, memory, and GPU energy and utilization metrics.
 
 ### 3.1. CPU & DRAM Energy Monitoring (Intel RAPL)
-*   **Source File**: [`crates/core/src/sensor/rapl.rs`](file:///home/ai-lab1/Desktop/aziz/EcoCode/ecocode/crates/core/src/sensor/rapl.rs)
+*   **Source File**: [`crates/core/src/sensor/rapl.rs`](../../ecocode/crates/core/src/sensor/rapl.rs)
 *   **Sysfs Location**: Reads energy counters exposed by the Linux powercap interface at `/sys/class/powercap/intel-rapl/`.
 *   **Discovery (`scan_rapl_files`)**:
 		*   Iterates through subdirectories matching `intel-rapl:X` (sockets) and sub-domains `intel-rapl:X:Y` (components).
@@ -126,7 +126,7 @@ EcoCode features a highly-optimized sensor system in `crates/core` to query CPU,
 				*   **iGPU Domain**: Scaled by `cpu_usage / 100.0` (as a proxy, since Linux lacks per-process iGPU hardware telemetry).
 
 ### 3.2. GPU Energy & Utilization (NVIDIA NVML)
-*   **Source File**: [`crates/core/src/sensor/gpu.rs`](file:///home/ai-lab1/Desktop/aziz/EcoCode/ecocode/crates/core/src/sensor/gpu.rs)
+*   **Source File**: [`crates/core/src/sensor/gpu.rs`](../../ecocode/crates/core/src/sensor/gpu.rs)
 *   **NVML Wrapper**: Uses the `nvml-wrapper` crate to interact with the NVIDIA driver.
 *   **Reading (`get_gpu_energy`)**: Queries total energy consumption in millijoules (mJ) via `device.total_energy_consumption()`.
 *   **Attribution Logic (`get_gpu_energy_by_pid`)**:
@@ -149,7 +149,7 @@ EcoCode features a highly-optimized sensor system in `crates/core` to query CPU,
 Because modern applications (especially PyTorch or multi-process data loaders) spawn child worker processes, monitoring only the root PID would underestimate energy consumption.
 
 ### 4.1. Process Tree Discovery
-*   **Function**: [`get_process_tree_pids_from_sys`](file:///home/ai-lab1/Desktop/aziz/EcoCode/ecocode/crates/core/src/sensor/mod.rs#L24-L53) in `crates/core/src/sensor/mod.rs`
+*   **Function**: [`get_process_tree_pids_from_sys`](../../ecocode/crates/core/src/sensor/mod.rs#L24-L53) in `crates/core/src/sensor/mod.rs`
 *   **Algorithm**:
 		1. Iterates over all system processes in a single $O(N)$ pass, constructing a hash map indexing parent PIDs to their direct children: `HashMap<u32, Vec<u32>>`.
 		2. Performs a Breadth-First Search (BFS) starting from the target root PID to recursively gather all descendant PIDs.
@@ -175,14 +175,14 @@ EcoCode has a modular exporter architecture based on the `Exporter` trait, enabl
 
 | Exporter | File Name | Description | Output Target |
 | :--- | :--- | :--- | :--- |
-| **Terminal** | [`terminal.rs`](file:///home/ai-lab1/Desktop/aziz/EcoCode/ecocode/src/exporter/terminal.rs) | Prints a live, human-readable table of metrics. | `stdout` |
-| **CSV** | [`csv.rs`](file:///home/ai-lab1/Desktop/aziz/EcoCode/ecocode/src/exporter/csv.rs) | Appends comma-separated records, creating dynamic GPU-specific columns. Flushes in real-time. | File (`.csv`) |
-| **JSON** | [`json.rs`](file:///home/ai-lab1/Desktop/aziz/EcoCode/ecocode/src/exporter/json.rs) | Streams records into a JSON array. | File (`.json`) |
-| **LogFile** | [`logfile.rs`](file:///home/ai-lab1/Desktop/aziz/EcoCode/ecocode/src/exporter/logfile.rs) | Logs formatted text tables and a final summary. | File (`.log`) |
-| **Prometheus** | [`prometheus.rs`](file:///home/ai-lab1/Desktop/aziz/EcoCode/ecocode/src/exporter/prometheus.rs) | Exposes gauge metrics (converting Joules to Watts) via a warp HTTP server on port 9091. | HTTP `/metrics` |
-| **Online** | [`online.rs`](file:///home/ai-lab1/Desktop/aziz/EcoCode/ecocode/src/exporter/online.rs) | Sends JSON payloads to `/api/ingest` endpoints on the web dashboard. | HTTP REST API |
-| **Sqlite (Local)**| [`local.rs`](file:///home/ai-lab1/Desktop/aziz/EcoCode/ecocode/src/exporter/local.rs) | Persists relational data (projects, runs, records, summaries) in WAL mode. | SQLite Database (`.db`) |
-| **Dual** | [`dual.rs`](file:///home/ai-lab1/Desktop/aziz/EcoCode/ecocode/src/exporter/dual.rs) | Mirrors records to both a local exporter and the Online exporter. Network errors are treated as warnings. | Multi-target |
+| **Terminal** | [`terminal.rs`](../../ecocode/src/exporter/terminal.rs) | Prints a live, human-readable table of metrics. | `stdout` |
+| **CSV** | [`csv.rs`](../../ecocode/src/exporter/csv.rs) | Appends comma-separated records, creating dynamic GPU-specific columns. Flushes in real-time. | File (`.csv`) |
+| **JSON** | [`json.rs`](../../ecocode/src/exporter/json.rs) | Streams records into a JSON array. | File (`.json`) |
+| **LogFile** | [`logfile.rs`](../../ecocode/src/exporter/logfile.rs) | Logs formatted text tables and a final summary. | File (`.log`) |
+| **Prometheus** | [`prometheus.rs`](../../ecocode/src/exporter/prometheus.rs) | Exposes gauge metrics (converting Joules to Watts) via a warp HTTP server on port 9091. | HTTP `/metrics` |
+| **Online** | [`online.rs`](../../ecocode/src/exporter/online.rs) | Sends JSON payloads to `/api/ingest` endpoints on the web dashboard. | HTTP REST API |
+| **Sqlite (Local)**| [`local.rs`](../../ecocode/src/exporter/local.rs) | Persists relational data (projects, runs, records, summaries) in WAL mode. | SQLite Database (`.db`) |
+| **Dual** | [`dual.rs`](../../ecocode/src/exporter/dual.rs) | Mirrors records to both a local exporter and the Online exporter. Network errors are treated as warnings. | Multi-target |
 
 ---
 
@@ -191,7 +191,7 @@ EcoCode has a modular exporter architecture based on the `Exporter` trait, enabl
 At the end of a run, the SQLite/Online exporter calculates the environmental and economic impact of the execution:
 
 ### 6.1. Carbon Footprint (gCO₂eq)
-*   **Source File**: [`src/carbon.rs`](file:///home/ai-lab1/Desktop/aziz/EcoCode/ecocode/src/carbon.rs)
+*   **Source File**: [`src/carbon.rs`](../../ecocode/src/carbon.rs)
 *   **Formula**:
 		$$\text{CO}_2 \text{ Emissions (g)} = \frac{E_{\text{Wh}}}{1000} \times \text{Carbon Intensity} \times \text{PUE}$$
 		*   $E_{\text{Wh}}$: Total energy consumption in Watt-hours:
