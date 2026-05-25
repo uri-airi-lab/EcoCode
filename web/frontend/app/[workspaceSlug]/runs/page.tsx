@@ -1,21 +1,18 @@
 'use client'
 
 import { useEffect, useState, useMemo } from 'react'
-import { Search, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Search } from 'lucide-react'
 import { DashboardLayout } from '@/components/layout/DashboardLayout'
 import { RunsTable } from '@/components/tables/RunsTable'
 import { Run } from '@/lib/mock-data'
 import { fetchAllRuns, fetchAllProjects, RunSummary } from '@/lib/api'
 import { useWorkspace } from '@/components/layout/WorkspaceProvider'
 
-const PAGE_SIZE = 20
-
 export default function RunsPage() {
   const { currentWorkspace, loading: workspaceLoading } = useWorkspace()
   const [runs, setRuns] = useState<RunSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
-  const [page, setPage] = useState(0)
 
   useEffect(() => {
     if (workspaceLoading) return
@@ -47,7 +44,6 @@ export default function RunsPage() {
             }))
 
           setRuns(workspaceRunList)
-          setPage(0)
 
           // Log any errors for debugging
           if (projectsResult.status === 'rejected') {
@@ -98,12 +94,6 @@ export default function RunsPage() {
     })
   }, [runs, searchQuery])
 
-  // Reset to first page whenever filter changes
-  useEffect(() => { setPage(0) }, [searchQuery])
-
-  const totalPages = Math.ceil(filteredRuns.length / PAGE_SIZE)
-  const pagedRuns = filteredRuns.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
-
   const reloadRuns = async () => {
     const [allProjects, allRuns] = await Promise.all([fetchAllProjects(), fetchAllRuns()])
     const workspaceProjects = currentWorkspace
@@ -145,11 +135,6 @@ export default function RunsPage() {
           </div>
         </div>
 
-        {/* Results info */}
-        <div className="mb-4 text-sm text-muted-foreground">
-          Showing {filteredRuns.length === 0 ? 0 : page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, filteredRuns.length)} of {filteredRuns.length} runs
-        </div>
-
         {/* Runs Table */}
         {loading ? (
           <div className="chart-container flex items-center justify-center py-12">
@@ -158,35 +143,8 @@ export default function RunsPage() {
               <p className="text-sm text-muted-foreground">Loading runs...</p>
             </div>
           </div>
-        ) : pagedRuns.length > 0 ? (
-          <>
-            <RunsTable runs={pagedRuns} onRunDeleted={reloadRuns} />
-
-            {/* Pagination controls */}
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between mt-4">
-                <button
-                  onClick={() => setPage(p => Math.max(0, p - 1))}
-                  disabled={page === 0}
-                  className="flex items-center gap-1 px-3 py-2 rounded border border-border text-sm text-foreground disabled:opacity-40 disabled:cursor-not-allowed hover:bg-accent transition-colors"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                  Previous
-                </button>
-                <span className="text-sm text-muted-foreground">
-                  Page {page + 1} of {totalPages}
-                </span>
-                <button
-                  onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
-                  disabled={page >= totalPages - 1}
-                  className="flex items-center gap-1 px-3 py-2 rounded border border-border text-sm text-foreground disabled:opacity-40 disabled:cursor-not-allowed hover:bg-accent transition-colors"
-                >
-                  Next
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-          </>
+        ) : filteredRuns.length > 0 ? (
+          <RunsTable runs={filteredRuns} onRunDeleted={reloadRuns} />
         ) : (
           <div className="chart-container text-center py-12">
             <p className="text-muted-foreground">

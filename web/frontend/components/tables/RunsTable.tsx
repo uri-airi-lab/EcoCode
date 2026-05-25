@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Run } from '@/lib/mock-data'
 import { format } from 'date-fns'
 import { ChevronRight, Check, Clock, X, Trash2, Ban } from 'lucide-react'
@@ -29,6 +29,10 @@ export function RunsTable({ runs, onRunDeleted }: RunsTableProps) {
   const [currentPage, setCurrentPage] = useState(1)
   const [selectedRuns, setSelectedRuns] = useState<Set<string>>(new Set())
   const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [runs])
 
   const totalPages = Math.ceil(runs.length / ITEMS_PER_PAGE)
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
@@ -238,52 +242,54 @@ export function RunsTable({ runs, onRunDeleted }: RunsTableProps) {
         </table>
       </div>
 
-      {totalPages > 1 && (
+      {runs.length > 0 && (
           <div className="mt-4 flex items-center justify-between border-t border-border pt-4">
               <p className="text-xs text-muted-foreground">
                   Showing {startIndex + 1} to {Math.min(endIndex, runs.length)} of {runs.length} runs
               </p>
-              <Pagination>
-                  <PaginationContent>
-                      <PaginationItem>
-                          <PaginationPrevious 
-                              href="#" 
-                              onClick={(e) => {
-                                  e.preventDefault()
-                                  if (currentPage > 1) setCurrentPage(currentPage - 1)
-                              }}
-                              className={currentPage === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
-                          />
-                      </PaginationItem>
-                      
-                      {Array.from({ length: totalPages }, (_, i) => (
-                          <PaginationItem key={i}>
-                              <PaginationLink 
-                                  href="#"
-                                  isActive={currentPage === i + 1}
+              {totalPages > 1 && (
+                  <Pagination>
+                      <PaginationContent>
+                          <PaginationItem>
+                              <PaginationPrevious 
+                                  href="#" 
                                   onClick={(e) => {
                                       e.preventDefault()
-                                      setCurrentPage(i + 1)
+                                      if (currentPage > 1) setCurrentPage(currentPage - 1)
                                   }}
-                                  className="cursor-pointer"
-                              >
-                                  {i + 1}
-                              </PaginationLink>
+                                  className={currentPage === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                              />
                           </PaginationItem>
-                      ))}
+                          
+                          {Array.from({ length: totalPages }, (_, i) => (
+                              <PaginationItem key={i}>
+                                  <PaginationLink 
+                                      href="#"
+                                      isActive={currentPage === i + 1}
+                                      onClick={(e) => {
+                                          e.preventDefault()
+                                          setCurrentPage(i + 1)
+                                      }}
+                                      className="cursor-pointer"
+                                  >
+                                      {i + 1}
+                                  </PaginationLink>
+                              </PaginationItem>
+                          ))}
 
-                      <PaginationItem>
-                          <PaginationNext 
-                              href="#" 
-                              onClick={(e) => {
-                                  e.preventDefault()
-                                  if (currentPage < totalPages) setCurrentPage(currentPage + 1)
-                              }}
-                              className={currentPage === totalPages ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
-                          />
-                      </PaginationItem>
-                  </PaginationContent>
-              </Pagination>
+                          <PaginationItem>
+                              <PaginationNext 
+                                  href="#" 
+                                  onClick={(e) => {
+                                      e.preventDefault()
+                                      if (currentPage < totalPages) setCurrentPage(currentPage + 1)
+                                  }}
+                                  className={currentPage === totalPages ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                              />
+                          </PaginationItem>
+                      </PaginationContent>
+                  </Pagination>
+              )}
           </div>
       )}
     </div>
