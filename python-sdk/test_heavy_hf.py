@@ -84,7 +84,7 @@ print(f"\n[HF heavy] Starting training run ({len(ds)} samples, seq_len=128)...")
 with ecocode.run("hf-gpt2-finetune", api_key=api_key, base_url=base_url, interval=1.0) as eco_run:
     training_args = TrainingArguments(
         output_dir="/tmp/hf_heavy_xl",
-        num_train_epochs=3,
+        num_train_epochs=10,
         per_device_train_batch_size=2,
         gradient_accumulation_steps=2,
         learning_rate=2e-5,

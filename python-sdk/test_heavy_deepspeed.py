@@ -1,14 +1,27 @@
 """
 Heavy DeepSpeed Integration Test
-- Model:  GPT-2 XL (1.5B params) wrapped with actual deepspeed.initialize()
+- Model:  GPT-2 (124M params) wrapped with actual deepspeed.initialize()
 - ZeRO:   Stage 3 (full parameter + gradient + optimizer sharding)
 - Device: CUDA
 - Callback: EcoCodeDeepSpeedCallback with real DS engine hooks
 """
-import os, json, torch
+import os, json, torch, glob
 os.environ.setdefault("ECOCODE_API_URL", "http://localhost:3001")
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+# --- ENVIRONMENT FIX ---
+os.environ["MASTER_ADDR"] = "localhost"
+os.environ["MASTER_PORT"] = "29502"
+os.environ["RANK"] = "0"
+os.environ["LOCAL_RANK"] = "0"
+os.environ["WORLD_SIZE"] = "1"
+
+# --- LIBRARY FIX ---
+venv_base = os.path.dirname(os.path.abspath(__file__))
+nvidia_libs = glob.glob(os.path.join(venv_base, "venv/lib/python*/site-packages/nvidia/*/lib"), recursive=True)
+if nvidia_libs:
+    os.environ["LD_LIBRARY_PATH"] = ":".join(nvidia_libs) + ":" + os.environ.get("LD_LIBRARY_PATH", "")
 
 import deepspeed
 from transformers import AutoTokenizer, AutoModelForCausalLM
@@ -19,7 +32,7 @@ from ecocode.integrations.deepspeed import EcoCodeDeepSpeedCallback
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"[DeepSpeed heavy] device={device}  deepspeed={deepspeed.__version__}")
 
-MODEL = "gpt2-xl"
+MODEL = "gpt2"
 print(f"[DeepSpeed heavy] Loading {MODEL}...")
 tokenizer = AutoTokenizer.from_pretrained(MODEL)
 tokenizer.pad_token = tokenizer.eos_token
@@ -90,7 +103,7 @@ engine, optimizer, _, lr_scheduler = deepspeed.initialize(
 )
 print(f"[DeepSpeed heavy] Engine initialized with ZeRO stage {ds_config['zero_optimization']['stage']}")
 
-api_key  = os.environ.get("ECOCODE_API_KEY")
+api_key  = os.environ.get("ECOCODE_API_KEY", "ecocode_SvB6ETEjqwdJVjd6x2QkfdBZqXObta0F")
 base_url = os.environ.get("ECOCODE_API_URL", "http://localhost:3001")
 
 print(f"\n[DeepSpeed heavy] Starting ZeRO-3 training ({N} samples, seq={SEQ})...")

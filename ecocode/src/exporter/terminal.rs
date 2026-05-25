@@ -189,7 +189,7 @@ impl Exporter for TerminalExporter {
         _started_at: Option<&str>,
         _command: Option<&str>,
     ) -> Result<i64, Box<dyn std::error::Error>> {
-        Ok(0)
+        Ok(1)
     }
 
     async fn save_system_info(

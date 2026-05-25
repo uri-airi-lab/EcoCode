@@ -204,7 +204,7 @@ impl Exporter for LogFileExporter {
         )?;
         writeln!(self.writer, "{}", "-".repeat(140))?;
         self.writer.flush()?;
-        Ok(0)
+        Ok(1)
     }
 
     async fn save_system_info(

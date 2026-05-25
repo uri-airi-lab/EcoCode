@@ -3,7 +3,7 @@
 The web platform is the storage, API, and visualisation layer for EcoCode. It consists of:
 
 - **Backend** (`backend/`) — an Axum REST API and SSE server written in Rust, backed by PostgreSQL.
-- **Frontend** (`frontend/`) — a Next.js 14 dashboard with real-time charts powered by react-chartjs-2.
+- **Frontend** (`frontend/`) — a Next.js 14 dashboard with real-time charts powered by uPlot.
 
 ---
 
@@ -416,7 +416,7 @@ The most complex page. Its loading strategy:
 
 ### Chart Components
 
-All charts use react-chartjs-2 and receive `records: MetricRecord[]` as their primary prop.
+All charts use uPlot and receive `records: MetricRecord[]` as their primary prop.
 
 | Component | Chart type | X-axis | Y-axis |
 |-----------|-----------|--------|--------|

@@ -120,8 +120,14 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
 
     // Request read access to RAPL energy counters (requires root on most systems).
     // Skipped entirely on machines without Intel RAPL (VMs, ARM, AMD without powercap).
-    if std::path::Path::new(RAPL_PATH).exists() {
-        println!("RAPL energy counters detected. Requesting read access...");
+    let needs_chmod = if std::path::Path::new(RAPL_PATH).exists() {
+        scan_rapl_files().is_err()
+    } else {
+        false
+    };
+
+    if needs_chmod {
+        println!("RAPL energy counters detected but not readable. Requesting read access...");
         println!("  sudo chmod -R +r /sys/class/powercap/intel-rapl/");
         println!("  (You may be prompted for your sudo password.)");
         match Command::new("sudo")

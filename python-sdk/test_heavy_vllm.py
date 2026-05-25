@@ -1,6 +1,6 @@
 """
 Heavy vLLM Tracker Integration Test
-- Model:    GPT-2 XL (1.5B) doing real autoregressive generation on GPU
+- Model:    GPT-2 (124M) doing real autoregressive generation on GPU
 - Tracker:  InferencePhaseTracker — model_load, prefill, decode, generation_end
 - Scenario: 200 requests with varying prompt lengths (64→1024 tokens),
             256 decode tokens each, measuring prefill vs decode energy split
@@ -17,7 +17,7 @@ from ecocode.integrations.vllm import InferencePhaseTracker
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"[vLLM Tracker heavy] device={device}")
 
-MODEL = "gpt2-xl"
+MODEL = "gpt2"
 print(f"[vLLM Tracker heavy] Loading {MODEL}...")
 
 api_key  = os.environ.get("ECOCODE_API_KEY")

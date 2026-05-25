@@ -69,7 +69,7 @@ def main():
 
     # --- Simulate "Cell 2" ---
     run.mark("phase", "training")
-    for epoch in range(2):
+    for epoch in range(1000000):
         run.log_epoch(epoch)
         model.train()
         for batch_idx, (imgs, lbls) in enumerate(loader):

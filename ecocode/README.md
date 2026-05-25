@@ -36,16 +36,16 @@ sudo ecocode [OPTIONS] -- <COMMAND> [ARGS...]
 ```
 
 1. **CLI parsing** (`cli.rs`): clap parses all flags and subcommands.
-2. **Process spawn** (`monitor.rs`): the target command is launched as a child process. Two environment variables are injected: `ECOCODE_SOCKET` (Unix socket path) and `ECOCODE_RUN_ID`, so any Python SDK running inside the child can attach to this run.
+2. **Process spawn** (`monitor.rs`): the target command is launched as a child process. Two environment variables are injected: `ECOCODE_MARKER_FD` (file descriptor of the write-end of the OS pipe) and `ECOCODE_RUN_ID` (integer run ID), so any Python SDK running inside the child can attach to this run.
 3. **Warm-up** (`monitor.rs`): one pass of RAPL and NVML reads primes the counter baselines. This eliminates the startup burst (CUDA context init, library loading) from the first measurement interval.
 4. **Sampling loop**: on every tick (`--interval`, default 1 s):
    - Read RAPL energy counters (μJ → J delta per socket, per domain).
    - Query NVML for GPU energy delta and per-process utilization stats.
    - Read CPU% and memory% from `sysinfo` for the root PID and its full process tree.
    - Attribute energy to the process by its resource-use fraction.
-   - Read marker state from the Unix socket (phase, step, loss, etc. sent by the Python SDK).
+   - Read marker state from the OS pipe (phase, step, loss, etc. sent by the Python SDK).
    - Assemble a `Record` and pass it to the selected exporter.
-5. **Finalisation**: on process exit or Ctrl+C, `complete_run()` and `run_summary()` are called, and the Unix socket file is removed.
+5. **Finalisation**: on process exit or Ctrl+C, `complete_run()` and `run_summary()` are called, and the pipe is closed.
 
 ---
 
@@ -120,7 +120,7 @@ crates/core/
     ├─ gpu_energy_j    (sum across all GPUs)
     ├─ gpu_metrics[]   (per-GPU device_index, gpu_usage%, gpu_energy_j)
     ├─ socket_metrics[](per-socket, per-domain energy_j)
-    └─ ML fields       (from MarkerState — set by Python SDK via Unix socket)
+    └─ ML fields       (from MarkerState — set by Python SDK via OS pipe)
 
   exporter.add_record(record)
   exporter.export_line()       ← live output (table row / HTTP POST / gauge update)
@@ -135,12 +135,13 @@ crates/core/
 ### Python SDK Integration (Attached Mode)
 
 When the CLI starts, it:
-1. Creates a Unix domain socket at `/tmp/ecocode_<PID>.sock`.
-2. Spawns a background `tokio::spawn` task that accepts connections and reads newline-delimited JSON events.
-3. Injects `ECOCODE_SOCKET=/tmp/ecocode_<PID>.sock` and `ECOCODE_RUN_ID=<id>` into the child process environment.
-4. On every sampling tick, reads `MarkerState` (guarded by `Arc<Mutex<>>`) and attaches current values to the `Record`.
+1. Creates an OS pipe for IPC between parent and child.
+2. Clears the `CLOEXEC` flag on the write-end file descriptor so the child inherits it across `exec`.
+3. Spawns a background thread that reads newline-delimited JSON events from the pipe's read-end and updates a shared `MarkerState`.
+4. Injects `ECOCODE_MARKER_FD` (the write-end file descriptor) and `ECOCODE_RUN_ID=<id>` into the child process environment.
+5. On every sampling tick, reads `MarkerState` and attaches current values to the `Record`.
 
-The Python SDK detects these environment variables and switches to attached mode — it connects to the socket and sends lightweight marker events without doing any hardware sampling itself.
+The Python SDK detects these environment variables and switches to attached mode — it writes lightweight marker events directly to the inherited file descriptor without doing any hardware sampling itself.
 
 **Marker event protocol (newline-delimited JSON):**
 
