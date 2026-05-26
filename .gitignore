@@ -60,3 +60,5 @@ paper/
 
 # Personal deployment scripts
 web/deploy-azure.local.sh
+
+*.excalidraw

@@ -524,6 +524,14 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
     }
 
     // --- CPU tick baseline (for interval-average CPU usage) ---
+    let clk_tck = {
+        let tck = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+        if tck > 0 {
+            tck as f64
+        } else {
+            100.0
+        }
+    };
     let initial_tree = get_process_tree_pids_from_sys(&sys, pid.as_u32());
     let initial_leaders: Vec<u32> = initial_tree.iter().copied().filter(|&p| is_thread_leader(p)).collect();
     let mut prev_cpu_ticks = read_all_cpu_ticks(&initial_leaders);
@@ -570,10 +578,9 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
             let tree_pids = get_process_tree_pids_from_sys(&sys, pid.as_u32());
 
             // --- CPU: interval-average from /proc/[pid]/stat tick deltas ---
-            const CLK_TCK: f64 = 100.0;
             let now_tick = std::time::Instant::now();
             let tick_elapsed = now_tick.duration_since(prev_tick_time).as_secs_f64();
-            let elapsed_ticks = tick_elapsed * CLK_TCK;
+            let elapsed_ticks = tick_elapsed * clk_tck;
 
             // Only read ticks for thread group leaders (real processes).
             // /proc/[tgid]/stat returns aggregate utime+stime for all threads (whole=1).
