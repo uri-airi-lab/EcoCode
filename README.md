@@ -78,7 +78,7 @@ with ecocode.run("llama3-finetune", api_key="eco_...") as run:
 
 For advanced configurations, integration guides, and platform setup, refer to the following sub-folder guides:
 
-* 🛠️ **[CLI Reference & Installation Guide](ecocode/README.md)** — detailed usage, CLI flags, SQLite/Prometheus exporters, and permissions.
+* 🛠️ **[CLI Reference & Installation Guide](ecocode/README.md)** — detailed usage, CLI flags, CSV/JSON/logfile/Prometheus exporters, and permissions.
 * 🐍 **[Python SDK & ML Integrations Guide](python-sdk/README.md)** — callback references for HuggingFace, PyTorch Lightning, TRL, Keras, DeepSpeed, vLLM, and ONNX Runtime.
 * 🌐 **[Web Platform & Self-Hosting Guide](web/README.md)** — setup instruction for the Axum backend, Next.js frontend, PostgreSQL schema, and Docker Compose deployment.
 * 📐 **[EcoCode CLI Architecture](ARCHITECTURE.md)** — deep dive into sensor readers, wrap-around correction algorithms, and IPC design.

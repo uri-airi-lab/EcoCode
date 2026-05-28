@@ -2,8 +2,8 @@
 //!
 //! This is the no-account, no-network alternative to `monitor_headless.rs`.
 //! It reads semantic markers from stdin (newline-delimited JSON) and writes
-//! combined energy + marker records to a local exporter (SQLite, terminal,
-//! CSV, or JSON) — no API key is required.
+//! combined energy + marker records to a local exporter (terminal, CSV, JSON,
+//! or logfile) — no API key is required.
 //!
 //! The Python SDK handles run creation and completion by calling
 //! `ecocode monitor-local` with `--run-id`, `--pid`, `--exporter`,

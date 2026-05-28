@@ -16,17 +16,11 @@ Supports three usage patterns:
 
 Exporter modes
 --------------
-exporter="local" (default)
-    Records are written to a local SQLite database.
-    No API key required. No network traffic.
-    db_path controls where the database is stored
-    (default: ~/.ecocode/ecocode.db).
-
-exporter="terminal"
+exporter="terminal" (default)
     Energy metrics are printed to stdout in real time.
     No API key, no network traffic.
 
-exporter="csv" / exporter="json"
+exporter="csv" / exporter="json" / exporter="logfile"
     Records written to the file specified by output_file.
     No API key, no network traffic.
 

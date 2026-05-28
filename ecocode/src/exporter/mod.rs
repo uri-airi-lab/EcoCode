@@ -4,7 +4,6 @@
 //! - [`terminal`] — pretty-printed table to stdout
 //! - [`csv`] — comma-separated values file
 //! - [`json`] — JSON array file
-//! - [`local`] — SQLite database (local, no account required)
 //! - [`online`] — EcoCode SaaS platform (requires API key)
 //! - [`prometheus`] — Prometheus metrics endpoint via HTTP
 //! - [`logfile`] — formatted log file

@@ -12,7 +12,7 @@ use std::path::PathBuf;
 pub struct OnlineExporter {
     client: Client,
     base_url: String,
-    api_key: String,
+    _api_key: String,
     pub exporter_type_label: String,
 }
 
@@ -127,7 +127,7 @@ impl OnlineExporter {
         Ok(OnlineExporter {
             client,
             base_url,
-            api_key,
+            _api_key: api_key,
             exporter_type_label: "online".to_string(),
         })
     }

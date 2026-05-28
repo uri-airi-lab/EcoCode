@@ -20,7 +20,7 @@ graph TD
     CLI -->|Spawns / Monitors| ChildProcess[Target Child Process]
     CoreLib -->|Reads| RAPL[/sys/class/powercap/intel-rapl/]
     CoreLib -->|Queries| NVML[NVIDIA Driver / NVML]
-    CLI -->|Writes| Exporters[Exporters: Terminal, CSV, JSON, LogFile, SQLite, Prometheus, Online]
+    CLI -->|Writes| Exporters[Exporters: Terminal, CSV, JSON, LogFile, Prometheus, Online]
     CoreLib -->|Sends HTTP Posts| WebBackend[EcoCode Web Dashboard]
 ```
 
@@ -181,14 +181,12 @@ EcoCode has a modular exporter architecture based on the `Exporter` trait, enabl
 | **LogFile** | [`logfile.rs`](../../ecocode/src/exporter/logfile.rs) | Logs formatted text tables and a final summary. | File (`.log`) |
 | **Prometheus** | [`prometheus.rs`](../../ecocode/src/exporter/prometheus.rs) | Exposes gauge metrics (converting Joules to Watts) via a warp HTTP server on port 9091. | HTTP `/metrics` |
 | **Online** | [`online.rs`](../../ecocode/src/exporter/online.rs) | Sends JSON payloads to `/api/ingest` endpoints on the web dashboard. | HTTP REST API |
-| **Sqlite (Local)**| [`local.rs`](../../ecocode/src/exporter/local.rs) | Persists relational data (projects, runs, records, summaries) in WAL mode. | SQLite Database (`.db`) |
-| **Dual** | [`dual.rs`](../../ecocode/src/exporter/dual.rs) | Mirrors records to both a local exporter and the Online exporter. Network errors are treated as warnings. | Multi-target |
 
 ---
 
 ## 6. Carbon Footprint & Financial Cost Calculations
 
-At the end of a run, the SQLite/Online exporter calculates the environmental and economic impact of the execution:
+At the end of a run, the exporters and backend calculate the environmental and economic impact of the execution:
 
 ### 6.1. Carbon Footprint (gCO₂eq)
 *   **Source File**: [`src/carbon.rs`](../../ecocode/src/carbon.rs)

@@ -20,7 +20,7 @@ pub enum TopCommand {
     /// Reads semantic markers from stdin and posts combined records to the EcoCode backend.
     Monitor(MonitorArgs),
     /// Headless energy monitor for an existing run (local mode, used by the Python SDK).
-    /// Reads semantic markers from stdin and writes records to a local exporter (SQLite, terminal, CSV, JSON).
+    /// Reads semantic markers from stdin and writes records to a local exporter (terminal, CSV, JSON, or logfile).
     MonitorLocal(MonitorLocalArgs),
     /// Manage EcoCode configuration.
     Config {

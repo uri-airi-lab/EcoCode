@@ -27,7 +27,6 @@ flowchart TD
         exp_t["terminal.rs\nPrints a formatted table to stdout"]
         exp_c["csv.rs\nAppends a row to a CSV file"]
         exp_j["json.rs\nWrites a JSON array to a file"]
-        exp_l["local.rs\nInserts records into a local SQLite database"]
         exp_o["online.rs\nHTTP POST to the web backend\nAuthenticated with a Bearer API key"]
         exp_p["prometheus.rs\nExposes a /metrics endpoint on port 9091"]
         exp_f["logfile.rs\nWrites a human-readable log file"]
@@ -37,7 +36,7 @@ flowchart TD
     monitor --> rapl & gpu
     rapl & gpu --> exp_mod
     monitor --> carbon --> exp_mod
-    exp_mod --> exp_t & exp_c & exp_j & exp_l & exp_o & exp_p & exp_f
+    exp_mod --> exp_t & exp_c & exp_j & exp_o & exp_p & exp_f
 ```
 
 ## How it works
@@ -63,7 +62,6 @@ flowchart TD
 | `exporter/terminal.rs` | Stdout table output |
 | `exporter/csv.rs` | CSV file output |
 | `exporter/json.rs` | JSON file output |
-| `exporter/local.rs` | SQLite local storage |
 | `exporter/online.rs` | HTTP POST to the web backend (premium) |
 | `exporter/prometheus.rs` | Prometheus `/metrics` endpoint |
 | `exporter/logfile.rs` | Formatted log file output |

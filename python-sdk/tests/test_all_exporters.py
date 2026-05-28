@@ -1,6 +1,5 @@
 import os
 import json
-import sqlite3
 import csv
 import time
 import ecocode

@@ -91,7 +91,7 @@ def run(
     output_file : str, optional
         Output path for csv/json exporters.
     db_path : str, optional
-        (Obsolete/Ignored) Path to the SQLite database file.
+        (Obsolete/Ignored) Legacy parameter from the removed SQLite local exporter.
     api_key : str, optional
         API key for the online exporter. Also read from ECOCODE_API_KEY.
     project_id : int, optional

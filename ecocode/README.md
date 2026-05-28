@@ -69,7 +69,6 @@ ecocode/
         ├── terminal.rs    # Print table to stdout
         ├── csv.rs         # Append rows to CSV
         ├── json.rs        # Write JSON array file
-        ├── local.rs       # Insert into SQLite (via sqlx)
         ├── online.rs      # HTTP POST to backend (reqwest, Bearer auth)
         ├── prometheus.rs  # Prometheus gauge metrics on :9091 (warp HTTP server)
         └── logfile.rs     # Write formatted log file (BufWriter)
@@ -219,7 +218,6 @@ sudo ecocode --intensity 52.0 --price 0.12 -o online -- python train.py
 | `terminal` | `-o terminal` | — | Live formatted table to stdout (default) |
 | `csv` | `-o csv -f out.csv` | `--file` | Append one row per tick to a CSV file |
 | `json` | `-o json -f out.json` | `--file` | Write a JSON array of records |
-| `local` | `-o local` | — | Insert into SQLite database (`ecocodeDB.db`) |
 | `online` | `-o online` | API key | POST records to the EcoCode web backend |
 | `prometheus` | `-o prometheus` | — | Expose Prometheus gauges on `http://localhost:9091/metrics` |
 | `logfile` | `-o logfile -f run.log` | `--file` | Write human-readable log file |
