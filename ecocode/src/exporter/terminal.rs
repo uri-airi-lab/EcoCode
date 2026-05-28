@@ -4,7 +4,7 @@
 //! `export` is called once at the end to print the complete run summary.
 //! Per-GPU and per-socket breakdowns are indented below each row.
 
-use crate::exporter::{Exporter, ExporterType, ProjectInfo, Record};
+use crate::exporter::{Exporter, ExporterType, ProjectInfo, Record, CarbonConfig};
 use async_trait::async_trait;
 
 /// Streams records to stdout, printing a header row on the first record and
@@ -13,6 +13,7 @@ pub struct TerminalExporter {
     records: Vec<Record>,
     /// Whether the column header has been printed yet.
     pub first_record: bool,
+    tracker: crate::exporter::LocalSummaryTracker,
 }
 
 impl TerminalExporter {
@@ -20,6 +21,7 @@ impl TerminalExporter {
         TerminalExporter {
             records: Vec::new(),
             first_record: true,
+            tracker: crate::exporter::LocalSummaryTracker::new(),
         }
     }
 }
@@ -30,6 +32,7 @@ impl Exporter for TerminalExporter {
         ExporterType::Terminal
     }
     async fn add_record(&mut self, record: Record) -> Result<(), Box<dyn std::error::Error>> {
+        self.tracker.add_record(&record);
         self.records.push(record); //the vector will be used to print the final summary
         Ok(())
     }
@@ -264,7 +267,33 @@ impl Exporter for TerminalExporter {
     ) -> Result<(), Box<dyn std::error::Error>> {
         Ok(())
     }
+    async fn update_project_config(
+        &mut self,
+        _project_id: i64,
+        intensity: Option<f64>,
+        price: Option<f64>,
+        _address: Option<String>,
+        _use_api_for_cost: Option<bool>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.tracker.update_config(intensity, price);
+        Ok(())
+    }
+    async fn get_carbon_config(
+        &mut self,
+        _project_id: i64,
+    ) -> Result<CarbonConfig, Box<dyn std::error::Error>> {
+        let intensity_val = self.tracker.intensity.unwrap_or(445.0);
+        Ok(CarbonConfig {
+            resolved_intensity_g_per_kwh: intensity_val,
+            pue_factor: 1.0,
+            intensity_source: if self.tracker.intensity.is_some() { "cli_override".to_string() } else { "static_WORLD_fallback".to_string() },
+            manual_cost_per_kwh: self.tracker.price,
+            manual_currency: Some("USD".to_string()),
+            use_api_for_cost: false,
+        })
+    }
     async fn run_summary(&mut self, _run_id: i64) -> Result<(), Box<dyn std::error::Error>> {
-        Ok(()) //TODO: implement
+        self.tracker.print_summary();
+        Ok(())
     }
 }

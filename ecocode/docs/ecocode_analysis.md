@@ -201,3 +201,8 @@ At the end of a run, the exporters and backend calculate the environmental and e
 *   **Formula**:
 		$$\text{Financial Cost} = \frac{E_{\text{Wh}}}{1000} \times \text{Electricity Cost per kWh} \times \text{PUE}$$
 		*   $\text{Electricity Cost per kWh}$: Electricity rate per kWh in the local currency. Can be supplied statically (via `--price`) or fetched dynamically from external APIs.
+
+### 6.3. Local Exporters Display & Validation
+*   **Validation**: Unlike the `online` exporter, local exporters (`terminal`, `csv`, `json`, `logfile`, `prometheus`) do not require price/cost strategies to start execution.
+*   **Display Units**: To improve human readability for short/lightweight runs, local exporters display component-wise and total energy consumption in **Watt-hours (Wh)** and **Kilowatt-hours (kWh)** (converting raw Joules via dividing by $3,600$ and $3,600,000$ respectively).
+*   **Calculations**: Calculations are done locally inside the `LocalSummaryTracker` struct on run termination.

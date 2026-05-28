@@ -6,13 +6,14 @@
 use std::fs::File;
 use std::io::{BufWriter, Write};
 
-use crate::exporter::{Exporter, ExporterType, ProjectInfo, Record};
+use crate::exporter::{Exporter, ExporterType, ProjectInfo, Record, CarbonConfig};
 use async_trait::async_trait;
 
 pub struct LogFileExporter {
     writer: BufWriter<File>,
     records: Vec<Record>,
     first_record: bool,
+    tracker: crate::exporter::LocalSummaryTracker,
 }
 
 impl LogFileExporter {
@@ -30,6 +31,7 @@ impl LogFileExporter {
             writer,
             records: Vec::new(),
             first_record: true,
+            tracker: crate::exporter::LocalSummaryTracker::new(),
         })
     }
 }
@@ -41,6 +43,7 @@ impl Exporter for LogFileExporter {
     }
 
     async fn add_record(&mut self, record: Record) -> Result<(), Box<dyn std::error::Error>> {
+        self.tracker.add_record(&record);
         self.records.push(record);
         Ok(())
     }
@@ -77,19 +80,49 @@ impl Exporter for LogFileExporter {
                 + total_mem_energy.unwrap_or(0.0)
                 + total_igpu_energy.unwrap_or(0.0);
 
-            writeln!(self.writer, "Total CPU Energy:  {:.4} J", total_cpu_energy)?;
-            writeln!(self.writer, "Total GPU Energy:  {:.4} J", total_gpu_energy)?;
+            writeln!(
+                self.writer,
+                "Total CPU Energy:  {:.4} Wh ({:.6} kWh)",
+                total_cpu_energy / 3600.0,
+                total_cpu_energy / 3_600_000.0
+            )?;
+            writeln!(
+                self.writer,
+                "Total GPU Energy:  {:.4} Wh ({:.6} kWh)",
+                total_gpu_energy / 3600.0,
+                total_gpu_energy / 3_600_000.0
+            )?;
             writeln!(
                 self.writer,
                 "Total MEM Energy:  {}",
-                total_mem_energy.map_or_else(|| "N/A".to_string(), |v| format!("{:.4} J", v))
+                total_mem_energy.map_or_else(
+                    || "N/A".to_string(),
+                    |v| format!("{:.4} Wh ({:.6} kWh)", v / 3600.0, v / 3_600_000.0)
+                )
             )?;
             writeln!(
                 self.writer,
                 "Total iGPU Energy: {}",
-                total_igpu_energy.map_or_else(|| "N/A".to_string(), |v| format!("{:.4} J", v))
+                total_igpu_energy.map_or_else(
+                    || "N/A".to_string(),
+                    |v| format!("{:.4} Wh ({:.6} kWh)", v / 3600.0, v / 3_600_000.0)
+                )
             )?;
-            writeln!(self.writer, "Total Energy:      {:.4} J", total_energy)?;
+            writeln!(
+                self.writer,
+                "Total Energy:      {:.4} Wh ({:.6} kWh)",
+                total_energy / 3600.0,
+                total_energy / 3_600_000.0
+            )?;
+
+            let total_kwh = total_energy / 3_600_000.0;
+            let intensity_val = self.tracker.intensity.unwrap_or(445.0);
+            let carbon_g = total_kwh * intensity_val;
+            writeln!(self.writer, "Carbon Footprint:  {:.4} gCO2eq (at {:.1} g/kWh)", carbon_g, intensity_val)?;
+            if let Some(price_val) = self.tracker.price {
+                let cost = total_kwh * price_val;
+                writeln!(self.writer, "Electricity Cost:  ${:.5} (at ${:.3}/kWh)", cost, price_val)?;
+            }
         }
 
         writeln!(self.writer, "{}", "=".repeat(140))?;
@@ -260,7 +293,35 @@ impl Exporter for LogFileExporter {
         Ok(())
     }
 
+    async fn update_project_config(
+        &mut self,
+        _project_id: i64,
+        intensity: Option<f64>,
+        price: Option<f64>,
+        _address: Option<String>,
+        _use_api_for_cost: Option<bool>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.tracker.update_config(intensity, price);
+        Ok(())
+    }
+
+    async fn get_carbon_config(
+        &mut self,
+        _project_id: i64,
+    ) -> Result<CarbonConfig, Box<dyn std::error::Error>> {
+        let intensity_val = self.tracker.intensity.unwrap_or(445.0);
+        Ok(CarbonConfig {
+            resolved_intensity_g_per_kwh: intensity_val,
+            pue_factor: 1.0,
+            intensity_source: if self.tracker.intensity.is_some() { "cli_override".to_string() } else { "static_WORLD_fallback".to_string() },
+            manual_cost_per_kwh: self.tracker.price,
+            manual_currency: Some("USD".to_string()),
+            use_api_for_cost: false,
+        })
+    }
+
     async fn run_summary(&mut self, _run_id: i64) -> Result<(), Box<dyn std::error::Error>> {
+        self.tracker.print_summary();
         Ok(())
     }
 }

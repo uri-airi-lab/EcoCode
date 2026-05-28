@@ -221,7 +221,14 @@ sudo ecocode --intensity 52.0 --price 0.12 -o online -- python train.py
 | `online` | `-o online` | API key | POST records to the EcoCode web backend |
 | `prometheus` | `-o prometheus` | — | Expose Prometheus gauges on `http://localhost:9091/metrics` |
 | `logfile` | `-o logfile -f run.log` | `--file` | Write human-readable log file |
+### Local Carbon & Cost Calculations
 
+On completion of a run, all exporters write/display a summary of total duration, component-wise energy consumption, carbon footprint, and financial cost.
+
+- **Energy Units**: All component and total energy metrics in the summary are converted and shown in **Watt-hours (Wh)** and **Kilowatt-hours (kWh)** for high readability.
+- **Carbon Footprint Calculation**: Computed using the grid carbon intensity ($gCO_2eq/kWh$). By default, it falls back to the IEA global average of $445.0\text{ g/kWh}$. You can override this using the `--intensity <G/KWH>` flag.
+- **Financial Cost Calculation**: Computed if the `--price <COST>` flag is supplied (in currency units per kWh).
+- **Validation**: Financial cost and price inputs are only required when using the `online` exporter (which syncs config with the web platform database). Local runs (`terminal`, `csv`, `json`, `logfile`, `prometheus`) start instantly without requiring price configuration parameters.
 
 ### Options Reference
 

@@ -10,7 +10,7 @@ use std::error::Error;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 
-use crate::exporter::{Exporter, ExporterType, ProjectInfo, Record};
+use crate::exporter::{Exporter, ExporterType, ProjectInfo, Record, CarbonConfig};
 use async_trait::async_trait;
 
 /// Writes records to a JSON file as a streaming array (`[{...},{...},...]`).
@@ -19,6 +19,7 @@ pub struct JsonExporter {
     pub writer: BufWriter<File>,
     /// Tracks whether the opening `[` bracket has been written yet.
     pub first_record: bool,
+    tracker: crate::exporter::LocalSummaryTracker,
 }
 
 impl JsonExporter {
@@ -29,6 +30,7 @@ impl JsonExporter {
             file_path,
             writer,
             first_record: true,
+            tracker: crate::exporter::LocalSummaryTracker::new(),
         })
     }
 }
@@ -39,6 +41,7 @@ impl Exporter for JsonExporter {
         ExporterType::Json
     }
     async fn add_record(&mut self, record: Record) -> Result<(), Box<dyn Error>> {
+        self.tracker.add_record(&record);
         // Write a comma if it's not the first record
         if !self.first_record {
             self.writer.write_all(b",")?; // Add a comma between records
@@ -107,7 +110,33 @@ impl Exporter for JsonExporter {
     ) -> Result<(), Box<dyn std::error::Error>> {
         Ok(())
     }
+    async fn update_project_config(
+        &mut self,
+        _project_id: i64,
+        intensity: Option<f64>,
+        price: Option<f64>,
+        _address: Option<String>,
+        _use_api_for_cost: Option<bool>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.tracker.update_config(intensity, price);
+        Ok(())
+    }
+    async fn get_carbon_config(
+        &mut self,
+        _project_id: i64,
+    ) -> Result<CarbonConfig, Box<dyn std::error::Error>> {
+        let intensity_val = self.tracker.intensity.unwrap_or(445.0);
+        Ok(CarbonConfig {
+            resolved_intensity_g_per_kwh: intensity_val,
+            pue_factor: 1.0,
+            intensity_source: if self.tracker.intensity.is_some() { "cli_override".to_string() } else { "static_WORLD_fallback".to_string() },
+            manual_cost_per_kwh: self.tracker.price,
+            manual_currency: Some("USD".to_string()),
+            use_api_for_cost: false,
+        })
+    }
     async fn run_summary(&mut self, _run_id: i64) -> Result<(), Box<dyn std::error::Error>> {
+        self.tracker.print_summary();
         Ok(())
     }
 }

@@ -84,7 +84,7 @@ use crate::exporter::logfile::LogFileExporter;
 use crate::exporter::online::OnlineExporter;
 use crate::exporter::prometheus::PrometheusExporter;
 use crate::exporter::terminal::TerminalExporter;
-use crate::exporter::{Exporter, GpuMetric, Record, SocketMetric};
+use crate::exporter::{Exporter, ExporterType, GpuMetric, Record, SocketMetric};
 use ecocode_core::sensor::RAPL_PATH;
 use ecocode_core::sensor::get_process_tree_pids_from_sys;
 use ecocode_core::sensor::gpu::{
@@ -226,8 +226,9 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
 
     let carbon_config = exporter.get_carbon_config(project.id).await?;
 
-    if project.is_new
-        || (carbon_config.manual_cost_per_kwh.is_none() && !carbon_config.use_api_for_cost)
+    if exporter.exporter_type() == ExporterType::Online
+        && (project.is_new
+            || (carbon_config.manual_cost_per_kwh.is_none() && !carbon_config.use_api_for_cost))
     {
         if carbon_config.manual_cost_per_kwh.is_none()
             && !carbon_config.use_api_for_cost

@@ -3,7 +3,7 @@
 //! Starts a background HTTP server on port 9091 using `warp`, serving metrics
 //! in the Prometheus text exposition format.
 
-use crate::exporter::{Exporter, ExporterType, ProjectInfo, Record};
+use crate::exporter::{Exporter, ExporterType, ProjectInfo, Record, CarbonConfig};
 use async_trait::async_trait;
 use prometheus::{Encoder, Gauge, GaugeVec, Opts, Registry, TextEncoder};
 use std::error::Error;
@@ -33,6 +33,7 @@ pub struct PrometheusExporter {
     gpu_usage_per_device: GaugeVec,
     gpu_energy_per_device: GaugeVec,
     socket_energy_per_domain: GaugeVec,
+    tracker: crate::exporter::LocalSummaryTracker,
 }
 
 impl PrometheusExporter {
@@ -107,6 +108,7 @@ impl PrometheusExporter {
             gpu_usage_per_device,
             gpu_energy_per_device,
             socket_energy_per_domain,
+            tracker: crate::exporter::LocalSummaryTracker::new(),
         };
 
         // Spawn a warp HTTP server in the background to serve metrics
@@ -133,6 +135,7 @@ impl Exporter for PrometheusExporter {
     /// Updates the Prometheus gauge values with the latest measurement.
     /// Energy fields are converted from Joules to average Watts (J / elapsed_secs).
     async fn add_record(&mut self, record: Record) -> Result<(), Box<dyn Error>> {
+        self.tracker.add_record(&record);
         let es = record.elapsed_secs.max(0.001);
         self.cpu_usage.set(record.cpu_usage);
         self.cpu_energy.set(record.cpu_energy / es);
@@ -217,7 +220,33 @@ impl Exporter for PrometheusExporter {
     ) -> Result<(), Box<dyn std::error::Error>> {
         Ok(())
     }
+    async fn update_project_config(
+        &mut self,
+        _project_id: i64,
+        intensity: Option<f64>,
+        price: Option<f64>,
+        _address: Option<String>,
+        _use_api_for_cost: Option<bool>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.tracker.update_config(intensity, price);
+        Ok(())
+    }
+    async fn get_carbon_config(
+        &mut self,
+        _project_id: i64,
+    ) -> Result<CarbonConfig, Box<dyn std::error::Error>> {
+        let intensity_val = self.tracker.intensity.unwrap_or(445.0);
+        Ok(CarbonConfig {
+            resolved_intensity_g_per_kwh: intensity_val,
+            pue_factor: 1.0,
+            intensity_source: if self.tracker.intensity.is_some() { "cli_override".to_string() } else { "static_WORLD_fallback".to_string() },
+            manual_cost_per_kwh: self.tracker.price,
+            manual_currency: Some("USD".to_string()),
+            use_api_for_cost: false,
+        })
+    }
     async fn run_summary(&mut self, _run_id: i64) -> Result<(), Box<dyn std::error::Error>> {
+        self.tracker.print_summary();
         Ok(())
     }
 }

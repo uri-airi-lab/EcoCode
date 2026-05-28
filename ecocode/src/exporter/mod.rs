@@ -267,3 +267,87 @@ pub trait Exporter {
         })
     }
 }
+
+/// Helper struct for local exporters to track energy, carbon, and costs
+#[derive(Clone, Debug, Default)]
+pub struct LocalSummaryTracker {
+    pub total_cpu_energy: f64,
+    pub total_gpu_energy: f64,
+    pub total_mem_energy: f64,
+    pub total_igpu_energy: f64,
+    pub total_duration_secs: f64,
+    pub intensity: Option<f64>,
+    pub price: Option<f64>,
+}
+
+impl LocalSummaryTracker {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn add_record(&mut self, record: &Record) {
+        self.total_cpu_energy += record.cpu_energy;
+        self.total_gpu_energy += record.gpu_energy;
+        self.total_mem_energy += record.mem_energy.unwrap_or(0.0);
+        self.total_igpu_energy += record.igpu_energy.unwrap_or(0.0);
+        self.total_duration_secs += record.elapsed_secs;
+    }
+
+    pub fn update_config(&mut self, intensity: Option<f64>, price: Option<f64>) {
+        if intensity.is_some() {
+            self.intensity = intensity;
+        }
+        if price.is_some() {
+            self.price = price;
+        }
+    }
+
+    pub fn print_summary(&self) {
+        let total_j = self.total_cpu_energy + self.total_gpu_energy + self.total_mem_energy + self.total_igpu_energy;
+        let total_kwh = total_j / 3_600_000.0;
+
+        let intensity_val = self.intensity.unwrap_or(445.0);
+        let carbon_g = total_kwh * intensity_val;
+
+        println!();
+        println!("╔════════════════════════════════════════════════════╗");
+        println!("║                EcoCode Run Summary                 ║");
+        println!("╠════════════════════════════════════════════════════╣");
+
+        let secs = self.total_duration_secs.round() as u64;
+        let mins = secs / 60;
+        let hours = mins / 60;
+        let duration_str = if hours > 0 {
+            format!("{}h {}m {}s", hours, mins % 60, secs % 60)
+        } else if mins > 0 {
+            format!("{}m {}s", mins, secs % 60)
+        } else {
+            format!("{}s", secs)
+        };
+        println!("║  Total Duration:   {:31}║", duration_str);
+
+        let cpu_wh = self.total_cpu_energy / 3600.0;
+        let gpu_wh = self.total_gpu_energy / 3600.0;
+        let mem_wh = self.total_mem_energy / 3600.0;
+        let total_wh = total_j / 3600.0;
+
+        println!("║  Total CPU Energy: {:31}║", format!("{:.4} Wh ({:.6} kWh)", cpu_wh, cpu_wh / 1000.0));
+        println!("║  Total GPU Energy: {:31}║", format!("{:.4} Wh ({:.6} kWh)", gpu_wh, gpu_wh / 1000.0));
+        println!("║  Total MEM Energy: {:31}║", format!("{:.4} Wh ({:.6} kWh)", mem_wh, mem_wh / 1000.0));
+        println!("║  Total Energy:     {:31}║", format!("{:.4} Wh ({:.6} kWh)", total_wh, total_kwh));
+
+        println!("╠════════════════════════════════════════════════════╣");
+        println!("║  Carbon Footprint: {:31}║", format!("{:.3} gCO2eq", carbon_g));
+        println!("║  (resolved via: {:34}║", format!("{} at {:.1} g/kWh)", if self.intensity.is_some() { "override" } else { "default" }, intensity_val));
+
+        if let Some(price_val) = self.price {
+            let cost = total_kwh * price_val;
+            println!("╠════════════════════════════════════════════════════╣");
+            println!("║  Electricity Cost: {:31}║", format!("${:.5}", cost));
+            println!("║  (resolved via: {:34}║", format!("price at ${:.3}/kWh)", price_val));
+        }
+
+        println!("╚════════════════════════════════════════════════════╝");
+        println!();
+    }
+}
