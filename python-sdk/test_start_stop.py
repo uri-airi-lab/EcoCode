@@ -21,14 +21,7 @@ import ecocode
 
 
 def main():
-    api_key = os.environ.get("ECOCODE_API_KEY")
-    if not api_key:
-        print("ERROR: Set ECOCODE_API_KEY first.")
-        sys.exit(1)
-
-    base_url = os.environ.get("ECOCODE_API_URL", "http://localhost:3001")
-    print(f"[test] start()/stop() API test")
-    print(f"[test] Backend: {base_url}")
+    print(f"[test] start()/stop() local API test")
     print()
 
     # Simple CNN
@@ -51,13 +44,12 @@ def main():
     # EXPLICIT START/STOP (no context manager)
     # =============================================
     print("=" * 60)
-    print("  START/STOP API TEST")
+    print("  START/STOP API TEST (LOCAL)")
     print("=" * 60 + "\n")
 
     run = ecocode.run(
         "start-stop-test",
-        api_key=api_key,
-        base_url=base_url,
+        exporter="terminal",
         interval=1.0,
     )
 
@@ -69,7 +61,7 @@ def main():
 
     # --- Simulate "Cell 2" ---
     run.mark("phase", "training")
-    for epoch in range(1000000):
+    for epoch in range(2):
         run.log_epoch(epoch)
         model.train()
         for batch_idx, (imgs, lbls) in enumerate(loader):
@@ -90,7 +82,7 @@ def main():
     run.stop()
     print("[notebook] Cell 3: run.stop() called")
 
-    print("\n[test] start()/stop() API test PASSED.")
+    print("\n[test] start()/stop() local test PASSED.")
 
 
 if __name__ == "__main__":

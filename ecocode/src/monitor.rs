@@ -5,9 +5,8 @@
 //! the final run summary.
 
 use nvml_wrapper::Nvml;
-use sqlx::types::chrono::Utc;
+use chrono::Utc;
 use std::collections::HashMap;
-use std::io;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -80,14 +79,12 @@ struct MarkerState {
 }
 
 use crate::exporter::csv::CsvExporter;
-use crate::exporter::dual::DualExporter;
 use crate::exporter::json::JsonExporter;
-use crate::exporter::local::SqliteExporter;
 use crate::exporter::logfile::LogFileExporter;
 use crate::exporter::online::OnlineExporter;
 use crate::exporter::prometheus::PrometheusExporter;
 use crate::exporter::terminal::TerminalExporter;
-use crate::exporter::{Exporter, ExporterType, GpuMetric, Record, SocketMetric};
+use crate::exporter::{Exporter, GpuMetric, Record, SocketMetric};
 use ecocode_core::sensor::RAPL_PATH;
 use ecocode_core::sensor::get_process_tree_pids_from_sys;
 use ecocode_core::sensor::gpu::{
@@ -152,6 +149,9 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
     }
 
     // --- Exporter setup ---
+    // Each exporter is independent. No silent data mirroring.
+    // Use `--output online` (or exporter="online" in the Python SDK) to send data
+    // to the EcoCode platform. All other exporters store data locally.
     let require_file = |format: &str| -> String {
         args.file.clone().unwrap_or_else(|| {
             eprintln!(
@@ -162,20 +162,17 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
         })
     };
 
-    let mut exporter: Box<dyn Exporter> = if output == "online" {
-        Box::new(OnlineExporter::new(args.api_key)?)
-    } else {
-        let primary: Box<dyn Exporter> = match output.as_str() {
-            "terminal" => Box::new(TerminalExporter::new()),
-            "csv" => Box::new(CsvExporter::new(require_file("csv"))?),
-            "json" => Box::new(JsonExporter::new(require_file("json"))?),
-            "local" => Box::new(SqliteExporter::new().await?),
-            "prometheus" => Box::new(PrometheusExporter::new()?),
-            "logfile" => Box::new(LogFileExporter::new(require_file("logfile"))?),
-            _ => Box::new(TerminalExporter::new()),
-        };
-        let online = OnlineExporter::new(args.api_key)?;
-        Box::new(DualExporter::new(primary, online))
+    let mut exporter: Box<dyn Exporter> = match output.as_str() {
+        "online"     => Box::new(OnlineExporter::new(args.api_key)?),
+        "terminal"   => Box::new(TerminalExporter::new()),
+        "csv"        => Box::new(CsvExporter::new(require_file("csv"))?),
+        "json"       => Box::new(JsonExporter::new(require_file("json"))?),
+        "prometheus" => Box::new(PrometheusExporter::new()?),
+        "logfile"    => Box::new(LogFileExporter::new(require_file("logfile"))?),
+        other => {
+            eprintln!("Warning: unknown exporter '{}', falling back to 'terminal'.", other);
+            Box::new(TerminalExporter::new())
+        }
     };
     if output == "online" && args.collaborator.is_some() {
         println!(
@@ -189,27 +186,12 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
         .get_or_create_project(&project_name, collaborator.as_deref())
         .await?;
 
-    let available_collaborators = if project.collaborators.is_empty() {
-        "no saved collaborators".to_string()
-    } else {
-        format!("saved collaborators: {}", project.collaborators.join(", "))
-    };
 
-    let run_collaborator = if exporter.exporter_type() == ExporterType::Local {
-        project.selected_collaborator_name.clone().ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!(
-                    "Project '{project_name}' needs an explicit collaborator selection ({available_collaborators}). Re-run with --collaborator <name>."
-                ),
-            )
-        })?
-    } else {
-        collaborator
-            .clone()
-            .or(project.selected_collaborator_name.clone())
-            .unwrap_or_else(|| "unassigned".to_string())
-    };
+
+    let run_collaborator = collaborator
+        .clone()
+        .or(project.selected_collaborator_name.clone())
+        .unwrap_or_else(|| "unassigned".to_string());
 
     let run_started_at = Utc::now().to_rfc3339();
     let run_name = args

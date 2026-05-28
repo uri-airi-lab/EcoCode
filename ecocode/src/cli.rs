@@ -10,15 +10,18 @@ pub struct Cli {
     pub command: TopCommand,
 }
 
-/// Top-level subcommands. Used in main.rs to dispatch commands, either `run`, `monitor`, or `config`.
+/// Top-level subcommands. Used in main.rs to dispatch commands, either `run`, `monitor`, `monitor-local`, or `config`.
 /// clap handles the matching and validation of arguments.
 #[derive(Subcommand, Debug)]
 pub enum TopCommand {
     /// Monitor the energy consumption of a command.
     Run(RunArgs),
-    /// Headless energy monitor for an existing run (used by the Python SDK).
-    /// Reads semantic markers from stdin and posts combined records to the backend.
+    /// Headless energy monitor for an existing run (online mode, used by the Python SDK).
+    /// Reads semantic markers from stdin and posts combined records to the EcoCode backend.
     Monitor(MonitorArgs),
+    /// Headless energy monitor for an existing run (local mode, used by the Python SDK).
+    /// Reads semantic markers from stdin and writes records to a local exporter (SQLite, terminal, CSV, JSON).
+    MonitorLocal(MonitorLocalArgs),
     /// Manage EcoCode configuration.
     Config {
         #[command(subcommand)]
@@ -56,7 +59,7 @@ pub struct RunArgs {
     #[arg(long)]
     pub collaborator: Option<String>,
 
-    /// Export destination: `terminal`, `csv`, `json`, `local`, `online`, `prometheus`, `logfile`.
+    /// Export destination: `terminal`, `csv`, `json`, `online`, `prometheus`, `logfile`.
     #[arg(short, long, default_value = "terminal")]
     pub output: String,
 
@@ -109,4 +112,30 @@ pub struct MonitorArgs {
     /// Sampling interval in seconds.
     #[arg(long, default_value = "1.0")]
     pub interval: f64,
+}
+
+/// CLI arguments for the local headless monitor (`ecocode monitor-local`).
+/// Spawned by the Python SDK when the user selects a local exporter (no API key needed).
+/// Reads markers from stdin and writes records to a local exporter.
+#[derive(Args, Debug)]
+pub struct MonitorLocalArgs {
+    /// Run ID (already created by the Python SDK via the local exporter).
+    #[arg(long)]
+    pub run_id: i64,
+
+    /// PID of the process to monitor.
+    #[arg(long)]
+    pub pid: u32,
+
+    /// Sampling interval in seconds.
+    #[arg(long, default_value = "1.0")]
+    pub interval: f64,
+
+    /// Local exporter type: `terminal`, `csv`, or `json`.
+    #[arg(long, default_value = "terminal")]
+    pub exporter: String,
+
+    /// Output file path (required for `csv` and `json` exporters).
+    #[arg(long)]
+    pub file: Option<String>,
 }

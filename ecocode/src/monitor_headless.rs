@@ -11,7 +11,7 @@ use ecocode_core::sensor::gpu::{
 };
 use ecocode_core::sensor::rapl::{delta_cpu_energy_per_pid_j, get_all_energies, scan_rapl_files};
 use nvml_wrapper::Nvml;
-use sqlx::types::chrono::Utc;
+use chrono::Utc;
 use std::collections::HashMap;
 use std::io::{self, BufRead};
 use std::sync::{Arc, Mutex};

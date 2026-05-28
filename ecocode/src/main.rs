@@ -7,15 +7,18 @@
 //!
 //! Measurements are attributed to the target PID using proportional resource
 //! usage and exported in one of seven formats (terminal, CSV, JSON, SQLite, Online, Prometheus, logfile).
+//!
+//! Exporter selection is explicit — no data is ever sent to the network without
+//! the user choosing `--output online` (CLI) or `exporter="online"` (Python SDK).
 
 use clap::Parser;
 
-mod carbon;
 mod cli;
 mod configs;
 mod exporter;
 mod monitor;
 mod monitor_headless;
+mod monitor_local;
 
 use cli::{Cli, TopCommand};
 
@@ -25,6 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match cli.command {
         TopCommand::Run(args) => monitor::run_monitoring(args).await,
         TopCommand::Monitor(args) => monitor_headless::run_headless_monitor(args).await,
+        TopCommand::MonitorLocal(args) => monitor_local::run_local_monitor(args).await,
         TopCommand::Config { action } => configs::handle_config_command(action),
     }
 }

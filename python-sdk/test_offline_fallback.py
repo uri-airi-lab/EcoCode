@@ -14,7 +14,7 @@ class TestOfflineFallback(unittest.TestCase):
             warnings.simplefilter("always")
             
             # This should NOT raise an exception and should successfully fall back
-            with ecocode.run("test-offline-run") as run:
+            with ecocode.run("test-offline-run", exporter="online") as run:
                 # Verify it set the mode to noop
                 self.assertEqual(run._mode, "noop")
             

@@ -4,14 +4,13 @@
 //! - [`terminal`] — pretty-printed table to stdout
 //! - [`csv`] — comma-separated values file
 //! - [`json`] — JSON array file
-//! - [`sqlite`] — SQLite database
+//! - [`local`] — SQLite database (local, no account required)
+//! - [`online`] — EcoCode SaaS platform (requires API key)
 //! - [`prometheus`] — Prometheus metrics endpoint via HTTP
 //! - [`logfile`] — formatted log file
 
 pub mod csv;
-pub mod dual;
 pub mod json;
-pub mod local;
 pub mod logfile;
 pub mod online;
 pub mod prometheus;
@@ -165,7 +164,6 @@ pub enum ExporterType {
     Terminal,
     Csv,
     Json,
-    Local,
     Online,
     Prometheus,
     LogFile,
@@ -178,7 +176,6 @@ impl std::fmt::Display for ExporterType {
             ExporterType::Terminal => write!(f, "terminal"),
             ExporterType::Csv => write!(f, "csv"),
             ExporterType::Json => write!(f, "json"),
-            ExporterType::Local => write!(f, "local"),
             ExporterType::Online => write!(f, "online"),
             ExporterType::Prometheus => write!(f, "prometheus"),
             ExporterType::LogFile => write!(f, "logfile"),
@@ -199,6 +196,7 @@ pub struct SystemInfo {
 pub struct ProjectInfo {
     pub id: i64,
     pub selected_collaborator_name: Option<String>,
+    #[allow(dead_code)]
     pub collaborators: Vec<String>,
     pub is_new: bool,
 }

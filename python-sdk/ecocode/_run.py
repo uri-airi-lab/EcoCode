@@ -2,17 +2,38 @@
 
 Supports three usage patterns:
     # Context manager
-    with ecocode.run("name", api_key="eco_...") as run: ...
+    with ecocode.run("name", exporter="local") as run: ...
 
     # Decorator
-    @ecocode.track("name", api_key="eco_...")
+    @ecocode.track("name", exporter="local")
     def train(): ...
 
     # Explicit start/stop
-    run = ecocode.run("name", api_key="eco_...")
+    run = ecocode.run("name", exporter="local")
     run.start()
     ...
     run.stop()
+
+Exporter modes
+--------------
+exporter="local" (default)
+    Records are written to a local SQLite database.
+    No API key required. No network traffic.
+    db_path controls where the database is stored
+    (default: ~/.ecocode/ecocode.db).
+
+exporter="terminal"
+    Energy metrics are printed to stdout in real time.
+    No API key, no network traffic.
+
+exporter="csv" / exporter="json"
+    Records written to the file specified by output_file.
+    No API key, no network traffic.
+
+exporter="online"
+    Records sent to the EcoCode SaaS platform.
+    Requires api_key (or ECOCODE_API_KEY env var).
+    Use this to access the web dashboard and workspaces.
 """
 
 from __future__ import annotations
@@ -61,6 +82,9 @@ _SUBPROCESS_ENV_PASSTHROUGH = frozenset({
     "SYSTEM_ROOT", "SYSTEMROOT",
 })
 
+# Exporters that are handled entirely locally (no API key, no network).
+_LOCAL_EXPORTERS = frozenset({"terminal", "csv", "json", "logfile"})
+
 
 class EcoCodeRun:
     """Context manager for tracking an ML run's energy and semantic markers."""
@@ -69,22 +93,36 @@ class EcoCodeRun:
         self,
         name: str,
         *,
+        exporter: str = "terminal",
+        output_file: Optional[str] = None,
+        db_path: Optional[str] = None,
         api_key: Optional[str] = None,
         project_id: Optional[int] = None,
         base_url: Optional[str] = None,
         interval: float = 1.0,
     ) -> None:
         self._name = name
+        self._exporter = exporter.lower().strip()
+        if self._exporter in ("local", "sqlite"):
+            import warnings
+            warnings.warn(
+                "[ecocode] The 'local' SQLite exporter is no longer supported and has been removed. "
+                "Falling back to the 'terminal' exporter.",
+                UserWarning,
+                stacklevel=2,
+            )
+            self._exporter = "terminal"
 
-        # Resolve API key and base URL from arguments then environment, and
-        # validate both eagerly so misconfiguration fails at construction time
-        # rather than at the first network call. (CS-CRED-002, CS-SSRF-001)
-        raw_key = api_key or os.environ.get("ECOCODE_API_KEY")
-        self._api_key: Optional[str] = validate_api_key(raw_key) if raw_key else None
+        if db_path:
+            import warnings
+            warnings.warn(
+                "[ecocode] The 'db_path' argument is obsolete and ignored because the local SQLite exporter was removed.",
+                UserWarning,
+                stacklevel=2,
+            )
 
-        raw_url = base_url or os.environ.get("ECOCODE_API_URL", _DEFAULT_BASE_URL)
-        self._base_url: str = validate_base_url(raw_url)
-
+        self._output_file = output_file
+        self._db_path = None  # Obsolete
         self._project_id = project_id
         self._interval = interval
         self._run_id: Optional[int] = None
@@ -92,6 +130,26 @@ class EcoCodeRun:
         self._pipe: PipeWriter = NullWriter()
         self._client: Optional[EcoCodeHTTPClient] = None
         self._mode: str = "unknown"
+
+        if self._exporter == "online":
+            # Resolve API key and base URL from arguments then environment, and
+            # validate both eagerly so misconfiguration fails at construction time
+            # rather than at the first network call. (CS-CRED-002, CS-SSRF-001)
+            raw_key = api_key or os.environ.get("ECOCODE_API_KEY")
+            self._api_key: Optional[str] = validate_api_key(raw_key) if raw_key else None
+
+            raw_url = base_url or os.environ.get("ECOCODE_API_URL", _DEFAULT_BASE_URL)
+            self._base_url: str = validate_base_url(raw_url)
+        else:
+            # Local exporters never touch the network.
+            self._api_key = None
+            self._base_url = _DEFAULT_BASE_URL
+
+        # Validate exporter-specific arguments early.
+        if self._exporter in ("csv", "json", "logfile") and not self._output_file:
+            raise ValueError(
+                f"[ecocode] output_file is required when using exporter='{self._exporter}'."
+            )
 
     # --- Context manager protocol ---
 
@@ -134,10 +192,65 @@ class EcoCodeRun:
 
             return self
 
-        # Standalone mode: SDK creates run + spawns monitor
+        # Standalone mode — branch on exporter type.
+        if self._exporter in _LOCAL_EXPORTERS:
+            return self._start_local_standalone()
+        else:
+            return self._start_online_standalone()
+
+    def _start_local_standalone(self) -> EcoCodeRun:
+        """Start a standalone run with a local exporter (no API key needed)."""
+        ecocode_bin = _resolve_ecocode_binary()
+
+        # Build safe environment for the subprocess.
+        safe_env: dict[str, str] = {
+            k: v
+            for k, v in os.environ.items()
+            if k in _SUBPROCESS_ENV_PASSTHROUGH
+        }
+
+        # For the local exporter we use `ecocode monitor-local` which writes to
+        # a local exporter without any network calls. Run ID 0 is a placeholder;
+        # the monitor will create/manage the run internally via the local exporter.
+        self._run_id = 0
+        self._mode = "standalone_local"
+
+        cmd = [
+            ecocode_bin,
+            "monitor-local",
+            "--run-id", str(self._run_id),
+            "--pid", str(os.getpid()),
+            "--interval", str(self._interval),
+            "--exporter", self._exporter,
+        ]
+        if self._output_file:
+            cmd += ["--file", self._output_file]
+
+        self._monitor_proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=None if self._exporter == "terminal" else subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env=safe_env,
+        )
+
+        import time as _time
+        _time.sleep(0.2)
+        rc = self._monitor_proc.poll()
+        if rc is not None:
+            raise RuntimeError(
+                f"[ecocode] monitor-local subprocess exited immediately (code {rc}).\n"
+                "Check that the ecocode binary is installed and the exporter path is writable."
+            )
+
+        self._pipe = PipeWriter(self._monitor_proc.stdin)
+        return self
+
+    def _start_online_standalone(self) -> EcoCodeRun:
+        """Start a standalone run posting records to the EcoCode online platform."""
         if not self._api_key:
             raise ValueError(
-                "api_key is required in standalone mode. "
+                "api_key is required when using exporter='online' in standalone mode. "
                 "Pass api_key= or set ECOCODE_API_KEY."
             )
 
@@ -164,47 +277,9 @@ class EcoCodeRun:
             self._mode = "noop"
             return self
 
-        # Spawn the energy monitor subprocess
-        ecocode_bin = shutil.which("ecocode")
-        if not ecocode_bin:
-            raise RuntimeError(
-                "[ecocode] CLI binary not found on PATH.\n"
-                "Install it with: pip install ecocode-monitor\n"
-                "Or reinstall:    pip install ecocode"
-            )
-
-        # CS-EXEC-001: Verify the resolved binary is actually executable and
-        # warn if it was found outside a set of expected trusted locations.
-        # This catches the case where a malicious binary named 'ecocode' has
-        # been prepended to PATH by a compromised shell profile or dependency.
-        try:
-            bin_stat = os.stat(ecocode_bin)
-            if not (bin_stat.st_mode & stat.S_IXUSR):
-                raise RuntimeError(
-                    f"[ecocode] Resolved binary '{ecocode_bin}' is not executable."
-                )
-        except OSError as exc:
-            raise RuntimeError(
-                f"[ecocode] Cannot stat binary '{ecocode_bin}': {exc}"
-            ) from exc
-
-        _trusted_prefixes = (
-            sys.prefix,                       # active Python venv / conda env
-            os.path.expanduser("~/.local"),   # user-local installs
-            "/usr", "/opt", "/bin", "/sbin",  # standard system locations
-        )
-        if not any(ecocode_bin.startswith(p) for p in _trusted_prefixes):
-            import warnings
-            warnings.warn(
-                f"[ecocode] Monitor binary resolved from an unexpected path: "
-                f"'{ecocode_bin}'. If you did not install EcoCode here, "
-                "check your PATH for unexpected entries.",
-                stacklevel=3,
-            )
+        ecocode_bin = _resolve_ecocode_binary()
 
         # CS-CRED-001: Build a minimal environment for the monitor subprocess.
-        # Never forward the full parent environment — it exposes every secret
-        # present in os.environ via /proc/<pid>/environ on Linux.
         safe_env: dict[str, str] = {
             k: v
             for k, v in os.environ.items()
@@ -213,7 +288,7 @@ class EcoCodeRun:
         safe_env["ECOCODE_API_KEY"] = self._api_key  # type: ignore[assignment]
         safe_env["ECOCODE_API_URL"] = self._base_url
 
-        self._mode = "standalone"
+        self._mode = "standalone_online"
         self._monitor_proc = subprocess.Popen(
             [
                 ecocode_bin,
@@ -231,7 +306,6 @@ class EcoCodeRun:
             env=safe_env,
         )
 
-        # Give the monitor a moment to start and detect early crashes.
         import time as _time
         _time.sleep(0.2)
         rc = self._monitor_proc.poll()
@@ -257,7 +331,7 @@ class EcoCodeRun:
                 self._monitor_proc.kill()
                 self._monitor_proc.wait()
 
-        if self._mode != "attached" and self._client and self._run_id:
+        if self._mode == "standalone_online" and self._client and self._run_id:
             status = "failed" if exc_type else "finished"
             ended_at = datetime.now(timezone.utc).isoformat()
             try:
@@ -277,7 +351,7 @@ class EcoCodeRun:
         """Stop tracking and finalize the run. Alternative to context manager exit."""
         self.__exit__(None, None, None)
 
-    # --- Marker API (identical signatures to the previous PyO3 class) ---
+    # --- Marker API ---
 
     def mark(self, key: str, value: Any) -> None:
         self._pipe.send({"event": str(key), "value": str(value)})
@@ -305,6 +379,50 @@ class EcoCodeRun:
 
     def log_custom(self, key: str, value: float) -> None:
         self._pipe.send({"event": "custom", "key": key, "value": value})
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _resolve_ecocode_binary() -> str:
+    """Locate and validate the ecocode CLI binary."""
+    ecocode_bin = shutil.which("ecocode")
+    if not ecocode_bin:
+        raise RuntimeError(
+            "[ecocode] CLI binary not found on PATH.\n"
+            "Install it with: pip install ecocode-monitor\n"
+            "Or reinstall:    pip install ecocode"
+        )
+
+    # CS-EXEC-001: Verify the resolved binary is actually executable and
+    # warn if it was found outside a set of expected trusted locations.
+    try:
+        bin_stat = os.stat(ecocode_bin)
+        if not (bin_stat.st_mode & stat.S_IXUSR):
+            raise RuntimeError(
+                f"[ecocode] Resolved binary '{ecocode_bin}' is not executable."
+            )
+    except OSError as exc:
+        raise RuntimeError(
+            f"[ecocode] Cannot stat binary '{ecocode_bin}': {exc}"
+        ) from exc
+
+    _trusted_prefixes = (
+        sys.prefix,                       # active Python venv / conda env
+        os.path.expanduser("~/.local"),   # user-local installs
+        "/usr", "/opt", "/bin", "/sbin",  # standard system locations
+    )
+    if not any(ecocode_bin.startswith(p) for p in _trusted_prefixes):
+        import warnings
+        warnings.warn(
+            f"[ecocode] Monitor binary resolved from an unexpected path: "
+            f"'{ecocode_bin}'. If you did not install EcoCode here, "
+            "check your PATH for unexpected entries.",
+            stacklevel=4,
+        )
+
+    return ecocode_bin
 
 
 def _collect_system_info() -> dict:

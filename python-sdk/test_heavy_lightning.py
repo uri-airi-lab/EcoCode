@@ -67,11 +67,12 @@ class ResNet50Module(pl.LightningModule):
         return {"optimizer": opt, "lr_scheduler": {"scheduler": sched, "interval": "step"}}
 
 
-api_key  = os.environ.get("ECOCODE_API_KEY")
-base_url = os.environ.get("ECOCODE_API_URL", "http://localhost:3001")
+json_path = "test_heavy_lightning.json"
+if os.path.exists(json_path):
+    os.remove(json_path)
 
 print(f"\n[Lightning heavy] Starting ResNet-50 training...")
-with ecocode.run("lightning-resnet50", api_key=api_key, base_url=base_url, interval=1.0) as eco_run:
+with ecocode.run("lightning-resnet50", exporter="json", output_file=json_path, interval=1.0) as eco_run:
     pl_model = ResNet50Module(n_classes=N_CLASSES, lr=1e-2)
     params   = sum(p.numel() for p in pl_model.parameters()) / 1e6
     print(f"[Lightning heavy] ResNet-50: {params:.1f}M params")
@@ -94,3 +95,6 @@ with ecocode.run("lightning-resnet50", api_key=api_key, base_url=base_url, inter
     print(f"\n[Lightning heavy] PASS  run_id={eco_run._run_id}  global_step={trainer.global_step}  val_acc={val_acc:.4f}")
     if device == "cuda":
         print(f"  VRAM peak: {torch.cuda.max_memory_allocated()/1e9:.2f}GB")
+
+if os.path.exists(json_path):
+    os.remove(json_path)

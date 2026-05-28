@@ -94,6 +94,34 @@ impl Exporter for TerminalExporter {
                     sm.energy / es
                 );
             }
+            if record.phase.is_some()
+                || record.tokens_processed.is_some()
+                || record.training_step.is_some()
+                || record.loss.is_some()
+                || record.learning_rate.is_some()
+                || record.sequence_length.is_some()
+            {
+                let mut parts = Vec::new();
+                if let Some(ref p) = record.phase {
+                    parts.push(format!("phase: {}", p));
+                }
+                if let Some(t) = record.tokens_processed {
+                    parts.push(format!("tokens: {}", t));
+                }
+                if let Some(s) = record.training_step {
+                    parts.push(format!("step: {}", s));
+                }
+                if let Some(l) = record.loss {
+                    parts.push(format!("loss: {:.4}", l));
+                }
+                if let Some(lr) = record.learning_rate {
+                    parts.push(format!("lr: {:.2e}", lr));
+                }
+                if let Some(seq) = record.sequence_length {
+                    parts.push(format!("seqlen: {}", seq));
+                }
+                println!("      └─ Marker: {}", parts.join(" | "));
+            }
         }
         println!("{}\n", "=".repeat(128));
 
@@ -164,6 +192,34 @@ impl Exporter for TerminalExporter {
                 sm.domain,
                 sm.energy / es
             );
+        }
+        if r.phase.is_some()
+            || r.tokens_processed.is_some()
+            || r.training_step.is_some()
+            || r.loss.is_some()
+            || r.learning_rate.is_some()
+            || r.sequence_length.is_some()
+        {
+            let mut parts = Vec::new();
+            if let Some(ref p) = r.phase {
+                parts.push(format!("phase: {}", p));
+            }
+            if let Some(t) = r.tokens_processed {
+                parts.push(format!("tokens: {}", t));
+            }
+            if let Some(s) = r.training_step {
+                parts.push(format!("step: {}", s));
+            }
+            if let Some(l) = r.loss {
+                parts.push(format!("loss: {:.4}", l));
+            }
+            if let Some(lr) = r.learning_rate {
+                parts.push(format!("lr: {:.2e}", lr));
+            }
+            if let Some(seq) = r.sequence_length {
+                parts.push(format!("seqlen: {}", seq));
+            }
+            println!("      └─ Marker: {}", parts.join(" | "));
         }
 
         Ok(())

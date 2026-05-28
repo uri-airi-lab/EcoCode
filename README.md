@@ -6,7 +6,7 @@
 
 **High-precision, multi-GPU energy monitoring for sustainable software development**
 
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-BUSL--1.1-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
 
 </div>
@@ -82,3 +82,14 @@ For advanced configurations, integration guides, and platform setup, refer to th
 * 🐍 **[Python SDK & ML Integrations Guide](python-sdk/README.md)** — callback references for HuggingFace, PyTorch Lightning, TRL, Keras, DeepSpeed, vLLM, and ONNX Runtime.
 * 🌐 **[Web Platform & Self-Hosting Guide](web/README.md)** — setup instruction for the Axum backend, Next.js frontend, PostgreSQL schema, and Docker Compose deployment.
 * 📐 **[EcoCode CLI Architecture](ARCHITECTURE.md)** — deep dive into sensor readers, wrap-around correction algorithms, and IPC design.
+
+---
+
+## License
+
+EcoCode's core CLI (`ecocode/`) and Python SDK (`python-sdk/`) are licensed under the [Business Source License 1.1](LICENSE) (BUSL-1.1).
+- **Non-Commercial Use:** Free to read, copy, modify, redistribute, and use.
+- **Commercial Use:** Requires a separate commercial license. See [COMMERCIAL_LICENSE.md](COMMERCIAL_LICENSE.md) for licensing inquiries.
+
+The web platform (`web/`) is proprietary.
+

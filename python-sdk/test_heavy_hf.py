@@ -77,11 +77,12 @@ ds = ds.with_format("torch")
 
 collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
-api_key = os.environ.get("ECOCODE_API_KEY")
-base_url = os.environ.get("ECOCODE_API_URL", "http://localhost:3001")
+log_path = "test_heavy_hf.log"
+if os.path.exists(log_path):
+    os.remove(log_path)
 
 print(f"\n[HF heavy] Starting training run ({len(ds)} samples, seq_len=128)...")
-with ecocode.run("hf-gpt2-finetune", api_key=api_key, base_url=base_url, interval=1.0) as eco_run:
+with ecocode.run("hf-gpt2-finetune", exporter="logfile", output_file=log_path, interval=1.0) as eco_run:
     training_args = TrainingArguments(
         output_dir="/tmp/hf_heavy_xl",
         num_train_epochs=10,
@@ -111,3 +112,6 @@ with ecocode.run("hf-gpt2-finetune", api_key=api_key, base_url=base_url, interva
     print(f"  steps={trainer.state.global_step}  loss={result.training_loss:.4f}")
     if device == "cuda":
         print(f"  VRAM peak: {torch.cuda.max_memory_allocated()/1e9:.2f}GB")
+
+if os.path.exists(log_path):
+    os.remove(log_path)

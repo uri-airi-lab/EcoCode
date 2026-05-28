@@ -1,21 +1,28 @@
-MIT License
+Business Source License 1.1
 
-Copyright (c) 2026 Mohamed Aziz Khezami | Professor Abdeltawab Hendawi | University of Rhode Island
+Parameters
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+Licensor:             Mohamed Aziz Khezami | Professor Abdeltawab Hendawi | University of Rhode Island
+Licensed Work:        EcoCode (excluding the web application under the web/ directory)
+Additional Use Grant: Any non-commercial use is permitted. Users may read, use, copy, modify, and redistribute the code for non-commercial purposes. Commercial use or exploitation of any kind is strictly prohibited without a separate commercial license from the Licensor.
+Change Date:          9999-01-01
+Change License:       Apache License 2.0
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+Text of the License:
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+1. Grant of License.
+Licensor hereby grants you the right to copy, modify, create derivative works, redistribute, and make non-production use of the Licensed Work. The Licensed Work may also be used for production use, but only as allowed by the Additional Use Grant.
+
+Any use of the Licensed Work in production that is not allowed by the Additional Use Grant requires a commercial license from the Licensor under separate terms.
+
+2. Change of License.
+On the Change Date, or the fifth anniversary of the first public release of a version of the Licensed Work under this License, whichever is earlier, the Licensor hereby grants to you the right to copy, modify, create derivative works, redistribute, and use the Licensed Work, under the Change License.
+
+3. Termination.
+This License and the rights granted hereunder will terminate automatically if you fail to comply with any of its terms.
+
+4. Disclaimer of Warranty.
+THE LICENSED WORK IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE LICENSED WORK OR THE USE OR OTHER DEALINGS IN THE LICENSED WORK.
+
+5. Miscellaneous.
+All rights not expressly granted under this License are reserved by Licensor.

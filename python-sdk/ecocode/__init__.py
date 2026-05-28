@@ -7,19 +7,27 @@ token counts, optimizer steps, loss, learning rate, and sequence length.
 Three equivalent usage patterns:
 
   Context manager:
-      with ecocode.run("experiment", api_key="eco_...") as r:
+      with ecocode.run("experiment", exporter="terminal") as r:
           r.mark("phase", "forward")
           r.log_loss(1.45)
 
   Decorator:
-      @ecocode.track("experiment", api_key="eco_...")
+      @ecocode.track("experiment", exporter="terminal")
       def train(): ...
 
   Explicit start/stop:
-      r = ecocode.run("experiment", api_key="eco_...")
+      r = ecocode.run("experiment", exporter="terminal")
       r.start()
       train()
       r.stop()
+
+Exporter options
+----------------
+  exporter="terminal" (default) — Print live metrics to stdout.
+  exporter="csv"                — Write to a CSV file (requires output_file=).
+  exporter="json"               — Write to a JSON file (requires output_file=).
+  exporter="online"             — Send to the EcoCode SaaS dashboard
+                                  (requires api_key= or ECOCODE_API_KEY).
 
 Attached mode (CLI wrapping) is auto-detected from environment variables.
 
@@ -50,7 +58,7 @@ from typing import Callable, Optional, TypeVar
 
 from ._run import EcoCodeRun
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 __all__ = ["run", "track", "EcoCodeRun"]
 
 F = TypeVar("F", bound=Callable)
@@ -59,6 +67,9 @@ F = TypeVar("F", bound=Callable)
 def run(
     name: str = "run",
     *,
+    exporter: str = "terminal",
+    output_file: Optional[str] = None,
+    db_path: Optional[str] = None,
     api_key: Optional[str] = None,
     project_id: Optional[int] = None,
     base_url: Optional[str] = None,
@@ -67,15 +78,37 @@ def run(
     """
     Return an EcoCodeRun context manager.
 
-    In attached mode (CLI running), name/api_key/project_id are ignored —
-    the run was already created by the CLI.
+    Parameters
+    ----------
+    name : str
+        Human-readable label for this run.
+    exporter : str
+        Where to store results:
+        - "terminal" (default) — print metrics to stdout.
+        - "csv"      — CSV file (requires output_file=).
+        - "json"     — JSON file (requires output_file=).
+        - "online"   — EcoCode SaaS platform (requires api_key=).
+    output_file : str, optional
+        Output path for csv/json exporters.
+    db_path : str, optional
+        (Obsolete/Ignored) Path to the SQLite database file.
+    api_key : str, optional
+        API key for the online exporter. Also read from ECOCODE_API_KEY.
+    project_id : int, optional
+        Project ID for the online exporter. Inferred from API key if omitted.
+    base_url : str, optional
+        Override the EcoCode backend URL (online exporter only).
+    interval : float
+        Sampling interval in seconds (default: 1.0).
 
-    When using a project-scoped API key (generated from the dashboard with a
-    project selected), project_id can be omitted — the backend infers it from
-    the key automatically.
+    In attached mode (CLI running), most parameters are ignored — the run was
+    already created by the CLI.
     """
     return EcoCodeRun(
         name,
+        exporter=exporter,
+        output_file=output_file,
+        db_path=db_path,
         api_key=api_key,
         project_id=project_id,
         base_url=base_url,
@@ -86,6 +119,9 @@ def run(
 def track(
     name: Optional[str] = None,
     *,
+    exporter: str = "terminal",
+    output_file: Optional[str] = None,
+    db_path: Optional[str] = None,
     api_key: Optional[str] = None,
     project_id: Optional[int] = None,
     base_url: Optional[str] = None,
@@ -95,7 +131,11 @@ def track(
     Decorator that wraps a function in an EcoCodeRun context.
 
     Usage:
-        @ecocode.track(project_id=42, api_key="eco_...")
+        @ecocode.track(exporter="terminal")
+        def train():
+            ...
+
+        @ecocode.track(exporter="online", api_key="eco_...")
         def train():
             ...
     """
@@ -106,6 +146,9 @@ def track(
         def wrapper(*args, **kwargs):
             with EcoCodeRun(
                 run_name,
+                exporter=exporter,
+                output_file=output_file,
+                db_path=db_path,
                 api_key=api_key,
                 project_id=project_id,
                 base_url=base_url,

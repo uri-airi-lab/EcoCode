@@ -60,6 +60,8 @@ ecocode/
     ├── main.rs            # Entry point — parses CLI, dispatches to monitor or config
     ├── cli.rs             # All clap flag/subcommand definitions
     ├── monitor.rs         # Core loop: process spawning, sampling, exporter dispatch
+    ├── monitor_headless.rs # Headless monitor spawned by Python SDK for online exports
+    ├── monitor_local.rs   # Headless monitor spawned by Python SDK for local exports
     ├── carbon.rs          # CO2 formula + static intensity table (50 countries, IEA 2025)
     ├── configs.rs         # `ecocode config` handler (set/clear/show API key)
     └── exporter/
@@ -70,8 +72,7 @@ ecocode/
         ├── local.rs       # Insert into SQLite (via sqlx)
         ├── online.rs      # HTTP POST to backend (reqwest, Bearer auth)
         ├── prometheus.rs  # Prometheus gauge metrics on :9091 (warp HTTP server)
-        ├── logfile.rs     # Write formatted log file (BufWriter)
-        └── dual.rs        # Fan-out to primary + online simultaneously
+        └── logfile.rs     # Write formatted log file (BufWriter)
 ```
 
 The sensors live in `crates/core/` and are shared with the Python SDK:
@@ -223,7 +224,6 @@ sudo ecocode --intensity 52.0 --price 0.12 -o online -- python train.py
 | `prometheus` | `-o prometheus` | — | Expose Prometheus gauges on `http://localhost:9091/metrics` |
 | `logfile` | `-o logfile -f run.log` | `--file` | Write human-readable log file |
 
-All formats except `online` also silently mirror records to the online backend when an API key is available, via `DualExporter`.
 
 ### Options Reference
 
@@ -298,11 +298,7 @@ Spawns a `warp` HTTP server in a background `tokio::spawn` task. Metrics are upd
 | `ecocode_gpu_energy_watts_per_device` | `device_index` | Per-GPU power (W) |
 | `ecocode_socket_energy_watts_per_domain` | `socket`, `domain` | Per-socket RAPL power (W) |
 
-### Dual (`dual.rs`)
 
-Wraps any primary exporter plus `OnlineExporter`. Every `Exporter` method is delegated to both — the online side absorbs failures as `eprintln!` warnings so the primary export is never interrupted by a network error. The exporter type label sent to the backend reflects the primary format (e.g. `"csv"` or `"terminal"`).
-
----
 
 ## Energy Attribution Model
 

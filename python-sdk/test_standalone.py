@@ -96,20 +96,6 @@ def generate_fake_cifar(n_samples=2000):
 
 
 def main():
-    api_key = os.environ.get("ECOCODE_API_KEY")
-    if not api_key:
-        print("ERROR: Set ECOCODE_API_KEY first.")
-        print("  export ECOCODE_API_KEY=eco_...")
-        sys.exit(1)
-
-    base_url = os.environ.get("ECOCODE_API_URL", "http://localhost:3001")
-    print(f"[test] Backend: {base_url}")
-    # CS-LEAK-002: Never print significant key material to stdout.
-    # The previous code printed the first 12 chars, leaking 8 chars of entropy.
-    # Show only the last 4 chars (like a credit card).
-    prefix = "ecocode_" if api_key.startswith("ecocode_") else "eco_"
-    masked_key = f"{prefix}****...{api_key[-4:]}" if len(api_key) > len(prefix) + 4 else f"{prefix}****"
-    print(f"[test] API key: {masked_key}")
     print(f"[test] PyTorch: {torch.__version__}")
     print(f"[test] Device:  CPU")
     print()
@@ -137,17 +123,21 @@ def main():
     # STANDALONE MODE: SDK spawns monitor subprocess
     # =============================================
     print("\n" + "=" * 60)
-    print("  STANDALONE MODE TEST")
+    print("  STANDALONE LOCAL MODE TEST")
     print("=" * 60 + "\n")
+
+    csv_path = "test_standalone.csv"
+    if os.path.exists(csv_path):
+        os.remove(csv_path)
 
     with ecocode.run(
         "resnet-cifar10-standalone-test",
-        api_key=api_key,
-        base_url=base_url,
+        exporter="csv",
+        output_file=csv_path,
         interval=1.0,
     ) as run:
 
-        print(f"[ecocode] Run started (mode should be standalone)")
+        print(f"[ecocode] Run started (mode should be standalone_local, exporting to CSV)")
         print(f"[ecocode] Run ID: {run._run_id}")
         print(f"[ecocode] Mode:   {run._mode}")
         print()
@@ -231,7 +221,11 @@ def main():
         run.mark("phase", "done")
         print(f"[ecocode] Training complete. {global_step} steps, {total_tokens:,} tokens")
 
-    print("\n[test] Standalone mode test PASSED — run completed cleanly.")
+    # Clean up test CSV
+    if os.path.exists(csv_path):
+        os.remove(csv_path)
+
+    print("\n[test] Standalone local mode test PASSED — run completed cleanly.")
 
 
 if __name__ == "__main__":

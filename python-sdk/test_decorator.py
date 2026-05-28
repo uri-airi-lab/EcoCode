@@ -6,18 +6,14 @@ import torch.optim as optim
 import torchvision.models as models
 import ecocode
 
-# Resolve configurations
-os.environ.setdefault("ECOCODE_API_URL", "http://localhost:3001")
-if not os.environ.get("ECOCODE_API_KEY"):
-    os.environ["ECOCODE_API_KEY"] = "ecocode_fhAIugP2IeEDrRYiKD5Fl3exDWEGCIe0"
-
-api_key = os.environ["ECOCODE_API_KEY"]
-base_url = os.environ["ECOCODE_API_URL"]
+json_path = "test_decorator.json"
+if os.path.exists(json_path):
+    os.remove(json_path)
 
 @ecocode.track(
     name="decorator-pytorch-cuda-resnet50-heavy",
-    api_key=api_key,
-    base_url=base_url,
+    exporter="json",
+    output_file=json_path,
     interval=0.2
 )
 def train_model():
@@ -71,4 +67,5 @@ def train_model():
     return True
 
 if __name__ == "__main__":
+
     train_model()
