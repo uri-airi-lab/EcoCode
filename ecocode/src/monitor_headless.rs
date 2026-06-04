@@ -245,10 +245,13 @@ pub async fn run_headless_monitor(args: MonitorArgs) -> Result<(), Box<dyn std::
         let tree_pids = get_process_tree_pids_from_sys(&sys, target_pid);
 
         // --- CPU usage ---
-        const CLK_TCK: f64 = 100.0;
+        let clk_tck = {
+            let tck = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+            if tck > 0 { tck as f64 } else { 100.0 }
+        };
         let now_tick = std::time::Instant::now();
         let tick_elapsed = now_tick.duration_since(prev_tick_time).as_secs_f64();
-        let elapsed_ticks = tick_elapsed * CLK_TCK;
+        let elapsed_ticks = tick_elapsed * clk_tck;
 
         let leaders: Vec<u32> = tree_pids
             .iter()
