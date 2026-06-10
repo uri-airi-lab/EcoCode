@@ -62,3 +62,8 @@ paper/
 web/deploy-azure.local.sh
 
 *.excalidraw
+
+
+.vscode/*
+.idea/*
+.github
