@@ -6,12 +6,9 @@ Thank you for your interest in contributing to EcoCode! We welcome contributions
 
 ## Technical Stack & Layout
 
-The project consists of three main components:
+The project consists of two main components:
 1. **CLI & Core Engine (`ecocode/` and `crates/core/`)**: Written in Rust, reads direct hardware counters (RAPL & NVML) and performs energy attribution.
 2. **Python SDK (`python-sdk/`)**: Integrates with machine learning frameworks and communicates via OS pipes with the monitor process.
-3. **Web Dashboard (`web/`)**:
-   - **Backend (`web/backend/`)**: Axum-based REST API and Server-Sent Events (SSE) server written in Rust.
-   - **Frontend (`web/frontend/`)**: Next.js (TypeScript) dashboard.
 
 ---
 
@@ -21,8 +18,6 @@ The project consists of three main components:
 - **Linux OS** (RAPL counters are Linux-specific).
 - **Intel CPU** (for RAPL energy readings) and/or **NVIDIA GPU + Drivers** (for NVML readings).
 - **Rust Toolchain** (1.75+).
-- **Node.js** (v18+) and package manager (npm / pnpm).
-- **PostgreSQL** database (for web dashboard backend).
 - **Python** (3.8+) with `pip`.
 
 ### 1. Setting Up the Rust Engine & CLI
@@ -36,32 +31,7 @@ To run the CLI, you will need read access to RAPL counters. The CLI automaticall
 sudo chmod -R +r /sys/class/powercap/intel-rapl/
 ```
 
-### 2. Setting Up the Web Dashboard
-**Backend:**
-1. Create a PostgreSQL database (e.g., named `ecocode`).
-2. Copy `web/backend/.env.example` to `web/backend/.env` and update the database URL and JWT secret:
-   ```bash
-   cp web/backend/.env.example web/backend/.env
-   ```
-3. Run the backend:
-   ```bash
-   cd web/backend
-   cargo run
-   ```
-   *The database schema will automatically migrate and initialize on start.*
-
-**Frontend:**
-1. Navigate to the frontend directory:
-   ```bash
-   cd web/frontend
-   ```
-2. Install dependencies and run in development mode:
-   ```bash
-   npm install
-   npm run dev
-   ```
-
-### 3. Setting Up the Python SDK
+### 2. Setting Up the Python SDK
 To install the SDK locally in editable mode:
 ```bash
 cd python-sdk
@@ -79,7 +49,6 @@ python test_start_stop.py
 1. **Fork the Repository:** Create your own branch from `main`.
 2. **Coding Standards:**
    - **Rust:** Run `cargo fmt` and `cargo clippy` before committing.
-   - **Frontend:** Run `npm run lint` and ensure TypeScript checks pass.
    - **Python:** Format with standard pep8/black styling.
 3. **Write Tests:** Add unit or integration tests for new features.
 4. **Submit PR:** Write a descriptive pull request summary explaining what you changed and why.

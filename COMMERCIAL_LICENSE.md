@@ -16,5 +16,5 @@ See the [LICENSE](LICENSE) file for the full license text, or visit <https://www
 
 For questions about the license or commercial partnerships, please contact:
 
-- **Mohamed Aziz Khezami** / **Professor Abdeltawab Hendawi**
+- **Mohamed Aziz Khezami: [mohamedaziz.khezami@uri.edu]** / **Professor Abdeltawab Hendawi: [hendawi@uri.edu]**
 - **University of Rhode Island**

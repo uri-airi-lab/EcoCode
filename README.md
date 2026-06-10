@@ -78,16 +78,16 @@ with ecocode.run("llama3-finetune", api_key="eco_...") as run:
 
 For advanced configurations, integration guides, and platform setup, refer to the following sub-folder guides:
 
-* 🛠️ **[CLI Reference & Installation Guide](ecocode/README.md)** — detailed usage, CLI flags, CSV/JSON/logfile/Prometheus exporters, and permissions.
-* 🐍 **[Python SDK & ML Integrations Guide](python-sdk/README.md)** — callback references for HuggingFace, PyTorch Lightning, TRL, Keras, DeepSpeed, vLLM, and ONNX Runtime.
-* 🌐 **[Web Platform & Self-Hosting Guide](web/README.md)** — setup instruction for the Axum backend, Next.js frontend, PostgreSQL schema, and Docker Compose deployment.
-* 📐 **[EcoCode CLI Architecture](ARCHITECTURE.md)** — deep dive into sensor readers, wrap-around correction algorithms, and IPC design.
+* **[Getting Started Tutorial](TUTORIAL.md)** — step-by-step guide: install the CLI, run your first experiment, and use the Python SDK with ML framework callbacks.
+* **[CLI Reference & Installation Guide](ecocode/README.md)** — detailed usage, CLI flags, CSV/JSON/logfile/Prometheus exporters, and permissions.
+* **[Python SDK & ML Integrations Guide](python-sdk/README.md)** — callback references for HuggingFace, PyTorch Lightning, TRL, Keras, DeepSpeed, vLLM, and ONNX Runtime.
+* **[EcoCode CLI Architecture](ARCHITECTURE.md)** — deep dive into sensor readers, wrap-around correction algorithms, and IPC design.
 
 ---
 
 ## License
 
-EcoCode (CLI, Python SDK, and web platform) is licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only).
+EcoCode (CLI and Python SDK) is licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only).
 
 You are free to use, modify, and distribute this software under the terms of the AGPL-3.0. If you run a modified version as a network service, you must make the complete corresponding source code available to users of that service.
 
