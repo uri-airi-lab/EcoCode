@@ -6,7 +6,7 @@
 
 **High-precision, multi-GPU energy monitoring for sustainable software development**
 
-[![License](https://img.shields.io/badge/License-BUSL--1.1-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
 
 </div>
@@ -87,9 +87,9 @@ For advanced configurations, integration guides, and platform setup, refer to th
 
 ## License
 
-EcoCode's core CLI (`ecocode/`) and Python SDK (`python-sdk/`) are licensed under the [Business Source License 1.1](LICENSE) (BUSL-1.1).
-- **Non-Commercial Use:** Free to read, copy, modify, redistribute, and use.
-- **Commercial Use:** Requires a separate commercial license. See [COMMERCIAL_LICENSE.md](COMMERCIAL_LICENSE.md) for licensing inquiries.
+EcoCode (CLI, Python SDK, and web platform) is licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only).
 
-The web platform (`web/`) is proprietary.
+You are free to use, modify, and distribute this software under the terms of the AGPL-3.0. If you run a modified version as a network service, you must make the complete corresponding source code available to users of that service.
+
+See the [LICENSE](LICENSE) file for the full license text.
 

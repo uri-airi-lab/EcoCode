@@ -1,23 +1,20 @@
-# Commercial Licensing
+# License
 
-EcoCode is open-core. The core CLI and Python SDK are licensed under the **Business Source License 1.1 (BUSL-1.1)**, which permits free use, modification, and redistribution for all non-commercial purposes.
+EcoCode is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0-only)**.
 
-If you wish to use EcoCode for commercial purposes (including but not limited to integrating it into commercial software/products, running it in commercial production environments, or offering commercial services based on it), you must obtain a separate **Commercial License**.
+Under the AGPL-3.0, you are free to:
 
-## Why obtain a Commercial License?
+- **Use** the software for any purpose, including commercial use.
+- **Study and modify** the source code.
+- **Distribute** copies of the original or modified software.
 
-- **Commercial Use Permission:** Legally run and distribute EcoCode in commercial products and SaaS platforms.
-- **Enterprise Support:** Receive direct support and implementation guidance from the creators of EcoCode.
-- **Influence the Roadmap:** Prioritize features and integrations critical to your organization.
+**Key obligation:** If you run a modified version of EcoCode as a network service (e.g., a hosted SaaS platform), you must make the complete corresponding source code available to users of that service under the same AGPL-3.0 license.
 
-## How to get a Commercial License
+See the [LICENSE](LICENSE) file for the full license text, or visit <https://www.gnu.org/licenses/agpl-3.0.html>.
 
-To inquire about a commercial license, please contact:
+## Contact
+
+For questions about the license or commercial partnerships, please contact:
 
 - **Mohamed Aziz Khezami** / **Professor Abdeltawab Hendawi**
 - **University of Rhode Island**
-
-Please include:
-1. Your organization name and website.
-2. A brief description of your use case and how you plan to integrate/use EcoCode.
-3. Estimated scale of usage (e.g., number of developers, nodes, or runs).

@@ -840,7 +840,7 @@ EPOCHS=30 BATCH_SIZE=256 LR=3e-4 API_KEY=eco_... python demo_training.py
 | Name | `ecocode` |
 | Version | `0.3.0` |
 | Python | >= 3.9 |
-| License | BUSL-1.1 |
+| License | AGPL-3.0-only |
 | Build backend | [Hatchling](https://hatch.pypa.io/) |
 | Dependencies | None (pure Python, stdlib only) |
 | Keywords | energy, carbon, ml, llm, monitoring, sustainability, rlhf, training |
