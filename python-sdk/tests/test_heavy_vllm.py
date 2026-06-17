@@ -6,7 +6,6 @@ Heavy vLLM Tracker Integration Test
             256 decode tokens each, measuring prefill vs decode energy split
 """
 import os, time, math
-os.environ.setdefault("ECOCODE_API_URL", "http://localhost:3001")
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 import torch
@@ -21,9 +20,9 @@ MODEL = "gpt2"
 print(f"[vLLM Tracker heavy] Loading {MODEL}...")
 
 api_key  = os.environ.get("ECOCODE_API_KEY")
-base_url = os.environ.get("ECOCODE_API_URL", "http://localhost:3001")
+base_url = os.environ.get("ECOCODE_API_URL")  # None -> SDK uses its _DEFAULT_BASE_URL
 
-with ecocode.run("vllm-gpt2xl-generation", api_key=api_key, base_url=base_url, interval=1.0) as eco_run:
+with ecocode.run("vllm-gpt2xl-generation", exporter="online", api_key=api_key, base_url=base_url, interval=1.0) as eco_run:
     tracker = InferencePhaseTracker(eco_run)
 
     # ── Phase: model_load ─────────────────────────────────────

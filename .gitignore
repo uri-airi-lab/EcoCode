@@ -67,3 +67,6 @@ web/deploy-azure.local.sh
 .vscode/*
 .idea/*
 .github
+
+
+web

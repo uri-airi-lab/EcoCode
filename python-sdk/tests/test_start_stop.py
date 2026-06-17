@@ -10,7 +10,6 @@ Usage:
 import os
 import sys
 
-os.environ.setdefault("ECOCODE_API_URL", "http://localhost:3001")
 
 import torch
 import torch.nn as nn
@@ -49,7 +48,7 @@ def main():
 
     run = ecocode.run(
         "start-stop-test",
-        exporter="terminal",
+        exporter="online",
         interval=1.0,
     )
 

@@ -88,7 +88,7 @@ def main():
     print("  ATTACHED MODE TEST")
     print("=" * 60 + "\n")
 
-    with ecocode.run() as run:  # no api_key needed — CLI manages the run
+    with ecocode.run(exporter="online") as run:  # no api_key needed — CLI manages the run
 
         print(f"[ecocode] Mode:   {run._mode}")
         print(f"[ecocode] Run ID: {run._run_id}")

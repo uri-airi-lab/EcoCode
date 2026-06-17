@@ -21,7 +21,7 @@ from vllm import AsyncLLMEngine, AsyncEngineArgs, SamplingParams
 async def run_real_vllm_demo():
     model_id = "Qwen/Qwen2.5-0.5B-Instruct"
     run_name = "vllm-long-qwen-0.5b"
-    api_key = "ecocode_SvB6ETEjqwdJVjd6x2QkfdBZqXObta0F"
+    api_key = os.environ.get("ECOCODE_API_KEY")
     
     engine_args = AsyncEngineArgs(
         model=model_id,
@@ -34,7 +34,7 @@ async def run_real_vllm_demo():
 
     print(f"\n🚀 Initializing vLLM for a LONG run with {model_id}...")
     
-    with ecocode.run(run_name, api_key=api_key, interval=0.5) as run:
+    with ecocode.run(run_name, exporter="online", api_key=api_key, interval=0.5) as run:
         try:
             raw_engine = AsyncLLMEngine.from_engine_args(engine_args)
             engine = EcoCodeVLLMMiddleware(raw_engine, run)

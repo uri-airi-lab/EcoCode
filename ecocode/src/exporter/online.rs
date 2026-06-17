@@ -114,9 +114,11 @@ impl OnlineExporter {
             println!("   (detected key: {})", masked);
         }
 
-        let base_url = env::var("ECOCODE_API_URL")
-            .or_else(|_| config.and_then(|c| c.api_url).ok_or(""))
-            .unwrap_or_else(|_| "http://localhost:3001".to_string());
+        let base_url = "https://ecocode-hxf6p.ondigitalocean.app".to_string(); // default fallback
+
+        // let base_url = env::var("ECOCODE_API_URL")
+        //     .or_else(|_| config.and_then(|c| c.api_url).ok_or(""))
+        //     .unwrap_or_else(|_| "http://localhost:3001".to_string());
 
         let mut headers = header::HeaderMap::new();
         let auth_value = header::HeaderValue::from_str(&format!("Bearer {}", api_key))?;

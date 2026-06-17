@@ -16,7 +16,7 @@ import os
 import random
 
 # ── Config ────────────────────────────────────────────────────────────
-API_KEY     = os.environ.get("API_KEY", "")
+API_KEY     = os.environ.get("ECOCODE_API_KEY", "")
 RUN_NAME    = "unsloth-sft-demo"
 MODEL_NAME  = "unsloth/Llama-3.2-1B-bnb-4bit" # 4-bit pre-quantized tiny LLaMA
 MAX_STEPS   = 30
@@ -84,7 +84,7 @@ def run_unsloth_demo():
     )
 
     print("\n🚀 Starting EcoCode-tracked Unsloth SFT training…")
-    with ecocode.run(RUN_NAME, api_key=API_KEY, interval=1.0) as eco_run:
+    with ecocode.run(RUN_NAME, exporter="online", api_key=API_KEY, interval=1.0) as eco_run:
         trainer = SFTTrainer(
             model=model,
             args=sft_args,

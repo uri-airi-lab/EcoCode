@@ -42,7 +42,7 @@ class HeavyModel(nn.Module):
 
 def run_deepspeed_demo():
     run_name = "deepspeed-heavy-live"
-    api_key = "ecocode_SvB6ETEjqwdJVjd6x2QkfdBZqXObta0F"
+    api_key = os.environ.get("ECOCODE_API_KEY")
     
     print(f"\n🚀 Initializing HEAVY DeepSpeed Training...")
     
@@ -67,9 +67,8 @@ def run_deepspeed_demo():
         dist_init_required=True
     )
 
-    with ecocode.run(run_name, api_key=api_key, interval=0.5) as run:
+    with ecocode.run(run_name, exporter="online", api_key=api_key, interval=0.5) as run:
         print(f"\n⏱ DeepSpeed Run started! You have 20 seconds to open the dashboard...")
-        print(f"URL: http://localhost:3001")
         time.sleep(20) # WARMUP for browser navigation
         
         ds_cb = EcoCodeDeepSpeedCallback(run, zero_stage=2)

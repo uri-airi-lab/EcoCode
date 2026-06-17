@@ -50,7 +50,7 @@ from ._validation import (
     validate_run_id,
 )
 
-_DEFAULT_BASE_URL = "https://ecocode.app"
+_DEFAULT_BASE_URL = "https://ecocode-hxf6p.ondigitalocean.app"
 
 # CS-CRED-001: Allowlist of environment variables forwarded to the monitor
 # subprocess. Passing the full parent environment ({**os.environ, ...}) would

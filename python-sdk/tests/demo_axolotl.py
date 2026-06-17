@@ -16,7 +16,7 @@ import os
 import yaml
 
 # ── Config ────────────────────────────────────────────────────────────
-API_KEY     = os.environ.get("API_KEY", "")
+API_KEY     = os.environ.get("ECOCODE_API_KEY", "")
 RUN_NAME    = "axolotl-sft-demo"
 
 YAML_PATH = "axolotl_demo_config.yml"
@@ -72,7 +72,7 @@ def run_axolotl_demo():
 
     # 2. Run Axolotl with EcoCode tracking
     print("\n🚀 Starting EcoCode-tracked Axolotl training…")
-    with ecocode.run(RUN_NAME, api_key=API_KEY, interval=1.0) as eco_run:
+    with ecocode.run(RUN_NAME, exporter="online", api_key=API_KEY, interval=1.0) as eco_run:
         cb = EcoCodeCallback(eco_run)
         print("   Injecting EcoCodeCallback into Axolotl's do_train() via monkeypatch...")
         

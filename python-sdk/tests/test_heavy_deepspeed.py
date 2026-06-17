@@ -6,7 +6,6 @@ Heavy DeepSpeed Integration Test
 - Callback: EcoCodeDeepSpeedCallback with real DS engine hooks
 """
 import os, json, torch, glob
-os.environ.setdefault("ECOCODE_API_URL", "http://localhost:3001")
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
@@ -103,11 +102,11 @@ engine, optimizer, _, lr_scheduler = deepspeed.initialize(
 )
 print(f"[DeepSpeed heavy] Engine initialized with ZeRO stage {ds_config['zero_optimization']['stage']}")
 
-api_key  = os.environ.get("ECOCODE_API_KEY", "ecocode_SvB6ETEjqwdJVjd6x2QkfdBZqXObta0F")
-base_url = os.environ.get("ECOCODE_API_URL", "http://localhost:3001")
+api_key  = os.environ.get("ECOCODE_API_KEY")
+base_url = os.environ.get("ECOCODE_API_URL")  # None -> SDK uses its _DEFAULT_BASE_URL
 
 print(f"\n[DeepSpeed heavy] Starting ZeRO-3 training ({N} samples, seq={SEQ})...")
-with ecocode.run("deepspeed-gpt2xl-zero3", api_key=api_key, base_url=base_url, interval=1.0) as eco_run:
+with ecocode.run("deepspeed-gpt2xl-zero3", exporter="online", api_key=api_key, base_url=base_url, interval=1.0) as eco_run:
     cb = EcoCodeDeepSpeedCallback(eco_run, zero_stage=3)
     cb.on_data_loading_begin()
 

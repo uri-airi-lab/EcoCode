@@ -6,7 +6,6 @@ Heavy TRL Integration Test
 - Device: CUDA
 """
 import os, torch, torch.nn as nn, time
-os.environ.setdefault("ECOCODE_API_URL", "http://localhost:3001")
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
@@ -33,7 +32,7 @@ tokenizer_sft = AutoTokenizer.from_pretrained(MODEL_SFT)
 tokenizer_sft.pad_token = tokenizer_sft.eos_token
 
 api_key  = os.environ.get("ECOCODE_API_KEY")
-base_url = os.environ.get("ECOCODE_API_URL", "http://localhost:3001")
+base_url = os.environ.get("ECOCODE_API_URL")  # None -> SDK uses its _DEFAULT_BASE_URL
 
 model_sft = AutoModelForCausalLM.from_pretrained(MODEL_SFT, torch_dtype=torch.bfloat16).to(device)
 model_sft.config.use_cache = False
@@ -65,7 +64,7 @@ TEXTS = TEXTS[:120]
 
 sft_ds = HFDataset.from_dict({"text": TEXTS})
 
-with ecocode.run("trl-sft-gpt2", api_key=api_key, base_url=base_url, interval=1.0) as eco_run:
+with ecocode.run("trl-sft-gpt2", exporter="online", api_key=api_key, base_url=base_url, interval=1.0) as eco_run:
     sft_args = SFTConfig(
         output_dir="/tmp/trl_sft_xl",
         num_train_epochs=3,
@@ -150,7 +149,7 @@ state = SimpleNamespace(global_step=0, epoch=0.0, log_history=[])
 args  = SimpleNamespace(max_length=SEQ, max_seq_length=None)
 ctrl  = SimpleNamespace()
 
-with ecocode.run("trl-dpo-gpt2large", api_key=api_key, base_url=base_url, interval=1.0) as eco_run:
+with ecocode.run("trl-dpo-gpt2large", exporter="online", api_key=api_key, base_url=base_url, interval=1.0) as eco_run:
     cb = EcoCodeDPOCallback(eco_run)
     cb.on_train_begin(args, state, ctrl)
 
@@ -211,7 +210,7 @@ state_g = SimpleNamespace(global_step=0, epoch=0.0, log_history=[])
 args_g  = SimpleNamespace(max_length=None, max_seq_length=None, max_completion_length=COMPLETE_LEN)
 ctrl_g  = SimpleNamespace()
 
-with ecocode.run("trl-grpo-gpt2", api_key=api_key, base_url=base_url, interval=1.0) as eco_run:
+with ecocode.run("trl-grpo-gpt2", exporter="online", api_key=api_key, base_url=base_url, interval=1.0) as eco_run:
     cb = EcoCodeGRPOCallback(eco_run)
     cb.on_train_begin(args_g, state_g, ctrl_g)
 

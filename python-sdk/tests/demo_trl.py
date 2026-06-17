@@ -1,6 +1,7 @@
 """
 EcoCode TRL SFT Training Demo
 """
+import os
 import torch
 from datasets import Dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments
@@ -11,7 +12,7 @@ from ecocode.integrations.trl import EcoCodeSFTCallback
 def run_trl_demo():
     model_id = "Qwen/Qwen2.5-0.5B-Instruct"
     run_name = "trl-sft-qwen-0.5b"
-    api_key = "ecocode_SvB6ETEjqwdJVjd6x2QkfdBZqXObta0F"
+    api_key = os.environ.get("ECOCODE_API_KEY")
     
     print(f"\n🚀 Initializing TRL SFT Training with {model_id}...")
     
@@ -33,7 +34,7 @@ def run_trl_demo():
         use_cpu=True,
     )
 
-    with ecocode.run(run_name, api_key=api_key) as run:
+    with ecocode.run(run_name, exporter="online", api_key=api_key) as run:
         print("\n🛠 Starting SFT Trainer...")
         trainer = SFTTrainer(
             model=model,

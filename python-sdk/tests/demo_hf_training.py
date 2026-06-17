@@ -19,7 +19,7 @@ def run_hf_training_demo():
     # Switching back to Qwen 0.5B (Heavier than GPT2)
     model_id = "Qwen/Qwen2.5-0.5B-Instruct"
     run_name = "hf-train-qwen-heavy"
-    api_key = "ecocode_SvB6ETEjqwdJVjd6x2QkfdBZqXObta0F"
+    api_key = os.environ.get("ECOCODE_API_KEY")
     
     print(f"\n🚀 Initializing HuggingFace Training with {model_id}...")
     
@@ -52,7 +52,7 @@ def run_hf_training_demo():
         report_to="none",
     )
 
-    with ecocode.run(run_name, api_key=api_key) as run:
+    with ecocode.run(run_name, exporter="online", api_key=api_key) as run:
         print(f"\n⏱ Run started! You have 20 seconds to open the dashboard...")
         print(f"URL: http://localhost:3001")
         import time

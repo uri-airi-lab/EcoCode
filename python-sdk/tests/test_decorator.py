@@ -12,8 +12,7 @@ if os.path.exists(json_path):
 
 @ecocode.track(
     name="decorator-pytorch-cuda-resnet50-heavy",
-    exporter="json",
-    output_file=json_path,
+    exporter="online",
     interval=0.2
 )
 def train_model():

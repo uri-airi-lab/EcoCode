@@ -54,7 +54,7 @@ from torch.utils.data import DataLoader
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 API_KEY     = os.environ.get("ECOCODE_API_KEY") or os.environ.get("API_KEY")
-BASE_URL    = os.environ.get("ECOCODE_API_URL", "http://localhost:3001")
+BASE_URL    = os.environ.get("ECOCODE_API_URL")  # None -> SDK uses its _DEFAULT_BASE_URL
 EPOCHS      = int(os.environ.get("EPOCHS", 20))
 BATCH_SIZE  = int(os.environ.get("BATCH_SIZE", 128))
 LR          = float(os.environ.get("LR", 1e-3))
@@ -223,6 +223,7 @@ def main():
 
     with ecocode.run(
         "resnet18-cifar10",
+        exporter="online",
         api_key=API_KEY,
         base_url=BASE_URL,
         interval=1.0,

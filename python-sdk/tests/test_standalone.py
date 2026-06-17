@@ -13,7 +13,6 @@ import sys
 import time
 
 # Point SDK at local backend
-os.environ.setdefault("ECOCODE_API_URL", "http://localhost:3001")
 
 import torch
 import torch.nn as nn
@@ -132,8 +131,7 @@ def main():
 
     with ecocode.run(
         "resnet-cifar10-standalone-test",
-        exporter="csv",
-        output_file=csv_path,
+        exporter="online",
         interval=1.0,
     ) as run:
 

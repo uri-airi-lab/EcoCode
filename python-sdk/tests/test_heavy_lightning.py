@@ -6,7 +6,6 @@ Heavy PyTorch Lightning Integration Test
 - Callback: EcoCodeCallback
 """
 import os, torch, torch.nn as nn
-os.environ.setdefault("ECOCODE_API_URL", "http://localhost:3001")
 
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader, TensorDataset
@@ -72,7 +71,7 @@ if os.path.exists(json_path):
     os.remove(json_path)
 
 print(f"\n[Lightning heavy] Starting ResNet-50 training...")
-with ecocode.run("lightning-resnet50", exporter="json", output_file=json_path, interval=1.0) as eco_run:
+with ecocode.run("lightning-resnet50", exporter="online", interval=1.0) as eco_run:
     pl_model = ResNet50Module(n_classes=N_CLASSES, lr=1e-2)
     params   = sum(p.numel() for p in pl_model.parameters()) / 1e6
     print(f"[Lightning heavy] ResNet-50: {params:.1f}M params")

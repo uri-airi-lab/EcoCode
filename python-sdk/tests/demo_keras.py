@@ -20,7 +20,7 @@ def run_keras_demo():
     from tensorflow import keras
 
     model_name = "keras-mnist-cnn"
-    api_key = "ecocode_SvB6ETEjqwdJVjd6x2QkfdBZqXObta0F"
+    api_key = os.environ.get("ECOCODE_API_KEY")
 
     print("\n🚀 Loading MNIST dataset...")
     (x_train, y_train), (x_test, y_test) = keras.datasets.mnist.load_data()
@@ -50,7 +50,7 @@ def run_keras_demo():
 
     print(f"📊 Model has {model.count_params():,} parameters\n")
 
-    with ecocode.run(model_name, api_key=api_key, interval=0.1) as eco_run:
+    with ecocode.run(model_name, exporter="online", api_key=api_key, interval=0.1) as eco_run:
         print("⚡ Training with EcoCode energy tracking...\n")
         model.fit(
             x_train, y_train,

@@ -6,7 +6,6 @@ Heavy HuggingFace Integration Test
 - Callback: EcoCodeCallback (phases, loss, lr, step, tokens)
 """
 import os, torch
-os.environ.setdefault("ECOCODE_API_URL", "http://localhost:3001")
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # Auto-configure CUDA_HOME with local mock if developer CUDA Toolkit is missing
@@ -82,7 +81,7 @@ if os.path.exists(log_path):
     os.remove(log_path)
 
 print(f"\n[HF heavy] Starting training run ({len(ds)} samples, seq_len=128)...")
-with ecocode.run("hf-gpt2-finetune", exporter="logfile", output_file=log_path, interval=1.0) as eco_run:
+with ecocode.run("hf-gpt2-finetune", exporter="online", interval=1.0) as eco_run:
     training_args = TrainingArguments(
         output_dir="/tmp/hf_heavy_xl",
         num_train_epochs=10,

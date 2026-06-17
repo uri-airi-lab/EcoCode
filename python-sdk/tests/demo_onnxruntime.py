@@ -49,7 +49,7 @@ def export_dummy_model():
 def run_ort_demo():
     import onnxruntime as ort
 
-    api_key = "ecocode_SvB6ETEjqwdJVjd6x2QkfdBZqXObta0F"
+    api_key = os.environ.get("ECOCODE_API_KEY")
     run_name = "ort-inference-demo"
 
     # 1. Export model if needed
@@ -69,7 +69,7 @@ def run_ort_demo():
 
     print(f"\n🚀 Running {num_batches} inference batches (batch_size={batch_size})")
 
-    with ecocode.run(run_name, api_key=api_key, interval=0.5) as eco_run:
+    with ecocode.run(run_name, exporter="online", api_key=api_key, interval=0.5) as eco_run:
         eco_session = EcoCodeORTWrapper(session, eco_run)
 
         total_samples = 0

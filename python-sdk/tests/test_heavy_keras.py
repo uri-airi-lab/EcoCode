@@ -6,7 +6,6 @@ Heavy Keras Integration Test
 - Callback: EcoCodeCallback — phases, loss, accuracy, lr, custom metrics
 """
 import os
-os.environ.setdefault("ECOCODE_API_URL", "http://localhost:3001")
 os.environ["KERAS_BACKEND"] = "torch"
 
 import numpy as np
@@ -94,7 +93,7 @@ params = model.count_params() / 1e6
 print(f"[Keras heavy] Model: {params:.2f}M params")
 
 print(f"\n[Keras heavy] Starting training ({N_TRAIN} samples, 10 epochs)...")
-with ecocode.run("keras-efficientnet-wide", exporter="terminal", interval=1.0) as eco_run:
+with ecocode.run("keras-efficientnet-wide", exporter="online", interval=1.0) as eco_run:
     history = model.fit(
         x_train, y_train,
         epochs=10,

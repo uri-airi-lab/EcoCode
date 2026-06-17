@@ -6,7 +6,6 @@ Heavy ONNX Runtime Integration Test
 - Wrapper:  EcoCodeORTWrapper — phase markers, latency, batch_size, step count
 """
 import os, time
-os.environ.setdefault("ECOCODE_API_URL", "http://localhost:3001")
 
 import numpy as np
 import torch
@@ -51,13 +50,13 @@ active_provider = session.get_providers()[0]
 print(f"[ORT heavy] Session provider: {active_provider}")
 
 api_key  = os.environ.get("ECOCODE_API_KEY")
-base_url = os.environ.get("ECOCODE_API_URL", "http://localhost:3001")
+base_url = os.environ.get("ECOCODE_API_URL")  # None -> SDK uses its _DEFAULT_BASE_URL
 
 N_REQUESTS  = 1000
 BATCH_SIZES = [1, 4, 8, 16, 32, 64]
 
 print(f"\n[ORT heavy] Running {N_REQUESTS} inference requests with mixed batch sizes...")
-with ecocode.run("ort-resnet101-inference", api_key=api_key, base_url=base_url, interval=1.0) as eco_run:
+with ecocode.run("ort-resnet101-inference", exporter="online", api_key=api_key, base_url=base_url, interval=1.0) as eco_run:
     wrapper = EcoCodeORTWrapper(session, eco_run)
 
     latencies    = []
