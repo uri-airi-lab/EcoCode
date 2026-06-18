@@ -69,5 +69,5 @@ web/deploy-azure.local.sh
 .github
 
 
-web
+web/*
 .claude/

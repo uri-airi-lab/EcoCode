@@ -15,7 +15,7 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TESTS_DIR="$SCRIPT_DIR/tests"
+TESTS_DIR="$SCRIPT_DIR"
 
 # Prefer the project venv if present, else fall back to python3.
 if [[ -x "$SCRIPT_DIR/env/bin/python" ]]; then
@@ -47,8 +47,8 @@ if [[ ${#EXPLICIT_FILES[@]} -gt 0 ]]; then
     FILES=("${EXPLICIT_FILES[@]}")
 else
     while IFS= read -r f; do FILES+=("$f"); done < <(
-        ls "$TESTS_DIR"/test_*.py 2>/dev/null | sort
-        [[ $INCLUDE_DEMOS -eq 1 ]] && ls "$TESTS_DIR"/demo_*.py 2>/dev/null | sort
+        ls "$TESTS_DIR"/test_*.py 2>/dev/null | xargs -n1 basename 2>/dev/null | sort
+        [[ $INCLUDE_DEMOS -eq 1 ]] && ls "$TESTS_DIR"/demo_*.py 2>/dev/null | xargs -n1 basename 2>/dev/null | sort
     )
 fi
 

@@ -6,27 +6,34 @@
 
 ## Table of Contents
 
-1. [Prerequisites](#1-prerequisites)
-2. [Building and Installing the CLI](#2-building-and-installing-the-cli)
-3. [Tutorial A — CLI: Monitor Any Process](#3-tutorial-a--cli-monitor-any-process)
-   - [A1. Terminal output](#a1-terminal-output)
-   - [A2. Save results to CSV or JSON](#a2-save-results-to-csv-or-json)
-   - [A3. Expose Prometheus metrics](#a3-expose-prometheus-metrics)
-4. [Tutorial B — Python SDK: Instrument a Training Loop](#4-tutorial-b--python-sdk-instrument-a-training-loop)
-   - [B1. Install the SDK](#b1-install-the-sdk)
-   - [B2. Minimal example](#b2-minimal-example)
-   - [B3. Full training loop with ML markers](#b3-full-training-loop-with-ml-markers)
-   - [B4. Decorator API](#b4-decorator-api)
-   - [B5. Notebook / explicit start-stop API](#b5-notebook--explicit-start-stop-api)
-5. [Tutorial C — CLI + SDK Together (Attached Mode)](#5-tutorial-c--cli--sdk-together-attached-mode)
-6. [Tutorial D — ML Framework Callbacks](#6-tutorial-d--ml-framework-callbacks)
-   - [D1. HuggingFace Transformers / TRL](#d1-huggingface-transformers--trl)
-   - [D2. PyTorch Lightning](#d2-pytorch-lightning)
-   - [D3. Keras / TensorFlow](#d3-keras--tensorflow)
-   - [D4. DeepSpeed](#d4-deepspeed)
-   - [D5. vLLM Inference](#d5-vllm-inference)
-7. [Common Options Reference](#7-common-options-reference)
-8. [Troubleshooting](#8-troubleshooting)
+- [EcoCode Tutorial](#ecocode-tutorial)
+  - [Table of Contents](#table-of-contents)
+  - [1. Prerequisites](#1-prerequisites)
+  - [2. Building and Installing the CLI](#2-building-and-installing-the-cli)
+  - [3. Tutorial A — CLI: Monitor Any Process](#3-tutorial-a--cli-monitor-any-process)
+    - [A1. Terminal output](#a1-terminal-output)
+    - [A2. Save results to CSV or JSON](#a2-save-results-to-csv-or-json)
+    - [A3. Expose Prometheus metrics](#a3-expose-prometheus-metrics)
+  - [4. Tutorial B — Python SDK: Instrument a Training Loop](#4-tutorial-b--python-sdk-instrument-a-training-loop)
+    - [B1. Install the SDK](#b1-install-the-sdk)
+    - [B2. Minimal example](#b2-minimal-example)
+    - [B3. Full training loop with ML markers](#b3-full-training-loop-with-ml-markers)
+    - [B4. Decorator API](#b4-decorator-api)
+    - [B5. Notebook / explicit start-stop API](#b5-notebook--explicit-start-stop-api)
+  - [5. Tutorial C — CLI + SDK Together (Attached Mode)](#5-tutorial-c--cli--sdk-together-attached-mode)
+  - [6. Tutorial D — ML Framework Callbacks](#6-tutorial-d--ml-framework-callbacks)
+    - [D1. HuggingFace Transformers / TRL](#d1-huggingface-transformers--trl)
+    - [D2. PyTorch Lightning](#d2-pytorch-lightning)
+    - [D3. Keras / TensorFlow](#d3-keras--tensorflow)
+    - [D4. DeepSpeed](#d4-deepspeed)
+    - [D5. vLLM Inference](#d5-vllm-inference)
+  - [7. Common Options Reference](#7-common-options-reference)
+  - [8. Troubleshooting](#8-troubleshooting)
+    - [`Permission denied` on RAPL files](#permission-denied-on-rapl-files)
+    - [`cpu_energy` is always `0.0`](#cpu_energy-is-always-00)
+    - [`gpu_energy` is always `0.0`](#gpu_energy-is-always-00)
+    - [Stale Unix socket error](#stale-unix-socket-error)
+    - [CSV file has no data after the run](#csv-file-has-no-data-after-the-run)
 
 ---
 
@@ -163,8 +170,10 @@ The Python SDK integrates directly into your Python code, letting you log ML-spe
 ### B1. Install the SDK
 
 ```bash
+cd python-sdk 
 # Core SDK (zero compiled dependencies — pure Python)
-pip install ecocode
+# Make sure that your venv is activated
+pip install ecocode 
 
 # With GPU support (NVML bindings)
 pip install "ecocode[gpu]"
