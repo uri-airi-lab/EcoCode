@@ -15,7 +15,7 @@
     - [A2. Save results to CSV or JSON](#a2-save-results-to-csv-or-json)
     - [A3. Expose Prometheus metrics](#a3-expose-prometheus-metrics)
   - [4. Tutorial B — Python SDK: Instrument a Training Loop](#4-tutorial-b--python-sdk-instrument-a-training-loop)
-    - [B1. Install the SDK](#b1-install-the-sdk)
+    - [B1. Install the SDK (local source)](#b1-install-the-sdk-local-source)
     - [B2. Minimal example](#b2-minimal-example)
     - [B3. Full training loop with ML markers](#b3-full-training-loop-with-ml-markers)
     - [B4. Decorator API](#b4-decorator-api)
@@ -167,23 +167,46 @@ Available metrics include `ecocode_cpu_energy_watts`, `ecocode_gpu_energy_watts`
 
 The Python SDK integrates directly into your Python code, letting you log ML-specific markers (epoch, step, loss, phase) alongside energy data and save them to any local format.
 
-### B1. Install the SDK
+### B1. Install the SDK (local source)
+
+The SDK is installed from the local source tree in this repository — **not** from PyPI (the
+`ecocode` name on PyPI is an unrelated project). Install it in editable mode so changes to the
+source are picked up immediately.
 
 ```bash
-cd python-sdk 
+# From the repository root
+cd python-sdk
+
+# Make sure your venv is activated, then install the local SDK in editable mode
 # Core SDK (zero compiled dependencies — pure Python)
-# Make sure that your venv is activated
-pip install ecocode 
+pip install -e .
 
 # With GPU support (NVML bindings)
-pip install "ecocode[gpu]"
+pip install -e ".[gpu]"
 
 # With all framework callbacks
-pip install "ecocode[all]"
+pip install -e ".[all]"
 ```
 
+> [!IMPORTANT]
+> If you previously ran `pip install ecocode`, uninstall it first — the PyPI package shadows the
+> local SDK and `import ecocode` will fail with `AttributeError: module 'ecocode' has no attribute
+> 'run'`:
+> ```bash
+> pip uninstall -y ecocode
+> pip install -e .
+> ```
+
 > [!TIP]
-> The SDK spawns the `ecocode` CLI binary as a subprocess in standalone mode, so the binary must be on your `PATH`. If you installed it to `/usr/local/bin/ecocode` in step 2, you are good to go.
+> The SDK spawns the `ecocode` CLI binary as a subprocess in standalone mode, and locates it via
+> `shutil.which("ecocode")` — so the locally-built binary must be on your `PATH`. Build it as shown
+> in [step 2](#2-building-and-installing-the-cli), then either copy it to a standard location
+> (`sudo cp target/release/ecocode /usr/local/bin/`) or prepend the build directory to `PATH`:
+> ```bash
+> export PATH="/path/to/EcoCode/ecocode/target/release:$PATH"
+> ```
+> Installing under `/usr/local/bin`, `~/.local/bin`, or your active venv avoids the "binary resolved
+> from an unexpected path" warning the SDK emits for non-standard locations.
 
 ### B2. Minimal example
 
@@ -340,13 +363,14 @@ The CLI sees the markers via an OS pipe and merges them with sensor data into ea
 
 ## 6. Tutorial D — ML Framework Callbacks
 
-All callbacks layer on top of the Python SDK. Install extras as needed:
+All callbacks layer on top of the Python SDK. Install extras as needed (from `python-sdk/`, against
+the local source — see [B1](#b1-install-the-sdk-local-source)):
 
 ```bash
-pip install "ecocode[hf]"        # HuggingFace Transformers
-pip install "ecocode[trl]"       # TRL (SFT / DPO / GRPO)
-pip install "ecocode[lightning]" # PyTorch Lightning
-pip install "ecocode[all]"       # Everything
+pip install -e ".[hf]"        # HuggingFace Transformers
+pip install -e ".[trl]"       # TRL (SFT / DPO / GRPO)
+pip install -e ".[lightning]" # PyTorch Lightning
+pip install -e ".[all]"       # Everything
 ```
 
 ### D1. HuggingFace Transformers / TRL
@@ -526,3 +550,5 @@ If you used `-o csv` with attached mode, make sure the CLI exited cleanly (not k
 ---
 
 *For deeper reference, see the [CLI Reference](ecocode/README.md), [Python SDK Guide](python-sdk/README.md), and [Architecture Overview](ARCHITECTURE.md).*
+
+
