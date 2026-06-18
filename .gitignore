@@ -70,3 +70,4 @@ web/deploy-azure.local.sh
 
 
 web
+.claude/
