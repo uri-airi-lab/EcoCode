@@ -56,7 +56,10 @@ class EcoCodeSFTCallback(_Base):
         self._run.log_epoch(int(state.epoch or 0))
 
     def on_step_begin(self, args, state, control, **kwargs):
-        self._run.mark("phase", "forward")
+        # Fires once per optimizer update; TRL's Trainer exposes no separate
+        # backward-pass hook, so this marker covers every micro-batch's
+        # forward and backward pass under gradient accumulation.
+        self._run.mark("phase", "forward_backward")
 
     def on_optimizer_step(self, args, state, control, **kwargs):
         self._run.mark("phase", "optimizer_step")
@@ -105,8 +108,10 @@ class EcoCodeDPOCallback(_Base):
         self._run.log_epoch(int(state.epoch or 0))
 
     def on_step_begin(self, args, state, control, **kwargs):
-        # DPO step: policy forward + reference forward happen together
-        self._run.mark("phase", "forward")
+        # DPO step: policy forward + reference forward + backward all happen
+        # before on_optimizer_step fires, and TRL exposes no separate
+        # backward-pass hook, so this marker covers all three.
+        self._run.mark("phase", "forward_backward")
 
     def on_optimizer_step(self, args, state, control, **kwargs):
         self._run.mark("phase", "dpo_update")

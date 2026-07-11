@@ -36,7 +36,9 @@ class EcoCodeCallback(_Base):
     Hooks:
       on_train_begin       → phase = "data_loading"
       on_epoch_begin       → log_epoch(epoch)
-      on_train_batch_begin → phase = "forward"
+      on_train_batch_begin → phase = "forward_backward" (Keras' train_step runs
+                             forward, backward, and the gradient apply within a
+                             single batch, with no separate backward-pass hook)
       on_train_batch_end   → phase = "optimizer_step", log step + loss + lr
       on_test_begin        → phase = "eval"
       on_train_end         → phase = "done"
@@ -56,7 +58,7 @@ class EcoCodeCallback(_Base):
         self._run.log_epoch(epoch)
 
     def on_train_batch_begin(self, batch, logs=None):
-        self._run.mark("phase", "forward")
+        self._run.mark("phase", "forward_backward")
 
     def on_train_batch_end(self, batch, logs=None):
         self._run.mark("phase", "optimizer_step")

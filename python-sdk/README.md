@@ -554,11 +554,13 @@ with ecocode.run("sft-llama3", project_id=42, api_key="eco_...") as eco_run:
 |---|---|---|
 | `on_train_begin` | `data_loading` | `sequence_length` (if `max_seq_length` in args) |
 | `on_epoch_begin` | — | `log_epoch(state.epoch)` |
-| `on_step_begin` | `forward` | — |
+| `on_step_begin` | `forward_backward` | — |
 | `on_optimizer_step` | `optimizer_step` | `step`, `loss`, `learning_rate` from log history |
 | `on_evaluate` | `eval` | — |
 | `on_save` | `checkpoint_save` | — |
 | `on_train_end` | `done` | `tokens` from `state.num_input_tokens_seen` |
+
+`on_step_begin` fires once per optimizer update, not once per micro-batch, so under gradient accumulation `forward_backward` covers every micro-batch's forward and backward pass in that update. HF's `TrainerCallback` API has no separate backward-pass hook, hence the combined name (contrast with [DeepSpeed](#deepspeed) below, which does expose one).
 
 ---
 
@@ -574,8 +576,8 @@ from ecocode.integrations.trl import EcoCodeGRPOCallback  # for GRPOTrainer
 
 | Callback | Trainer | Energy profile |
 |----------|---------|----------------|
-| `EcoCodeSFTCallback` | `SFTTrainer` | `data_loading → forward → backward → optimizer_step → eval` |
-| `EcoCodeDPOCallback` | `DPOTrainer` | `forward` = policy + reference forward together; `dpo_update` on optimizer step — ~2× energy vs SFT |
+| `EcoCodeSFTCallback` | `SFTTrainer` | `data_loading → forward_backward → optimizer_step → eval` (TRL exposes no separate backward hook, same as HuggingFace) |
+| `EcoCodeDPOCallback` | `DPOTrainer` | `forward_backward` = policy forward + reference forward + backward together; `dpo_update` on optimizer step — ~2× energy vs SFT |
 | `EcoCodeGRPOCallback` | `GRPOTrainer` | `policy_rollout` (autoregressive generation) → `grpo_update` (gradient step). Used by DeepSeek-R1, Qwen reasoning models. |
 
 ---
@@ -594,7 +596,9 @@ with ecocode.run("pretrain", project_id=42, api_key="eco_...") as eco_run:
     trainer.fit(model, datamodule=dm)
 ```
 
-**Hooks:** `on_train_start` → `on_train_epoch_start` (logs epoch + `forward`) → `on_before_optimizer_step` (logs step, loss, lr) → `on_validation_epoch_start` (`eval`) → `on_save_checkpoint` → `on_train_end` (`done`).
+**Hooks:** `on_train_start` (`data_loading`) → `on_train_epoch_start` (logs epoch, no phase change) → `on_train_batch_start` (`forward_backward`, once per step) → `on_before_optimizer_step` (`optimizer_step`, logs step, loss, lr) → `on_validation_epoch_start` (`eval`) → `on_save_checkpoint` (`checkpoint_save`) → `on_train_end` (`done`).
+
+The phase is marked once per step, not once per epoch, so every step's forward and backward pass is correctly attributed rather than inheriting the previous step's `optimizer_step` marker for the rest of the epoch. Lightning exposes no separate backward-pass hook, hence the combined `forward_backward` name (same convention as [HuggingFace](#huggingface-transformers) above).
 
 ---
 
@@ -690,13 +694,13 @@ with ecocode.run("keras-train", project_id=42, api_key="eco_...") as eco_run:
 |---|---|---|
 | `on_train_begin` | `data_loading` | — |
 | `on_epoch_begin` | — | `log_epoch(epoch)` |
-| `on_train_batch_begin` | `forward` | — |
+| `on_train_batch_begin` | `forward_backward` | — |
 | `on_train_batch_end` | `optimizer_step` | `step`, `loss`, `lr`, `accuracy`, plus any other numeric logs via `log_custom()` |
 | `on_test_begin` | `eval` | — |
 | `on_test_end` | — | Validation metrics via `log_custom("val_*")` |
 | `on_train_end` | `done` | — |
 
-The Keras callback automatically forwards **unknown numeric metrics** from `logs` through `log_custom()`, so custom Keras metrics (e.g., precision, recall) are tracked without additional code.
+`forward_backward` is named for the whole batch rather than just the forward pass because Keras' `train_step` runs forward, backward, and the gradient apply within a single batch, with no separate hook between them. The Keras callback automatically forwards **unknown numeric metrics** from `logs` through `log_custom()`, so custom Keras metrics (e.g., precision, recall) are tracked without additional code.
 
 ---
 

@@ -23,7 +23,7 @@ Unlike other tools that rely on TDP (thermal design power) estimations, EcoCode 
 
 EcoCode comes with a premium-grade collaborative web dashboard. When you run your experiments, metrics are streamed in real time via Server-Sent Events (SSE).
 
-![EcoCode Live Run Dashboard](web/frontend/public/screenshots/live-run-dashboard.png)
+![EcoCode Live Run Dashboard](live-run-dashboard.png)
 
 ---
 

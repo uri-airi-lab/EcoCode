@@ -35,7 +35,10 @@ class EcoCodeCallback(_TrainerCallbackBase):
     TrainerCallback that tracks ML training phases and metrics for EcoCode.
 
     Hooks fired per training step:
-      on_step_begin      → phase = "forward"
+      on_step_begin      → phase = "forward_backward" (fires once per optimizer
+                           update; HF exposes no separate backward-pass hook, so
+                           this marker covers every micro-batch's forward and
+                           backward pass under gradient accumulation)
       on_optimizer_step  → phase = "optimizer_step", logs step + loss + lr
       on_evaluate        → phase = "eval"
       on_save            → phase = "checkpoint_save"
@@ -58,7 +61,7 @@ class EcoCodeCallback(_TrainerCallbackBase):
         self._run.log_epoch(epoch)
 
     def on_step_begin(self, args, state, control, **kwargs):
-        self._run.mark("phase", "forward")
+        self._run.mark("phase", "forward_backward")
 
     def on_optimizer_step(self, args, state, control, **kwargs):
         self._run.mark("phase", "optimizer_step")
