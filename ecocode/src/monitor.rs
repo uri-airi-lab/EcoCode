@@ -549,10 +549,17 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
 
             sys.refresh_processes(ProcessesToUpdate::All, true);
 
-            // Check the root process is still alive
-            if sys.process(pid).is_none() {
-                println!("Process {} finished", pid);
-                break;
+            // Check the root process is still alive via the child handle itself
+            // (avoids PID-reuse false positives from a pure sysinfo table lookup).
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    println!("Process {} finished (status: {:?})", pid, status);
+                    break;
+                }
+                Ok(None) => {} // still running
+                Err(e) => {
+                    eprintln!("Warning: failed to check child status ({e})");
+                }
             }
 
             // Build the full process tree (root + all descendants) so that child
@@ -732,11 +739,6 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
 
             exporter.add_record(record).await?;
             exporter.export_line().await?;
-
-            if cpu_usage <= 0.0 && total_gpu_util <= 0.0 && total_gpu_energy_j <= 0.0 {
-                println!("Process finished");
-                break;
-            }
         }
 
         exporter.export().await?;
