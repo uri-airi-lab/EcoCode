@@ -596,9 +596,9 @@ with ecocode.run("pretrain", project_id=42, api_key="eco_...") as eco_run:
     trainer.fit(model, datamodule=dm)
 ```
 
-**Hooks:** `on_train_start` (`data_loading`) → `on_train_epoch_start` (logs epoch, no phase change) → `on_train_batch_start` (`forward_backward`, once per step) → `on_before_optimizer_step` (`optimizer_step`, logs step, loss, lr) → `on_validation_epoch_start` (`eval`) → `on_save_checkpoint` (`checkpoint_save`) → `on_train_end` (`done`).
+**Hooks:** `on_train_start` (`data_loading`) → `on_train_epoch_start` (logs epoch, no phase change) → `on_train_batch_start` (`forward`, once per step) → `on_before_backward` (`backward`) → `on_before_optimizer_step` (`optimizer_step`, logs step, loss, lr) → `on_validation_epoch_start` (`eval`) → `on_save_checkpoint` (`checkpoint_save`) → `on_train_end` (`done`).
 
-The phase is marked once per step, not once per epoch, so every step's forward and backward pass is correctly attributed rather than inheriting the previous step's `optimizer_step` marker for the rest of the epoch. Lightning exposes no separate backward-pass hook, hence the combined `forward_backward` name (same convention as [HuggingFace](#huggingface-transformers) above).
+The phase is marked once per step, not once per epoch, so every step's forward and backward pass is correctly attributed rather than inheriting the previous step's `optimizer_step` marker for the rest of the epoch. Unlike [HuggingFace](#huggingface-transformers), TRL, and Keras, Lightning exposes a real hook between the forward and backward pass (`on_before_backward`), so these two phases are marked separately here rather than merged. Both `on_before_backward` and `on_before_optimizer_step` are part of Lightning's automatic-optimization loop and are not reliably invoked if a `LightningModule` uses manual optimization (`self.automatic_optimization = False`).
 
 ---
 
@@ -719,7 +719,8 @@ with ecocode.run("ort-inference", api_key="eco_...") as eco_run:
 ```
 
 The wrapper:
-- Marks `model_load` → `prefill` → `done` phases per `.run()` call.
+- Marks `model_load` once, then `prefill`/`decode` per `.run()` call. The first call is always `prefill`; later calls are marked `decode` when the first input tensor's sequence-length axis (`shape[1]`) is exactly 1, the standard signal for a KV-cache-based single-token decode step. This is a heuristic: a non-autoregressive model receiving a single-token input on a later call would be misclassified as decode, since ONNX Runtime exposes no explicit signal distinguishing decode loops from one-shot small inputs.
+- Does **not** mark a `done` phase. `InferenceSession` has no event that fires when the caller is finished issuing `.run()` calls, and marking `done` after every individual call would misuse the marker — elsewhere in this SDK `done` means "the whole run just finished" (e.g. HuggingFace/Lightning/TRL's `on_train_end`).
 - Estimates `batch_size` from the first input tensor shape.
 - Logs `latency_ms` for each inference call.
 - Proxies all other attributes to the underlying `InferenceSession`.

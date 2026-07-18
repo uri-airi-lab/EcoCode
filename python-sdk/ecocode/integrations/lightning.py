@@ -31,18 +31,25 @@ class EcoCodeCallback(_Base):
 
     Hooks:
       on_train_epoch_start     → log epoch (no phase change)
-      on_train_batch_start     → phase = "forward_backward"
+      on_train_batch_start     → phase = "forward"
+      on_before_backward       → phase = "backward"
       on_before_optimizer_step → phase = "optimizer_step", log step
       on_validation_epoch_start → phase = "eval"
       on_save_checkpoint       → phase = "checkpoint_save"
       on_train_end              → phase = "done"
 
-    The phase is marked once per step via ``on_train_batch_start`` rather than
-    once per epoch, so that every step's forward and backward pass is
-    correctly attributed to "forward_backward" instead of inheriting the
-    previous step's "optimizer_step" marker. Lightning exposes no separate
-    backward-pass hook, hence the combined name (see the HuggingFace
-    integration for the same convention).
+    Unlike HuggingFace/TRL/Keras, Lightning exposes a real hook between the
+    forward and backward pass (``on_before_backward``), fired in this order:
+    on_train_batch_start -> on_before_backward -> on_after_backward ->
+    on_before_optimizer_step. This lets the forward and backward phases be
+    marked separately instead of merged into a single "forward_backward"
+    interval.
+
+    Both ``on_before_backward`` and ``on_before_optimizer_step`` are part of
+    Lightning's automatic-optimization training loop and are not reliably
+    invoked when a LightningModule sets ``self.automatic_optimization =
+    False`` and calls ``self.manual_backward(loss)`` itself; this callback
+    assumes automatic optimization, the default and common case.
     """
 
     def __init__(self, run: "EcoCodeRun") -> None:
@@ -55,7 +62,10 @@ class EcoCodeCallback(_Base):
         self._run.log_epoch(trainer.current_epoch)
 
     def on_train_batch_start(self, trainer, pl_module, batch, batch_idx):
-        self._run.mark("phase", "forward_backward")
+        self._run.mark("phase", "forward")
+
+    def on_before_backward(self, trainer, pl_module, loss):
+        self._run.mark("phase", "backward")
 
     def on_before_optimizer_step(self, trainer, pl_module, optimizer):
         self._run.mark("phase", "optimizer_step")

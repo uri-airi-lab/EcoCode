@@ -121,16 +121,17 @@ pub fn delta_cpu_energy_per_pid_j(
 
             // Map domains to their respective usage fractions
             //
-            // NOTE: DRAM attribution uses RSS (resident set size) as a proxy,
-            // which measures memory *capacity* (how much RAM is allocated), not
-            // memory *bandwidth* (how often RAM is accessed). DRAM energy is
-            // primarily driven by read/write activity, so RSS can over-attribute
-            // to large-but-idle processes and under-attribute to small-but-active ones.
+            // NOTE: DRAM attribution uses PSS (proportional set size) as a proxy,
+            // which measures memory *capacity* (how much RAM is allocated, with
+            // shared pages divided fairly across processes), not memory *bandwidth*
+            // (how often RAM is accessed). DRAM energy is primarily driven by
+            // read/write activity, so PSS can over-attribute to large-but-idle
+            // processes and under-attribute to small-but-active ones.
             //
             // A more accurate approach would blend static and dynamic components:
             //   let static_fraction = 0.3; // ~30% of DRAM power is refresh/leakage
             //   "dram" => static_fraction * mem_usage + (1.0 - static_fraction) * cpu_usage
-            // This attributes refresh energy by RSS (fair — all pages need refreshing)
+            // This attributes refresh energy by PSS (fair — all pages need refreshing)
             // and dynamic access energy by CPU usage (better bandwidth proxy).
             let usage_fraction = match e1.domain.as_str() {
                 "cpu"  => cpu_usage,

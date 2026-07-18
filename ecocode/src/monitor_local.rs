@@ -19,7 +19,7 @@ use chrono::Utc;
 use sysinfo::{Pid, ProcessesToUpdate, RefreshKind, System};
 use tokio::time::{self, Instant, MissedTickBehavior};
 
-use ecocode_core::sensor::get_process_tree_pids_from_sys;
+use ecocode_core::sensor::get_process_tree_pids_from_sys; // from the core library
 use ecocode_core::sensor::gpu::{
     get_all_gpu_devices, get_all_gpu_energies, get_all_gpu_energies_by_pid,
 };

@@ -25,6 +25,8 @@ EcoCode comes with a premium-grade collaborative web dashboard. When you run you
 
 ![EcoCode Live Run Dashboard](live-run-dashboard.png)
 
+Every completed run is also graded with a **leaf rating** from 0.5 to 5 🍃 — a weighted blend of energy-normalized utilization (50%), grid carbon cleanliness (35%), and infrastructure overhead via PUE (15%), so runs of any length or size can be compared on equal footing.
+
 ---
 
 ## Why EcoCode?
@@ -33,6 +35,7 @@ EcoCode comes with a premium-grade collaborative web dashboard. When you run you
 * **Per-Process GPU Attribution:** Attributes GPU energy proportionally to the specific monitored process across multiple GPUs independently.
 * **Language & Runtime Agnostic:** Run any process out-of-the-box (e.g. C++, Node.js, Python, simulation scripts) using the CLI wrapper, or use the native Python SDK for ML training loops.
 * **Team Collaboration:** Group runs under projects, invite team members, manage developer API keys, and track grid carbon intensity.
+* **Leaf Sustainability Score:** A single 0.5–5 leaf rating per run, project, or workspace — blending hardware utilization, grid cleanliness, and PUE into one comparable number, so a short script and a long training job are judged fairly.
 * **Ultra-Low Overhead:** Written in Rust with asynchronous, non-blocking I/O to ensure minimal monitoring impact.
 
 ---

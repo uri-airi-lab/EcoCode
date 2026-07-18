@@ -28,9 +28,24 @@ class EcoCodeORTWrapper:
     """
     Wrapper around ``onnxruntime.InferenceSession`` that marks inference phases.
 
-    Phase lifecycle per ``.run()`` call::
+    Phase lifecycle::
 
-        model_load  →  prefill  →  done
+        model_load  →  prefill  →  [decode]  →  [decode]  →  ...
+
+    There is no per-call or session-end ``done`` marker: ONNX Runtime's
+    ``InferenceSession`` has no event that fires when the caller is finished
+    issuing ``.run()`` calls, and marking ``done`` after every individual call
+    would misuse the marker (elsewhere in this SDK ``done`` means "the whole
+    run just finished," e.g. HuggingFace/Lightning/TRL's ``on_train_end``).
+
+    The first call is always ``prefill``. Later calls are marked ``decode``
+    when the first input tensor's sequence-length axis (``shape[1]``) is
+    exactly 1, the standard signal for a KV-cache-based single-token decode
+    step; otherwise they are marked ``prefill``. This is a heuristic, not a
+    guarantee: a non-autoregressive model that happens to receive a
+    single-token input on a later call would be misclassified as decode,
+    since ONNX Runtime exposes no explicit signal distinguishing decode
+    loops from one-shot small inputs.
 
     Also logs:
       - ``step``         — running count of inference calls
@@ -51,28 +66,35 @@ class EcoCodeORTWrapper:
         run_options: Any = None,
     ):
         """Wraps ``InferenceSession.run()`` with phase markers and metrics."""
-        self._run.mark("phase", "prefill")
         self._total_inferences += 1
         self._run.log_step(self._total_inferences)
 
-        # Estimate batch size from the first input tensor.
+        # Estimate batch size from the first input tensor, and use its
+        # sequence-length axis (if present) to distinguish prefill from
+        # decode: shape[1] == 1 on a call after the first is treated as a
+        # single-token KV-cache decode step (see class docstring).
         # CS-TYPE-002: Validate the shape value before forwarding. Some ONNX
         # backends may return a symbolic/negative dimension for dynamic shapes;
         # log only if the value is a concrete positive integer within a
         # reasonable range to avoid corrupting dashboard aggregates.
+        is_decode = False
         if input_feed:
             first_val = next(iter(input_feed.values()), None)
             if first_val is not None and hasattr(first_val, "shape"):
-                batch_size = first_val.shape[0]
+                shape = first_val.shape
+                batch_size = shape[0]
                 if isinstance(batch_size, int) and 0 < batch_size < 1_000_000:
                     self._run.log_custom("batch_size", float(batch_size))
+                if self._total_inferences > 1 and len(shape) >= 2 and shape[1] == 1:
+                    is_decode = True
+
+        self._run.mark("phase", "decode" if is_decode else "prefill")
 
         t0 = time.perf_counter()
         result = self._session.run(output_names, input_feed, run_options)
         elapsed_ms = (time.perf_counter() - t0) * 1000
         self._run.log_custom("latency_ms", elapsed_ms)
 
-        self._run.mark("phase", "done")
         return result
 
     def __getattr__(self, name: str):
