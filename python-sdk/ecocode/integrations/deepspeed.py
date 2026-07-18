@@ -65,15 +65,15 @@ class EcoCodeDeepSpeedCallback:
         self._run.mark("phase", "forward")
 
     def on_forward_end(self) -> None:
-        # Optional: could mark as 'post_forward' or just leave as 'forward'
+        # no-op — phase stays "forward" until backward starts
         pass
 
     def on_backward_begin(self) -> None:
         self._run.mark("phase", "backward")
 
     def on_backward_end(self) -> None:
-        # After backward, DeepSpeed runs allreduce/allgather depending on ZeRO stage
-        # We keep "backward" as the label until the optimizer step
+        # DeepSpeed runs allreduce/allgather after backward depending on ZeRO
+        # stage; phase stays "backward" until the optimizer step
         pass
 
     def on_optimizer_step(self, step: int, loss: Optional[float] = None) -> None:

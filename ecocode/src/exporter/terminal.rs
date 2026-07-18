@@ -33,7 +33,7 @@ impl Exporter for TerminalExporter {
     }
     async fn add_record(&mut self, record: Record) -> Result<(), Box<dyn std::error::Error>> {
         self.tracker.add_record(&record);
-        self.records.push(record); //the vector will be used to print the final summary
+        self.records.push(record); // used to print the final summary in export()
         Ok(())
     }
 

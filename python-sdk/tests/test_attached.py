@@ -5,10 +5,10 @@ The CLI wraps this script, creates the run, and handles all energy sampling.
 The SDK detects ECOCODE_MARKER_FD + ECOCODE_RUN_ID and sends markers via pipe.
 
 Usage (run from repo root):
-    ecocode run -o online -p "sdk-test" -- python python-sdk/test_attached.py
+    ecocode run -o online -p "sdk-test" -- python python-sdk/tests/test_attached.py
 
     Or with terminal output:
-    ecocode run -p "sdk-test" -- python python-sdk/test_attached.py
+    ecocode run -p "sdk-test" -- python python-sdk/tests/test_attached.py
 """
 
 import math

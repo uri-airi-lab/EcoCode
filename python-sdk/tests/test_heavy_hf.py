@@ -1,6 +1,6 @@
 """
 Heavy HuggingFace Integration Test
-- Model:  GPT-2 XL (1.5B params)
+- Model:  GPT-2 (124M params)
 - Task:   causal LM fine-tuning on synthetic instruction data
 - Device: CUDA
 - Callback: EcoCodeCallback (phases, loss, lr, step, tokens)

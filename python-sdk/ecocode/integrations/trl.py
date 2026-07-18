@@ -39,7 +39,7 @@ class EcoCodeSFTCallback(_Base):
     """
     Callback for trl.SFTTrainer.
 
-    SFT energy profile: data loading → forward → backward → optimizer step → eval
+    SFT energy profile: data loading → forward_backward → optimizer step → eval
     """
 
     def __init__(self, run: "EcoCodeRun") -> None:

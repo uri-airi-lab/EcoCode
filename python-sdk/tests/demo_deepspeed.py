@@ -49,7 +49,7 @@ def run_deepspeed_demo():
     model = HeavyModel()
     
     ds_config = {
-        "train_batch_size": 32, # Increased batch size for more load
+        "train_batch_size": 32, # bigger batch to stress the GPU more
         "optimizer": {
             "type": "Adam",
             "params": {"lr": 1e-4}

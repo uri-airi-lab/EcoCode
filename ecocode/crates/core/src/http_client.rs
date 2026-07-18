@@ -1,12 +1,11 @@
 //! Blocking HTTP client for the EcoCode web backend.
 //!
-//! Provides a synchronous (non-async) client that implements the 4 ingestion
-//! endpoints used by the Python SDK's sampler thread:
-//!   1. `POST /api/ingest/run`            — create a new run
-//!   2. `POST /api/ingest/run/{id}/record` — add a measurement record
-//!   3. `POST /api/ingest/run/{id}/system-info` — save system hardware info
-//!   4. `POST /api/ingest/run/{id}/complete`    — mark run as finished/failed
-//!   5. `GET  /api/projects`               — list projects (to resolve project_id)
+//! Provides a synchronous (non-async) client for the 4 ingestion endpoints
+//! used by the Python SDK's sampler thread:
+//!   1. `POST /api/ingest/run`                  — create a new run
+//!   2. `POST /api/ingest/run/{id}/record`       — add a measurement record
+//!   3. `POST /api/ingest/run/{id}/system-info`  — save system hardware info
+//!   4. `POST /api/ingest/run/{id}/complete`     — mark run as finished/failed
 //!
 //! Uses `reqwest::blocking` so it can run inside a plain `std::thread` without
 //! pulling in a tokio runtime.

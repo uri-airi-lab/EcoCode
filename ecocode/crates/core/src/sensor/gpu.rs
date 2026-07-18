@@ -1,8 +1,7 @@
-//! GPU energy monitoring module using NVIDIA Management Library (NVML).
+//! GPU energy monitoring via NVIDIA's NVML.
 //!
-//! This module provides functionality to monitor GPU energy consumption and utilization
-//! using the NVIDIA Management Library (NVML) wrapper. It can retrieve both system-wide
-//! and per-process GPU metrics, including multi-GPU setups.
+//! Reads system-wide and per-process GPU energy and utilization, across
+//! multiple GPUs.
 //!
 //! Gated behind the `gpu` feature flag — disabled when building without NVIDIA drivers.
 
@@ -75,7 +74,7 @@ pub fn get_gpu_energy_by_pid(
         }
     };
 
-    let next_timestamp = stats.iter().map(|s| s.timestamp).max().unwrap_or(timestamp); //the Cursor
+    let next_timestamp = stats.iter().map(|s| s.timestamp).max().unwrap_or(timestamp);
 
     // GPU-wide utilization SUMS across ALL samples in this interval for each
     // subsystem: compute (SM), memory controller, hardware encoder, hardware decoder.
@@ -87,7 +86,7 @@ pub fn get_gpu_energy_by_pid(
     let global_dec_sum: f64 = stats.iter().map(|s| s.dec_util as f64).sum();
     let total_activity = global_sm_sum + global_mem_sum + global_enc_sum + global_dec_sum;
 
-    // Track the entire process tree (already provided in pids)
+    // Keep only the samples belonging to a PID in our process tree
     let pid_samples: Vec<_> = stats
         .iter()
         .filter(|s| pids.contains(&(s.pid as u32)))

@@ -1,9 +1,10 @@
 //! Sensor module for monitoring system energy consumption.
 //!
-//! This module provides functions to read CPU and GPU energy data from the system.
-//! It includes:
-//! - `rapl`: CPU energy monitoring using Intel RAPL interface
-//! - `gpu`: GPU energy monitoring using NVIDIA Management Library (NVML)
+//! - `rapl`: CPU/DRAM/iGPU energy via the Intel RAPL interface
+//! - `gpu`: GPU energy and per-process utilization via NVIDIA NVML
+//!
+//! Also provides process-tree discovery (below), used to find which PIDs to
+//! attribute energy to.
 
 pub mod rapl;
 

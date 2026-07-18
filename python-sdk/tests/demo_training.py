@@ -33,7 +33,7 @@ What to expect on the dashboard
              optimizer_step → eval → checkpoint_save → done
   Loss     : drops from ~2.3 → ~0.4 over 20 epochs
   Accuracy : ~70-75% val after 20 epochs on CPU; ~92%+ with GPU + more epochs
-  LR       : linear warmup for 5 steps, then cosine decay to 1e-6
+  LR       : linear warmup over WARMUP_EPOCHS epochs, then cosine decay to 1e-6
   Tokens   : cumulative samples processed (reaches ~1M for 20 epochs)
   GPU energy: real NVML joules per second if CUDA is available
 """

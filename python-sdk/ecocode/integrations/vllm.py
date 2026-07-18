@@ -50,7 +50,8 @@ class EcoCodeVLLMMiddleware:
     Async generator middleware for vLLM AsyncLLMEngine.
 
     Wraps the engine's generate() call to mark prefill and decode phases.
-    Token counts are tracked cumulatively across requests.
+    Token counts accumulate over the course of a single request (prompt +
+    tokens generated so far), resetting with each new call to generate().
     """
 
     def __init__(self, engine, run: "EcoCodeRun") -> None:

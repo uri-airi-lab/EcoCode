@@ -43,7 +43,7 @@ async def run_real_vllm_demo():
             # More complex prompt to encourage a long response
             prompt = "Write a detailed essay (about 400 words) on the future of sustainable AI. Discuss hardware efficiency, algorithmic improvements, and the role of renewable energy in data centers."
             
-            # Increase max_tokens to allow a long response
+            # High max_tokens to allow a long response
             sampling_params = SamplingParams(temperature=0.7, max_tokens=600)
 
             print("✍️  Generating LONG Response:\n")

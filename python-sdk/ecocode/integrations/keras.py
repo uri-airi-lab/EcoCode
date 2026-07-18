@@ -76,9 +76,8 @@ class EcoCodeCallback(_Base):
             acc = logs.get("accuracy", logs.get("acc"))
             if acc is not None:
                 self._run.log_accuracy(float(acc) * 100)
-            # Forward any other numeric values as custom metrics.
-            # CS-TYPE-001: Validate the key before forwarding to prevent keys
-            # with control characters or excessive length reaching the backend.
+            # Forward any other numeric values as custom metrics, validating
+            # the key first to keep control characters/oversized keys out.
             _KNOWN = {"loss", "lr", "learning_rate", "accuracy", "acc", "batch", "size"}
             for key, value in logs.items():
                 if key not in _KNOWN and isinstance(value, (int, float)):
@@ -86,7 +85,7 @@ class EcoCodeCallback(_Base):
                         _validate_metric_key(key)
                         self._run.log_custom(key, float(value))
                     except ValueError:
-                        pass  # Skip keys that fail validation silently
+                        pass  # invalid key, skip it
 
     # ── Eval & end ────────────────────────────────────────────────────
 
@@ -97,12 +96,12 @@ class EcoCodeCallback(_Base):
         if logs:
             for key, value in logs.items():
                 if isinstance(value, (int, float)):
-                    # CS-TYPE-001: Validate key before forwarding.
+                    # validate key before forwarding
                     try:
                         _validate_metric_key(f"val_{key}")
                         self._run.log_custom(f"val_{key}", float(value))
                     except ValueError:
-                        pass  # Skip keys that fail validation silently
+                        pass  # invalid key, skip it
 
     def on_train_end(self, logs=None):
         self._run.mark("phase", "done")

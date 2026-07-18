@@ -119,7 +119,7 @@ pub struct MonitorArgs {
 /// Reads markers from stdin and writes records to a local exporter.
 #[derive(Args, Debug)]
 pub struct MonitorLocalArgs {
-    /// Run ID (already created by the Python SDK via the local exporter).
+    /// Run ID, or 0 to have `ecocode monitor-local` create the project/run itself.
     #[arg(long)]
     pub run_id: i64,
 
@@ -131,11 +131,11 @@ pub struct MonitorLocalArgs {
     #[arg(long, default_value = "1.0")]
     pub interval: f64,
 
-    /// Local exporter type: `terminal`, `csv`, or `json`.
+    /// Local exporter type: `terminal`, `csv`, `json`, or `logfile`.
     #[arg(long, default_value = "terminal")]
     pub exporter: String,
 
-    /// Output file path (required for `csv` and `json` exporters).
+    /// Output file path (required for `csv`, `json`, and `logfile` exporters).
     #[arg(long)]
     pub file: Option<String>,
 }

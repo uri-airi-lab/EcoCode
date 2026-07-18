@@ -16,7 +16,7 @@ if nvidia_libs:
     os.environ["LD_LIBRARY_PATH"] = ":".join(nvidia_libs) + ":" + os.environ.get("LD_LIBRARY_PATH", "")
 
 def run_hf_training_demo():
-    # Switching back to Qwen 0.5B (Heavier than GPT2)
+    # Qwen 0.5B — heavier than GPT2
     model_id = "Qwen/Qwen2.5-0.5B-Instruct"
     run_name = "hf-train-qwen-heavy"
     api_key = os.environ.get("ECOCODE_API_KEY")

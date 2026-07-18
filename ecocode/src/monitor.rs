@@ -66,7 +66,7 @@ fn is_thread_leader(pid: u32) -> bool {
         .unwrap_or(false)
 }
 
-/// Shared state updated by the Python SDK via Unix socket (attached mode).
+/// Shared state updated by the Python SDK over the marker pipe (attached mode).
 /// The main sampling loop reads these values on every tick and attaches them to the Record.
 #[derive(Debug, Default, Clone)]
 struct MarkerState {
@@ -94,8 +94,7 @@ use ecocode_core::sensor::rapl::{delta_cpu_energy_per_pid_j, get_all_energies, s
 
 use crate::cli::RunArgs;
 
-/// Core monitoring loop: initialises sensors, spawns the target process, samples
-/// energy on each tick, exports records, and writes the final run summary.
+/// Core monitoring loop for `ecocode run`.
 pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
     if args.interval < 0.1 {
         return Err("Sampling interval must be at least 0.1 seconds".into());
@@ -485,8 +484,8 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
     //      not just the last interval → inflated process_util on sample 1.
     //   2. RAPL/GPU counters include the process startup burst (CUDA context
     //      init, library loading) which would corrupt the first energy delta.
-    //   3. sysinfo has no prior CPU snapshot, so the first cpu_usage() call
-    //      spans from process spawn to tick 1 rather than a clean interval.
+    //   3. sysinfo needs a refresh before the process tree (children/threads)
+    //      can be discovered, which the CPU-tick baseline below depends on.
     {
         cpu_energy_1 = get_all_energies(&mut rapl_readers)?;
         gpu_energies_1 = devices

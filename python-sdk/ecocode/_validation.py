@@ -7,7 +7,7 @@ or corrupted data to the backend.
 
 Security findings addressed:
   CS-CRED-002  validate_api_key   — reject malformed / injected API key strings
-  CS-SSRF-001  validate_base_url  — reject non-HTTPS / non-trusted URLs
+  CS-SSRF-001  validate_base_url  — reject disallowed schemes / plaintext HTTP outside localhost
   CS-INT-001   validate_run_id    — reject out-of-range / non-positive run IDs
   CS-FD-001    validate_marker_fd — reject stdin/stdout/stderr FD aliases
   CS-TYPE-001  validate_metric_key — reject keys with unsafe characters / lengths
@@ -28,22 +28,12 @@ _CTRL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 
 def validate_api_key(key: str) -> str:
-    """
-    Validate and return *key* if it meets the expected format.
+    """Validate and return *key*.
 
-    Rules
-    -----
-    - Must be a non-empty string.
-    - Must start with the ``ecocode_`` or ``eco_`` prefix.
-    - Must contain only alphanumeric characters, underscores, or hyphens after
-      the prefix.
-    - Must not contain control characters (prevents header-injection attacks).
-    - Length must be between 12 and 256 characters inclusive.
-
-    Raises
-    ------
-    ValueError
-        If the key does not satisfy all rules above.
+    Must be non-empty, start with ``eco_`` or ``ecocode_``, contain only
+    alphanumerics/underscore/hyphen after the prefix, have no control chars
+    (blocks header injection), and be 12-248 characters total. Raises
+    ValueError otherwise.
     """
     if not isinstance(key, str) or not key:
         raise ValueError(
@@ -73,22 +63,11 @@ _ALLOWED_SCHEMES = frozenset({"https", "http"})
 
 
 def validate_base_url(url: str) -> str:
-    """
-    Validate and return *url* as a safe API base URL.
+    """Validate and return *url* as a safe API base URL.
 
-    Rules
-    -----
-    - Scheme must be ``https`` or ``http``.
-    - ``http`` is only permitted when the hostname resolves to localhost
-      (``localhost``, ``127.0.0.1``, ``::1``).
-    - Schemes like ``file://``, ``ftp://``, ``data:``, etc. are always rejected.
-    - Embedded credentials (``user:pass@host``) are rejected.
-    - Empty or non-string values are rejected.
-
-    Raises
-    ------
-    ValueError
-        If the URL does not satisfy all rules above.
+    Scheme must be ``https``, or ``http`` only for localhost. Other schemes
+    (``file://``, ``ftp://``, ``data:``, etc.) and embedded credentials
+    (``user:pass@host``) are rejected. Raises ValueError otherwise.
     """
     if not isinstance(url, str) or not url.strip():
         raise ValueError(
@@ -139,24 +118,10 @@ _RUN_ID_MAX = 2 ** 53  # JavaScript-safe integer boundary (matches most backends
 
 
 def validate_run_id(raw: str) -> int:
-    """
-    Parse and validate the ``ECOCODE_RUN_ID`` environment variable.
+    """Parse and validate the ``ECOCODE_RUN_ID`` environment variable.
 
-    Rules
-    -----
-    - Must be parseable as a base-10 integer.
-    - Must be strictly positive (≥ 1).
-    - Must not exceed 2**53 (JavaScript-safe integer boundary).
-
-    Returns
-    -------
-    int
-        The validated run ID.
-
-    Raises
-    ------
-    ValueError
-        If the value does not satisfy all rules above.
+    Must be a base-10 integer, >= 1, and <= 2**53 (JavaScript-safe integer
+    boundary). Raises ValueError otherwise.
     """
     try:
         run_id = int(raw, 10)
@@ -186,25 +151,11 @@ def validate_run_id(raw: str) -> int:
 
 
 def validate_marker_fd(raw: str) -> int:
-    """
-    Parse and validate the ``ECOCODE_MARKER_FD`` environment variable.
+    """Parse and validate the ``ECOCODE_MARKER_FD`` environment variable.
 
-    Rules
-    -----
-    - Must be parseable as a base-10 integer.
-    - Must be > 2 (not stdin=0, stdout=1, or stderr=2).
-    - Must be an open file descriptor in the current process (verified via
-      ``os.fstat``).
-
-    Returns
-    -------
-    int
-        The validated file descriptor number.
-
-    Raises
-    ------
-    ValueError
-        If the FD value does not satisfy all rules above.
+    Must be a base-10 integer, > 2 (not stdin=0/stdout=1/stderr=2), and an FD
+    that's actually open in this process (checked via ``os.fstat``). Raises
+    ValueError otherwise.
     """
     try:
         fd = int(raw, 10)
@@ -240,24 +191,10 @@ _METRIC_KEY_RE = re.compile(r"^[A-Za-z0-9_\-]{1,128}$")
 
 
 def validate_metric_key(key: str) -> str:
-    """
-    Validate a custom metric key before forwarding it to the backend.
+    """Validate a custom metric key before forwarding it to the backend.
 
-    Rules
-    -----
-    - Must be a non-empty string.
-    - Must contain only alphanumeric characters, underscores, or hyphens.
-    - Must be at most 128 characters long.
-
-    Returns
-    -------
-    str
-        The validated key.
-
-    Raises
-    ------
-    ValueError
-        If the key does not satisfy all rules above.
+    Must be non-empty, alphanumeric/underscore/hyphen only, and at most 128
+    characters. Raises ValueError otherwise.
     """
     if not isinstance(key, str) or not key:
         raise ValueError("Metric key must be a non-empty string.")

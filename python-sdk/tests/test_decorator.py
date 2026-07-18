@@ -42,7 +42,7 @@ def train_model():
     
     # Run training steps
     for step in range(steps):
-        # Generate new random batch on CPU and transfer to GPU to simulate data loading I/O
+        # New random batch each step to simulate data loading I/O
         inputs = torch.randn(batch_size, channels, height, width, device=device)
         
         optimizer.zero_grad()

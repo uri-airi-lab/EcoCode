@@ -2,8 +2,8 @@
 HuggingFace Transformers integration.
 
 Works with Trainer and SFTTrainer. Automatically marks training phases
-(forward, optimizer_step, eval, checkpoint_save) and logs token counts,
-step number, loss, and learning rate from the trainer state.
+(forward_backward, optimizer_step, eval, checkpoint_save) and logs token
+counts, step number, loss, and learning rate from the trainer state.
 
 Usage:
     import ecocode

@@ -114,11 +114,7 @@ impl OnlineExporter {
             println!("   (detected key: {})", masked);
         }
 
-        let base_url = "https://ecocode-hxf6p.ondigitalocean.app".to_string(); // default fallback
-
-        // let base_url = env::var("ECOCODE_API_URL")
-        //     .or_else(|_| config.and_then(|c| c.api_url).ok_or(""))
-        //     .unwrap_or_else(|_| "http://localhost:3001".to_string());
+        let base_url = "https://ecocode-hxf6p.ondigitalocean.app".to_string();
 
         let mut headers = header::HeaderMap::new();
         let auth_value = header::HeaderValue::from_str(&format!("Bearer {}", api_key))?;
@@ -159,7 +155,6 @@ impl Exporter for OnlineExporter {
     async fn add_record(&mut self, record: Record) -> Result<(), Box<dyn std::error::Error>> {
         let url = format!("{}/api/ingest/run/{}/record", self.base_url, record.run_id);
 
-        // Convert Record to the ingestion payload format expected by the backend
         let res = self.client.post(&url).json(&record).send().await?;
 
         if !res.status().is_success() {
@@ -181,9 +176,7 @@ impl Exporter for OnlineExporter {
         project_name: &str,
         collaborator_name: Option<&str>,
     ) -> Result<ProjectInfo, Box<dyn std::error::Error>> {
-        // For simplicity in this first version, we'll assume the project is already created
-        // or we use the name to find it.
-        // Actually, let's fetch projects and find by name.
+        // Fetch all projects and find the one matching by name.
         let url = format!("{}/api/projects", self.base_url);
         let res = self.client.get(&url).send().await?;
 

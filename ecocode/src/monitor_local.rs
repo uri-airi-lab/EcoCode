@@ -5,9 +5,8 @@
 //! combined energy + marker records to a local exporter (terminal, CSV, JSON,
 //! or logfile) — no API key is required.
 //!
-//! The Python SDK handles run creation and completion by calling
-//! `ecocode monitor-local` with `--run-id`, `--pid`, `--exporter`,
-//! and optionally `--file` / `--db-path`.
+//! The Python SDK normally creates the run and passes `--run-id`; if `--run-id 0`
+//! is passed instead, this module creates the project and run itself.
 
 use std::collections::HashMap;
 use std::io::{self, BufRead};
@@ -19,7 +18,7 @@ use chrono::Utc;
 use sysinfo::{Pid, ProcessesToUpdate, RefreshKind, System};
 use tokio::time::{self, Instant, MissedTickBehavior};
 
-use ecocode_core::sensor::get_process_tree_pids_from_sys; // from the core library
+use ecocode_core::sensor::get_process_tree_pids_from_sys;
 use ecocode_core::sensor::gpu::{
     get_all_gpu_devices, get_all_gpu_energies, get_all_gpu_energies_by_pid,
 };

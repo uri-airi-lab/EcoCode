@@ -6,7 +6,7 @@
 //! - System memory consumption via `sysinfo`
 //!
 //! Measurements are attributed to the target PID using proportional resource
-//! usage and exported in one of seven formats (terminal, CSV, JSON, SQLite, Online, Prometheus, logfile).
+//! usage and exported in one of six formats (terminal, CSV, JSON, online, Prometheus, logfile).
 //!
 //! Exporter selection is explicit — no data is ever sent to the network without
 //! the user choosing `--output online` (CLI) or `exporter="online"` (Python SDK).

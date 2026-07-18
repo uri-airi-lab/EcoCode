@@ -1,5 +1,5 @@
 """
-EcoCode PyTorch Lightning Demo (Fixed + Heavy + Warmup)
+EcoCode PyTorch Lightning Demo (Heavy + Warmup)
 """
 import os
 import glob

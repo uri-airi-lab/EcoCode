@@ -30,13 +30,14 @@ class EcoCodeCallback(_Base):
     PyTorch Lightning Callback that marks training phases and logs metrics.
 
     Hooks:
-      on_train_epoch_start     → log epoch (no phase change)
-      on_train_batch_start     → phase = "forward"
-      on_before_backward       → phase = "backward"
-      on_before_optimizer_step → phase = "optimizer_step", log step
-      on_validation_epoch_start → phase = "eval"
-      on_save_checkpoint       → phase = "checkpoint_save"
-      on_train_end              → phase = "done"
+      on_train_start             → phase = "data_loading"
+      on_train_epoch_start       → log epoch (no phase change)
+      on_train_batch_start       → phase = "forward"
+      on_before_backward         → phase = "backward"
+      on_before_optimizer_step   → phase = "optimizer_step", log step
+      on_validation_epoch_start  → phase = "eval"
+      on_save_checkpoint         → phase = "checkpoint_save"
+      on_train_end               → phase = "done"
 
     Unlike HuggingFace/TRL/Keras, Lightning exposes a real hook between the
     forward and backward pass (``on_before_backward``), fired in this order:

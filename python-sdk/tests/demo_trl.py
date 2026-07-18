@@ -40,7 +40,7 @@ def run_trl_demo():
             model=model,
             args=training_args,
             train_dataset=dataset,
-            callbacks=[EcoCodeSFTCallback(run)], # <--- TRL Integration
+            callbacks=[EcoCodeSFTCallback(run)],
         )
         
         trainer.train()

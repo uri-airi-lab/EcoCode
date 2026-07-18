@@ -119,20 +119,15 @@ pub fn delta_cpu_energy_per_pid_j(
                 e2.energy
             };
 
-            // Map domains to their respective usage fractions
+            // Map domains to their respective usage fractions.
             //
-            // NOTE: DRAM attribution uses PSS (proportional set size) as a proxy,
-            // which measures memory *capacity* (how much RAM is allocated, with
-            // shared pages divided fairly across processes), not memory *bandwidth*
-            // (how often RAM is accessed). DRAM energy is primarily driven by
-            // read/write activity, so PSS can over-attribute to large-but-idle
-            // processes and under-attribute to small-but-active ones.
-            //
-            // A more accurate approach would blend static and dynamic components:
-            //   let static_fraction = 0.3; // ~30% of DRAM power is refresh/leakage
-            //   "dram" => static_fraction * mem_usage + (1.0 - static_fraction) * cpu_usage
-            // This attributes refresh energy by PSS (fair — all pages need refreshing)
-            // and dynamic access energy by CPU usage (better bandwidth proxy).
+            // DRAM uses PSS (proportional set size) as a proxy, which measures
+            // memory *capacity* rather than *bandwidth*. DRAM power is mostly
+            // driven by read/write activity, so this can over-attribute to a
+            // large-but-idle process and under-attribute to a small-but-active
+            // one. A blend of static (PSS-weighted, for refresh power) and
+            // dynamic (CPU-weighted, for access power) would be more accurate,
+            // but isn't implemented yet.
             let usage_fraction = match e1.domain.as_str() {
                 "cpu"  => cpu_usage,
                 "dram" => mem_usage,
@@ -149,8 +144,7 @@ pub fn delta_cpu_energy_per_pid_j(
                 delta_energy: delta_j,
             }
         })
-        .collect::<Vec<RaplEnergyDelta>>() //returned because it is the last variable in the function (no need for let variable = then reutrn)
-                         // more idiomatic Rust way
+        .collect::<Vec<RaplEnergyDelta>>()
 }
 
 /// Scans the RAPL sysfs hierarchy and opens a buffered file handle for every
@@ -177,7 +171,7 @@ pub fn scan_rapl_files() -> Result<Vec<RaplFile>, Box<dyn Error>> {
     let entries = read_dir(RAPL_PATH)?;
 
     for entry in entries {
-        // socket level lookout
+        // Each entry here is a socket directory, e.g. intel-rapl:0
         let entry = match entry {
             Ok(e) => e.path(),
             Err(_) => continue,
@@ -196,7 +190,7 @@ pub fn scan_rapl_files() -> Result<Vec<RaplFile>, Box<dyn Error>> {
             None => continue, // skip non-socket dirs
         };
 
-        // domain level lookout
+        // Each sub-entry here is a domain directory, e.g. intel-rapl:0:0
         let sub_entries = match entry.read_dir() {
             Ok(se) => se,
             Err(_) => continue,

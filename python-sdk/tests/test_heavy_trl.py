@@ -1,8 +1,8 @@
 """
 Heavy TRL Integration Test
-- SFT:  GPT-2 XL fine-tuned with SFTTrainer (2000 samples, seq_len=512, 3 epochs)
-- DPO:  GPT-2 large policy vs frozen GPT-2 large reference (SEQ=128, 120 steps)
-- GRPO: GPT-2 large policy with group-relative reward rollout (GROUP_SIZE=4, 120 steps)
+- SFT:  GPT-2 fine-tuned with SFTTrainer (120 samples, seq_len=128, 3 epochs)
+- DPO:  GPT-2 policy vs frozen GPT-2 reference (SEQ=128, 60 steps)
+- GRPO: GPT-2 policy with group-relative reward rollout (GROUP_SIZE=4, 60 steps)
 - Device: CUDA
 """
 import os, torch, torch.nn as nn, time
@@ -20,7 +20,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"[TRL heavy] device={device}")
 
 # ─────────────────────────────────────────────────────────────
-# TEST 1: SFT — GPT-2 XL supervised fine-tuning
+# TEST 1: SFT — GPT-2 supervised fine-tuning
 # ─────────────────────────────────────────────────────────────
 print("\n" + "="*60)
 print("  TRL SFT — GPT-2 supervised fine-tuning (124M params)")
@@ -100,7 +100,7 @@ if device == "cuda":
     import gc; gc.collect(); torch.cuda.empty_cache()
 
 # ─────────────────────────────────────────────────────────────
-# TEST 2: DPO — GPT-2 large policy vs frozen reference
+# TEST 2: DPO — GPT-2 policy vs frozen reference
 # ─────────────────────────────────────────────────────────────
 print("\n" + "="*60)
 print("  TRL DPO — GPT-2 policy + frozen reference (124M params)")
@@ -186,7 +186,7 @@ if device == "cuda":
     import gc; gc.collect(); torch.cuda.empty_cache()
 
 # ─────────────────────────────────────────────────────────────
-# TEST 3: GRPO — GPT-2 large policy rollout + group-relative reward
+# TEST 3: GRPO — GPT-2 policy rollout + group-relative reward
 # ─────────────────────────────────────────────────────────────
 print("\n" + "="*60)
 print("  TRL GRPO — GPT-2 rollout + group-relative rewards (124M params)")

@@ -166,7 +166,6 @@ pub enum ExporterType {
     Online,
     Prometheus,
     LogFile,
-    // Http, // Renamed to Online
 }
 
 impl std::fmt::Display for ExporterType {

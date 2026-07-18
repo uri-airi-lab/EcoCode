@@ -25,7 +25,7 @@ pub struct JsonExporter {
 impl JsonExporter {
     pub fn new(file_path: String) -> Result<JsonExporter, Box<dyn Error>> {
         let file = File::create(&file_path)?;
-        let writer = BufWriter::new(file); // Wrap the file in a buffered writer
+        let writer = BufWriter::new(file);
         Ok(JsonExporter {
             file_path,
             writer,
@@ -42,16 +42,13 @@ impl Exporter for JsonExporter {
     }
     async fn add_record(&mut self, record: Record) -> Result<(), Box<dyn Error>> {
         self.tracker.add_record(&record);
-        // Write a comma if it's not the first record
         if !self.first_record {
-            self.writer.write_all(b",")?; // Add a comma between records
+            self.writer.write_all(b",")?;
         } else {
-            // If this is the first record, write the opening bracket for the JSON array
-            self.writer.write_all(b"[")?; // Begin the JSON array
-            self.first_record = false; // Mark that the first record is processed
+            self.writer.write_all(b"[")?;
+            self.first_record = false;
         }
 
-        // Serialize the record to JSON and write it
         let json = serde_json::to_string(&record)?;
         self.writer.write_all(json.as_bytes())?;
 
@@ -59,7 +56,6 @@ impl Exporter for JsonExporter {
     }
 
     async fn export(&mut self) -> Result<(), Box<dyn Error>> {
-        // Write the closing bracket for the JSON array
         self.writer.write_all(b"]")?;
         self.writer.flush()?;
 

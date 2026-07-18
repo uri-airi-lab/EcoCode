@@ -35,8 +35,8 @@ root process is momentarily idle.  All three conditions hit zero together,
 triggering the early exit.
 
 The fix: the secondary guard was removed entirely.  Process termination is
-detected reliably by polling the PID in the OS process table (if the PID is
-gone, the process is done).
+now detected via the child process handle (child.try_wait()) rather than a
+sysinfo process-table lookup, which avoids PID-reuse false positives.
 
 --- Setup ---
 1. Start the EcoCode backend:
@@ -49,10 +49,10 @@ gone, the process is done).
        pip install -e "."
 
 4. Run via EcoCode CLI (tests the fix end-to-end):
-       ecocode run --name corenet-demo python python-sdk/demo_corenet.py
+       ecocode run --name corenet-demo python python-sdk/tests/demo_corenet.py
 
    Or with the Python SDK:
-       API_KEY=ecocode_xxx python python-sdk/demo_corenet.py
+       API_KEY=ecocode_xxx python python-sdk/tests/demo_corenet.py
 """
 
 import os

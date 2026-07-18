@@ -2,14 +2,14 @@
 
 Supports three usage patterns:
     # Context manager
-    with ecocode.run("name", exporter="local") as run: ...
+    with ecocode.run("name", exporter="terminal") as run: ...
 
     # Decorator
-    @ecocode.track("name", exporter="local")
+    @ecocode.track("name", exporter="terminal")
     def train(): ...
 
     # Explicit start/stop
-    run = ecocode.run("name", exporter="local")
+    run = ecocode.run("name", exporter="terminal")
     run.start()
     ...
     run.stop()
@@ -203,9 +203,8 @@ class EcoCodeRun:
             if k in _SUBPROCESS_ENV_PASSTHROUGH
         }
 
-        # For the local exporter we use `ecocode monitor-local` which writes to
-        # a local exporter without any network calls. Run ID 0 is a placeholder;
-        # the monitor will create/manage the run internally via the local exporter.
+        # `ecocode monitor-local` writes locally, no network calls. Run ID 0 is
+        # a placeholder — the monitor subprocess manages the run itself.
         self._run_id = 0
         self._mode = "standalone_local"
 
@@ -420,7 +419,7 @@ def _resolve_ecocode_binary() -> str:
 
 
 def _collect_system_info() -> dict:
-    """Collect system info using pure Python (no external dependencies)."""
+    """Collect system info using only the stdlib (falls back to nvidia-smi for GPU names)."""
     info = {
         "cpu_name": platform.processor() or "Unknown",
         "cpu_cores": os.cpu_count() or 0,
@@ -430,9 +429,9 @@ def _collect_system_info() -> dict:
     }
     try:
         with open("/proc/meminfo") as f:
-            # CS-DOS-001: Guard against bind-mounted or crafted /proc/meminfo
-            # that could be arbitrarily large. The real kernel file has ~50
-            # entries; bail out if we exceed that to avoid memory exhaustion.
+            # CS-DOS-001: guard against a crafted/bind-mounted /proc/meminfo —
+            # real kernel file has ~50 lines, bail out past that to avoid
+            # reading something unbounded.
             for i, line in enumerate(f):
                 if i >= 60:
                     break
@@ -490,9 +489,8 @@ _SENSITIVE_FLAG_NAMES: frozenset[str] = frozenset({
 def _sanitize_command(args: list[str]) -> str:
     """Sanitize sensitive flag values (like API keys/tokens) from sys.argv.
 
-    CS-LEAK-001: The original set only covered four flags. The expanded set
-    covers all common ML tooling secret flags so they are never transmitted
-    to the backend in the run's 'command' field.
+    CS-LEAK-001: redacts known secret flags so they never get sent to the
+    backend in the run's 'command' field.
     """
     sanitized = []
     skip_next = False

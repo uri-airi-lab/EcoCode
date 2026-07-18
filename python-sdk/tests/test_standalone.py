@@ -1,6 +1,6 @@
 """
 Test: EcoCode SDK — Standalone Mode
-Trains a ResNet-18 on CIFAR-10 (real PyTorch training, CPU-heavy).
+Trains a small custom ResNet on CIFAR-10-shaped data (real PyTorch training, CPU-heavy).
 The SDK spawns `ecocode monitor` as a subprocess and sends markers via pipe.
 
 Usage:
@@ -11,8 +11,6 @@ Usage:
 import os
 import sys
 import time
-
-# Point SDK at local backend
 
 import torch
 import torch.nn as nn

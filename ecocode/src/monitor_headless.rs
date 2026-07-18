@@ -230,12 +230,11 @@ pub async fn run_headless_monitor(args: MonitorArgs) -> Result<(), Box<dyn std::
 
         sys.refresh_processes(ProcessesToUpdate::All, true);
 
-        // Exit if the target process is gone AND stdin is closed
+        // Exit once the process is gone, or after one final sample once stdin is closed.
         let pid_alive = sys.process(pid).is_some();
         let stdin_done = stdin_closed.load(std::sync::atomic::Ordering::SeqCst);
 
         if !pid_alive || stdin_done {
-            // Do one final sample before exiting if PID is still alive
             if !pid_alive {
                 break;
             }
