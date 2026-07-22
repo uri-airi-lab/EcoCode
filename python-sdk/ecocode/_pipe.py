@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from typing import IO, Any
 
 
@@ -15,6 +16,7 @@ class PipeWriter:
 
     def send(self, event: dict[str, Any]) -> None:
         try:
+            event = {**event, "sent_at_ns": time.time_ns()}
             line = json.dumps(event) + "\n"
             self._stream.write(line.encode())
             self._stream.flush()
@@ -42,6 +44,7 @@ class InheritedFdWriter:
 
     def send(self, event: dict[str, Any]) -> None:
         try:
+            event = {**event, "sent_at_ns": time.time_ns()}
             self._file.write(json.dumps(event) + "\n")
             self._file.flush()
         except (BrokenPipeError, OSError):

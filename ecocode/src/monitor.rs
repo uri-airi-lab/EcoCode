@@ -255,8 +255,13 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
     // by writing newline-delimited JSON to the inherited write-end FD.
     let marker_state: Arc<Mutex<MarkerState>> = Arc::new(Mutex::new(MarkerState::default()));
 
+    // Marker pipe transit latency (nanoseconds), one sample per marker received,
+    // used to report SDK-to-monitor marker overhead at the end of the run.
+    let marker_latencies_ns: Arc<Mutex<Vec<u64>>> = Arc::new(Mutex::new(Vec::new()));
+
     let (pipe_read_fd, pipe_write_fd) = os_pipe::pipe()?;
     let marker_state_for_task = Arc::clone(&marker_state);
+    let marker_latencies_for_task = Arc::clone(&marker_latencies_ns);
 
     // Clear CLOEXEC on the write-end so the child inherits it across exec.
     // os_pipe sets CLOEXEC by default; we need the child to write markers to this FD.
@@ -282,6 +287,21 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
                         continue;
                     }
                     if let Ok(event) = serde_json::from_str::<serde_json::Value>(&line) {
+                        // Every marker carries a Python-side send timestamp (nanoseconds
+                        // since UNIX epoch); comparing it against our own wall-clock time
+                        // here gives the pipe transit latency for this specific marker.
+                        if let Some(sent_at_ns) = event.get("sent_at_ns").and_then(|v| v.as_u64()) {
+                            let now_ns = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_nanos() as u64)
+                                .unwrap_or(sent_at_ns);
+                            if now_ns >= sent_at_ns {
+                                marker_latencies_for_task
+                                    .lock()
+                                    .unwrap()
+                                    .push(now_ns - sent_at_ns);
+                            }
+                        }
                         let mut state = marker_state_for_task.lock().unwrap();
                         match event.get("event").and_then(|e| e.as_str()) {
                             Some("phase") => {
@@ -763,6 +783,21 @@ pub async fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn std::error::Err
         .complete_run(run_id, final_status, Some(run_ended_at.as_str()))
         .await?;
     exporter.run_summary(run_id).await?;
+
+    {
+        let latencies = marker_latencies_ns.lock().unwrap();
+        if !latencies.is_empty() {
+            let count = latencies.len();
+            let sum_ns: u64 = latencies.iter().sum();
+            let mean_us = (sum_ns as f64 / count as f64) / 1000.0;
+            let min_us = *latencies.iter().min().unwrap() as f64 / 1000.0;
+            let max_us = *latencies.iter().max().unwrap() as f64 / 1000.0;
+            println!(
+                "Marker pipe latency: {} samples, mean {:.1}\u{b5}s, min {:.1}\u{b5}s, max {:.1}\u{b5}s",
+                count, mean_us, min_us, max_us
+            );
+        }
+    }
 
     // Restore the default panic hook now that the child is done.
     let _ = std::panic::take_hook();
