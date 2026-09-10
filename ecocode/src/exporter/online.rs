@@ -114,7 +114,7 @@ impl OnlineExporter {
             println!("   (detected key: {})", masked);
         }
 
-        let base_url = "https://ecocode-hxf6p.ondigitalocean.app".to_string();
+        let base_url = "https://ecocode.harmonyhpc.io".to_string();
 
         let mut headers = header::HeaderMap::new();
         let auth_value = header::HeaderValue::from_str(&format!("Bearer {}", api_key))?;
