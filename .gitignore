@@ -1,7 +1,6 @@
 # Rust
 **/target/
 **/*.rs.bk
-Cargo.lock
 
 # Node.js
 **/node_modules/
@@ -45,6 +44,7 @@ Thumbs.db
 
 # Project Specific
 data/
+selftest-report.txt
 
 .kiro/
 .idea/
@@ -66,7 +66,6 @@ web/deploy-azure.local.sh
 
 .vscode/*
 .idea/*
-.github
 
 
 web/*

@@ -7,40 +7,64 @@ Thank you for your interest in contributing to EcoCode! We welcome contributions
 ## Technical Stack & Layout
 
 The project consists of two main components:
-1. **CLI & Core Engine (`ecocode/` and `crates/core/`)**: Written in Rust, reads direct hardware counters (RAPL & NVML) and performs energy attribution.
-2. **Python SDK (`python-sdk/`)**: Integrates with machine learning frameworks and communicates via OS pipes with the monitor process.
+1. **CLI & Core Engine (`crates/`)**: A Rust workspace that reads hardware energy counters and performs energy attribution:
+   - `ecocode-sensors` — hardware sensors (the only crate with OS-specific sensor code)
+   - `ecocode-monitor` — the measurement engine (attribution, markers)
+   - `ecocode-api` — client for the web backend
+   - `ecocode-cli` — the `ecocode` binary (commands and exporters)
+2. **Python SDK (`python/`)**: Integrates with machine learning frameworks and communicates via OS pipes with the monitor process.
 
 ---
 
 ## Local Setup
 
 ### Prerequisites
-- **Linux OS** (RAPL counters are Linux-specific).
-- **Intel CPU** (for RAPL energy readings) and/or **NVIDIA GPU + Drivers** (for NVML readings).
-- **Rust Toolchain** (1.75+).
-- **Python** (3.8+) with `pip`.
+- **Linux, macOS or Windows.** Everything builds and tests on all three; real energy readings depend on
+  the machine's sensors (see the [platform guides](docs/platforms/) and `ecocode doctor`).
+- **Optional: NVIDIA GPU + drivers** for GPU energy on Linux and Windows.
+- **Rust Toolchain** — `rust-toolchain.toml` pins 1.99.0; rustup selects it automatically.
+- **Python** (3.9+) with `pip`.
 
 ### 1. Setting Up the Rust Engine & CLI
-To compile the CLI:
+To compile the CLI and run the Rust tests (from the repository root):
 ```bash
-cd ecocode
 cargo build
+cargo test --workspace
 ```
-To run the CLI, you will need read access to RAPL counters. The CLI automatically attempts to configure permissions at startup (requires `sudo` or manual permission configuration):
+Check which energy sensors work on your machine (and how to fix the ones that don't):
 ```bash
-sudo chmod -R +r /sys/class/powercap/intel-rapl/
+cargo run -- doctor
 ```
+On Linux, RAPL counters are root-only by default since kernel 5.10. To read them as your user permanently (see [docs/platforms/linux.md](docs/platforms/linux.md)):
+```bash
+sudo packaging/linux/install-permissions.sh
+```
+Tests that need no hardware use fake sensors (`--sensors fake` / `ECOCODE_SENSORS=fake`).
 
 ### 2. Setting Up the Python SDK
-To install the SDK locally in editable mode:
+To install the SDK locally in editable mode (this also builds the `ecocode` binary with maturin and installs it into your environment):
 ```bash
-cd python-sdk
-pip install -e .
+cd python
+pip install -e ".[dev]"
 ```
-You can run integration tests:
+Run the unit and end-to-end tests (no hardware or ML frameworks needed; the end-to-end tests use the binary from `target/debug` with fake sensors, so run `cargo build` first):
 ```bash
-python test_start_stop.py
+pytest
 ```
+Integration tests need PyTorch and other frameworks (see `tests/integration/requirements.txt`):
+```bash
+python tests/integration/test_start_stop.py
+```
+
+### 3. Checking a whole machine
+One command builds everything, runs every test, measures a real workload with the machine's own
+sensors, and writes `selftest-report.txt`:
+```bash
+scripts/selftest.sh                                        # Linux, macOS
+powershell -ExecutionPolicy Bypass -File scripts\selftest.ps1   # Windows
+```
+CI (`.github/workflows/ci.yml`) runs the tests on Linux x86_64/arm64, macOS arm64/x86_64 and
+Windows x86_64.
 
 ---
 

@@ -1,0 +1,49 @@
+[package]
+name = "ecocode-cli"
+description = "EcoCode is a system to analyze your code energy and cost efficiency."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "ecocode"
+path = "src/main.rs"
+
+[features]
+default = ["nvml"]
+# NVIDIA GPUs via NVML (Linux and Windows; loaded at runtime).
+nvml = ["ecocode-sensors/nvml"]
+
+[dependencies]
+ecocode-api.workspace = true
+ecocode-monitor.workspace = true
+ecocode-sensors.workspace = true
+chrono.workspace = true
+clap.workspace = true
+csv.workspace = true
+ctrlc.workspace = true
+os_pipe.workspace = true
+prometheus.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sysinfo.workspace = true
+tiny_http.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[target.'cfg(unix)'.dev-dependencies]
+libc.workspace = true

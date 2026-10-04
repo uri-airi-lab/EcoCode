@@ -1,0 +1,16 @@
+# winget default locale manifest (template).
+PackageIdentifier: EcoCode.EcoCode
+PackageVersion: 0.1.0
+PackageLocale: en-US
+Publisher: EcoCode
+PackageName: EcoCode
+License: AGPL-3.0-only
+LicenseUrl: https://github.com/abdeltawab/EcoCode/blob/main/LICENSE
+ShortDescription: Measure the energy and carbon footprint of programs and ML training runs.
+Moniker: ecocode
+Tags:
+  - energy
+  - carbon
+  - machine-learning
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

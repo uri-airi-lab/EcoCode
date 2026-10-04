@@ -1,0 +1,17 @@
+# winget installer manifest (template): a zip containing ecocode.exe, installed
+# as a portable command. Build the zip from target/release/ecocode.exe (MSVC
+# toolchain), sign the .exe, upload it to a GitHub release, then fill in the
+# URL and SHA256 (`Get-FileHash ecocode-x86_64-pc-windows-msvc.zip`).
+PackageIdentifier: EcoCode.EcoCode
+PackageVersion: 0.1.0
+InstallerType: zip
+NestedInstallerType: portable
+NestedInstallerFiles:
+  - RelativeFilePath: ecocode.exe
+    PortableCommandAlias: ecocode
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/abdeltawab/EcoCode/releases/download/v0.1.0/ecocode-x86_64-pc-windows-msvc.zip
+    InstallerSha256: REPLACE_WITH_ZIP_SHA256
+ManifestType: installer
+ManifestVersion: 1.6.0

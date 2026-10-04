@@ -1,0 +1,39 @@
+[package]
+name = "ecocode-sensors"
+description = "Hardware energy sensors and process inspection for EcoCode."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = ["nvml"]
+# NVIDIA GPUs via NVML. The library is loaded at runtime, so this builds on
+# machines without NVIDIA drivers.
+nvml = ["dep:nvml-wrapper"]
+
+[dependencies]
+nvml-wrapper = { workspace = true, optional = true }
+regex.workspace = true
+sysinfo.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation-sys.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = [
+    "Win32_Devices_DeviceAndDriverInstallation",
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+tempfile.workspace = true

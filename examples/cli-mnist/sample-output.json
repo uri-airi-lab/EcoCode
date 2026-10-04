@@ -1,0 +1,842 @@
+[
+    {
+        "id": 1,
+        "run_id": 0,
+        "pid": 155504,
+        "timestamp": "2026-04-28T14:34:47.292762899+00:00",
+        "cpu_usage": 8.609794616699219,
+        "cpu_energy": 0.05046510577453613,
+        "gpu_usage": 42.0,
+        "gpu_energy": 10.854075,
+        "mem_usage": 7.99,
+        "mem_energy": null,
+        "igpu_usage": null,
+        "igpu_energy": null,
+        "gpu_metrics": [
+            {
+                "device_index": 0,
+                "gpu_usage": 42.0,
+                "gpu_energy": 10.854075
+            }
+        ],
+        "socket_metrics": [
+            {
+                "socket": 0,
+                "domain": "cpu",
+                "energy": 0.05046510577453613
+            }
+        ]
+    },
+    {
+        "id": 2,
+        "run_id": 0,
+        "pid": 155504,
+        "timestamp": "2026-04-28T14:34:48.294336945+00:00",
+        "cpu_usage": 8.45896053314209,
+        "cpu_energy": 0.029104576327171325,
+        "gpu_usage": 86.0,
+        "gpu_energy": 53.94024,
+        "mem_usage": 8.46,
+        "mem_energy": null,
+        "igpu_usage": null,
+        "igpu_energy": null,
+        "gpu_metrics": [
+            {
+                "device_index": 0,
+                "gpu_usage": 86.0,
+                "gpu_energy": 53.94024
+            }
+        ],
+        "socket_metrics": [
+            {
+                "socket": 0,
+                "domain": "cpu",
+                "energy": 0.029104576327171325
+            }
+        ]
+    },
+    {
+        "id": 3,
+        "run_id": 0,
+        "pid": 155504,
+        "timestamp": "2026-04-28T14:34:49.290492936+00:00",
+        "cpu_usage": 8.416666984558105,
+        "cpu_energy": 0.013701239684152601,
+        "gpu_usage": 90.0,
+        "gpu_energy": 59.156814999999995,
+        "mem_usage": 8.46,
+        "mem_energy": null,
+        "igpu_usage": null,
+        "igpu_energy": null,
+        "gpu_metrics": [
+            {
+                "device_index": 0,
+                "gpu_usage": 90.0,
+                "gpu_energy": 59.156814999999995
+            }
+        ],
+        "socket_metrics": [
+            {
+                "socket": 0,
+                "domain": "cpu",
+                "energy": 0.013701239684152601
+            }
+        ]
+    },
+    {
+        "id": 4,
+        "run_id": 0,
+        "pid": 155504,
+        "timestamp": "2026-04-28T14:34:50.292142171+00:00",
+        "cpu_usage": 8.40965747833252,
+        "cpu_energy": 0.029031146774101256,
+        "gpu_usage": 90.0,
+        "gpu_energy": 57.2979,
+        "mem_usage": 8.46,
+        "mem_energy": null,
+        "igpu_usage": null,
+        "igpu_energy": null,
+        "gpu_metrics": [
+            {
+                "device_index": 0,
+                "gpu_usage": 90.0,
+                "gpu_energy": 57.2979
+            }
+        ],
+        "socket_metrics": [
+            {
+                "socket": 0,
+                "domain": "cpu",
+                "energy": 0.029031146774101256
+            }
+        ]
+    },
+    {
+        "id": 5,
+        "run_id": 0,
+        "pid": 155504,
+        "timestamp": "2026-04-28T14:34:51.295569008+00:00",
+        "cpu_usage": 8.437760353088379,
+        "cpu_energy": 0.061084912943372725,
+        "gpu_usage": 89.0,
+        "gpu_energy": 58.22291,
+        "mem_usage": 8.46,
+        "mem_energy": null,
+        "igpu_usage": null,
+        "igpu_energy": null,
+        "gpu_metrics": [
+            {
+                "device_index": 0,
+                "gpu_usage": 89.0,
+                "gpu_energy": 58.22291
+            }
+        ],
+        "socket_metrics": [
+            {
+                "socket": 0,
+                "domain": "cpu",
+                "energy": 0.061084912943372725
+            }
+        ]
+    },
+    {
+        "id": 6,
+        "run_id": 0,
+        "pid": 155504,
+        "timestamp": "2026-04-28T14:34:52.298614785+00:00",
+        "cpu_usage": 8.361205101013184,
+        "cpu_energy": 0.04459900245700836,
+        "gpu_usage": 89.0,
+        "gpu_energy": 59.324729999999995,
+        "mem_usage": 8.46,
+        "mem_energy": null,
+        "igpu_usage": null,
+        "igpu_energy": null,
+        "gpu_metrics": [
+            {
+                "device_index": 0,
+                "gpu_usage": 89.0,
+                "gpu_energy": 59.324729999999995
+            }
+        ],
+        "socket_metrics": [
+            {
+                "socket": 0,
+                "domain": "cpu",
+                "energy": 0.04459900245700836
+            }
+        ]
+    },
+    {
+        "id": 7,
+        "run_id": 0,
+        "pid": 155504,
+        "timestamp": "2026-04-28T14:34:53.295811702+00:00",
+        "cpu_usage": 8.5213041305542,
+        "cpu_energy": 0.03046971239266396,
+        "gpu_usage": 89.0,
+        "gpu_energy": 60.12039,
+        "mem_usage": 8.46,
+        "mem_energy": null,
+        "igpu_usage": null,
+        "igpu_energy": null,
+        "gpu_metrics": [
+            {
+                "device_index": 0,
+                "gpu_usage": 89.0,
+                "gpu_energy": 60.12039
+            }
+        ],
+        "socket_metrics": [
+            {
+                "socket": 0,
+                "domain": "cpu",
+                "energy": 0.03046971239266396
+            }
+        ]
+    },
+    {
+        "id": 8,
+        "run_id": 0,
+        "pid": 155504,
+        "timestamp": "2026-04-28T14:34:54.293680384+00:00",
+        "cpu_usage": 8.40965747833252,
+        "cpu_energy": 0.03612696346459388,
+        "gpu_usage": 89.0,
+        "gpu_energy": 59.59439999999999,
+        "mem_usage": 8.46,
+        "mem_energy": null,
+        "igpu_usage": null,
+        "igpu_energy": null,
+        "gpu_metrics": [
+            {
+                "device_index": 0,
+                "gpu_usage": 89.0,
+                "gpu_energy": 59.59439999999999
+            }
+        ],
+        "socket_metrics": [
+            {
+                "socket": 0,
+                "domain": "cpu",
+                "energy": 0.03612696346459388
+            }
+        ]
+    },
+    {
+        "id": 9,
+        "run_id": 0,
+        "pid": 155504,
+        "timestamp": "2026-04-28T14:34:55.290720800+00:00",
+        "cpu_usage": 8.354218482971191,
+        "cpu_energy": 0.051111108678817754,
+        "gpu_usage": 89.0,
+        "gpu_energy": 59.437760000000004,
+        "mem_usage": 8.46,
+        "mem_energy": null,
+        "igpu_usage": null,
+        "igpu_energy": null,
+        "gpu_metrics": [
+            {
+                "device_index": 0,
+                "gpu_usage": 89.0,
+                "gpu_energy": 59.437760000000004
+            }
+        ],
+        "socket_metrics": [
+            {
+                "socket": 0,
+                "domain": "cpu",
+                "energy": 0.051111108678817754
+            }
+        ]
+    },
+    {
+        "id": 10,
+        "run_id": 0,
+        "pid": 155504,
+        "timestamp": "2026-04-28T14:34:56.291258506+00:00",
+        "cpu_usage": 8.5,
+        "cpu_energy": 0.034194905000000005,
+        "gpu_usage": 90.0,
+        "gpu_energy": 58.553585000000005,
+        "mem_usage": 8.46,
+        "mem_energy": null,
+        "igpu_usage": null,
+        "igpu_energy": null,
+        "gpu_metrics": [
+            {
+                "device_index": 0,
+                "gpu_usage": 90.0,
+                "gpu_energy": 58.553585000000005
+            }
+        ],
+        "socket_metrics": [
+            {
+                "socket": 0,
+                "domain": "cpu",
+                "energy": 0.034194905000000005
+            }
+        ]
+    },
+    {
+        "id": 11,
+        "run_id": 0,
+        "pid": 155504,
+        "timestamp": "2026-04-28T14:34:57.292691753+00:00",
+        "cpu_usage": 8.416666984558105,
+        "cpu_energy": 0.06236405152211189,
+        "gpu_usage": 89.0,
+        "gpu_energy": 58.831669999999995,
+        "mem_usage": 8.46,
+        "mem_energy": null,
+        "igpu_usage": null,
+        "igpu_energy": null,
+        "gpu_metrics": [
+            {
+                "device_index": 0,
+                "gpu_usage": 89.0,
+                "gpu_energy": 58.831669999999995
+            }
+        ],
+        "socket_metrics": [
+            {
+                "socket": 0,
+                "domain": "cpu",
+                "energy": 0.06236405152211189
+            }
+        ]
+    },
+    {
+        "id": 12,
+        "run_id": 0,
+        "pid": 155504,
+        "timestamp": "2026-04-28T14:34:58.298193353+00:00",
+        "cpu_usage": 8.354218482971191,
+        "cpu_energy": 0.0426012511055088,
+        "gpu_usage": 88.0,
+        "gpu_energy": 60.078225,
+        "mem_usage": 8.46,
+        "mem_energy": null,
+        "igpu_usage": null,
+        "igpu_energy": null,
+        "gpu_metrics": [
+            {
+                "device_index": 0,
+                "gpu_usage": 88.0,
+                "gpu_energy": 60.078225
+            }
+        ],
+        "socket_metrics": [
+            {
+                "socket": 0,
+                "domain": "cpu",
+                "energy": 0.0426012511055088
+            }
+        ]
+    },
+    {
+        "id": 13,
+        "run_id": 0,
+        "pid": 155504,
+        "timestamp": "2026-04-28T14:34:59.299268407+00:00",
+        "cpu_usage": 8.423686981201172,
+        "cpu_energy": 0.0445557444971466,
+        "gpu_usage": 88.0,
+        "gpu_energy": 60.38886,
+        "mem_usage": 8.46,
+        "mem_energy": null,
+        "igpu_usage": null,
+        "igpu_energy": null,
+        "gpu_metrics": [
+            {
+                "device_index": 0,
+                "gpu_usage": 88.0,
+                "gpu_energy": 60.38886
+            }
+        ],
+        "socket_metrics": [
+            {
+                "socket": 0,
+                "domain": "cpu",
+                "energy": 0.0445557444971466
+            }
+        ]
+    },
+    {
+        "id": 14,
+        "run_id": 0,
+        "pid": 155504,
+        "timestamp": "2026-04-28T14:35:00.293507961+00:00",
+        "cpu_usage": 8.416666984558105,
+        "cpu_energy": 0.025956580147027966,
+        "gpu_usage": 89.0,
+        "gpu_energy": 61.47319,
+        "mem_usage": 8.46,
+        "mem_energy": null,
+        "igpu_usage": null,
+        "igpu_energy": null,
+        "gpu_metrics": [
+            {
+                "device_index": 0,
+                "gpu_usage": 89.0,
+                "gpu_energy": 61.47319
+            }
+        ],
+        "socket_metrics": [
+            {
+                "socket": 0,
+                "domain": "cpu",
+                "energy": 0.025956580147027966
+            }
+        ]
+    },
+    {
+        "id": 15,
+        "run_id": 0,
+        "pid": 155504,
+        "timestamp": "2026-04-28T14:35:01.292375248+00:00",
+        "cpu_usage": 8.437760353088379,
+        "cpu_energy": 0.04343413081595421,
+        "gpu_usage": 89.0,
+        "gpu_energy": 60.422990000000006,
+        "mem_usage": 8.46,
+        "mem_energy": null,
+        "igpu_usage": null,
+        "igpu_energy": null,
+        "gpu_metrics": [
+            {
+                "device_index": 0,
+                "gpu_usage": 89.0,
+                "gpu_energy": 60.422990000000006
+            }
+        ],
+        "socket_metrics": [
+            {
+                "socket": 0,
+                "domain": "cpu",
+                "energy": 0.04343413081595421
+            }
+        ]
+    },
+    {
+        "id": 16,
+        "run_id": 0,
+        "pid": 155504,
+        "timestamp": "2026-04-28T14:35:02.290681534+00:00",
+        "cpu_usage": 8.347245216369629,
+        "cpu_energy": 0.02022128500910759,
+        "gpu_usage": 89.0,
+        "gpu_energy": 60.95521000000001,
+        "mem_usage": 8.46,
+        "mem_energy": null,
+        "igpu_usage": null,
+        "igpu_energy": null,
+        "gpu_metrics": [
+            {
+                "device_index": 0,
+                "gpu_usage": 89.0,
+                "gpu_energy": 60.95521000000001
+            }
+        ],
+        "socket_metrics": [
+            {
+                "socket": 0,
+                "domain": "cpu",
+                "energy": 0.02022128500910759
+            }
+        ]
+    },
+    {
+        "id": 17,
+        "run_id": 0,
+        "pid": 155504,
+        "timestamp": "2026-04-28T14:35:03.290484561+00:00",
+        "cpu_usage": 8.49292278289795,
+        "cpu_energy": 0.06081043120551109,
+        "gpu_usage": 89.0,
+        "gpu_energy": 59.88098,
+        "mem_usage": 8.46,
+        "mem_energy": null,
+        "igpu_usage": null,
+        "igpu_energy": null,
+        "gpu_metrics": [
+            {
+                "device_index": 0,
+                "gpu_usage": 89.0,
+                "gpu_energy": 59.88098
+            }
+        ],
+        "socket_metrics": [
+            {
+                "socket": 0,
+                "domain": "cpu",
+                "energy": 0.06081043120551109
+            }
+        ]
+    },
+    {
+        "id": 18,
+        "run_id": 0,
+        "pid": 155504,
+        "timestamp": "2026-04-28T14:35:04.290697136+00:00",
+        "cpu_usage": 8.326394081115723,
+        "cpu_energy": 0.029587258519659047,
+        "gpu_usage": 89.0,
+        "gpu_energy": 59.96998000000001,
+        "mem_usage": 8.46,
+        "mem_energy": null,
+        "igpu_usage": null,
+        "igpu_energy": null,
+        "gpu_metrics": [
+            {
+                "device_index": 0,
+                "gpu_usage": 89.0,
+                "gpu_energy": 59.96998000000001
+            }
+        ],
+        "socket_metrics": [
+            {
+                "socket": 0,
+                "domain": "cpu",
+                "energy": 0.029587258519659047
+            }
+        ]
+    },
+    {
+        "id": 19,
+        "run_id": 0,
+        "pid": 155504,
+        "timestamp": "2026-04-28T14:35:05.298750914+00:00",
+        "cpu_usage": 8.49292278289795,
+        "cpu_energy": 0.04650028096246719,
+        "gpu_usage": 89.0,
+        "gpu_energy": 60.13195999999999,
+        "mem_usage": 8.46,
+        "mem_energy": null,
+        "igpu_usage": null,
+        "igpu_energy": null,
+        "gpu_metrics": [
+            {
+                "device_index": 0,
+                "gpu_usage": 89.0,
+                "gpu_energy": 60.13195999999999
+            }
+        ],
+        "socket_metrics": [
+            {
+                "socket": 0,
+                "domain": "cpu",
+                "energy": 0.04650028096246719
+            }
+        ]
+    },
+    {
+        "id": 20,
+        "run_id": 0,
+        "pid": 155504,
+        "timestamp": "2026-04-28T14:35:06.298085042+00:00",
+        "cpu_usage": 8.354218482971191,
+        "cpu_energy": 0.051211860553722385,
+        "gpu_usage": 89.0,
+        "gpu_energy": 62.397009999999995,
+        "mem_usage": 8.46,
+        "mem_energy": null,
+        "igpu_usage": null,
+        "igpu_energy": null,
+        "gpu_metrics": [
+            {
+                "device_index": 0,
+                "gpu_usage": 89.0,
+                "gpu_energy": 62.397009999999995
+            }
+        ],
+        "socket_metrics": [
+            {
+                "socket": 0,
+                "domain": "cpu",
+                "energy": 0.051211860553722385
+            }
+        ]
+    },
+    {
+        "id": 21,
+        "run_id": 0,
+        "pid": 155504,
+        "timestamp": "2026-04-28T14:35:07.299632497+00:00",
+        "cpu_usage": 8.437760353088379,
+        "cpu_energy": 0.05151278008841515,
+        "gpu_usage": 89.0,
+        "gpu_energy": 62.74411,
+        "mem_usage": 8.46,
+        "mem_energy": null,
+        "igpu_usage": null,
+        "igpu_energy": null,
+        "gpu_metrics": [
+            {
+                "device_index": 0,
+                "gpu_usage": 89.0,
+                "gpu_energy": 62.74411
+            }
+        ],
+        "socket_metrics": [
+            {
+                "socket": 0,
+                "domain": "cpu",
+                "energy": 0.05151278008841515
+            }
+        ]
+    },
+    {
+        "id": 22,
+        "run_id": 0,
+        "pid": 155504,
+        "timestamp": "2026-04-28T14:35:08.294597922+00:00",
+        "cpu_usage": 8.423686981201172,
+        "cpu_energy": 0.027927976054344175,
+        "gpu_usage": 88.0,
+        "gpu_energy": 62.60667,
+        "mem_usage": 8.46,
+        "mem_energy": null,
+        "igpu_usage": null,
+        "igpu_energy": null,
+        "gpu_metrics": [
+            {
+                "device_index": 0,
+                "gpu_usage": 88.0,
+                "gpu_energy": 62.60667
+            }
+        ],
+        "socket_metrics": [
+            {
+                "socket": 0,
+                "domain": "cpu",
+                "energy": 0.027927976054344175
+            }
+        ]
+    },
+    {
+        "id": 23,
+        "run_id": 0,
+        "pid": 155504,
+        "timestamp": "2026-04-28T14:35:09.294173637+00:00",
+        "cpu_usage": 8.423686981201172,
+        "cpu_energy": 0.03339174790409088,
+        "gpu_usage": 89.0,
+        "gpu_energy": 62.97195,
+        "mem_usage": 8.46,
+        "mem_energy": null,
+        "igpu_usage": null,
+        "igpu_energy": null,
+        "gpu_metrics": [
+            {
+                "device_index": 0,
+                "gpu_usage": 89.0,
+                "gpu_energy": 62.97195
+            }
+        ],
+        "socket_metrics": [
+            {
+                "socket": 0,
+                "domain": "cpu",
+                "energy": 0.03339174790409088
+            }
+        ]
+    },
+    {
+        "id": 24,
+        "run_id": 0,
+        "pid": 155504,
+        "timestamp": "2026-04-28T14:35:10.291923465+00:00",
+        "cpu_usage": 8.416666984558105,
+        "cpu_energy": 0.027931635221624375,
+        "gpu_usage": 89.0,
+        "gpu_energy": 61.93955,
+        "mem_usage": 8.46,
+        "mem_energy": null,
+        "igpu_usage": null,
+        "igpu_energy": null,
+        "gpu_metrics": [
+            {
+                "device_index": 0,
+                "gpu_usage": 89.0,
+                "gpu_energy": 61.93955
+            }
+        ],
+        "socket_metrics": [
+            {
+                "socket": 0,
+                "domain": "cpu",
+                "energy": 0.027931635221624375
+            }
+        ]
+    },
+    {
+        "id": 25,
+        "run_id": 0,
+        "pid": 155504,
+        "timestamp": "2026-04-28T14:35:11.291656294+00:00",
+        "cpu_usage": 8.416666984558105,
+        "cpu_energy": 0.0304243153157711,
+        "gpu_usage": 89.0,
+        "gpu_energy": 62.4691,
+        "mem_usage": 8.46,
+        "mem_energy": null,
+        "igpu_usage": null,
+        "igpu_energy": null,
+        "gpu_metrics": [
+            {
+                "device_index": 0,
+                "gpu_usage": 89.0,
+                "gpu_energy": 62.4691
+            }
+        ],
+        "socket_metrics": [
+            {
+                "socket": 0,
+                "domain": "cpu",
+                "energy": 0.0304243153157711
+            }
+        ]
+    },
+    {
+        "id": 26,
+        "run_id": 0,
+        "pid": 155504,
+        "timestamp": "2026-04-28T14:35:12.291393275+00:00",
+        "cpu_usage": 8.437760353088379,
+        "cpu_energy": 0.041085902109689716,
+        "gpu_usage": 89.0,
+        "gpu_energy": 62.107760000000006,
+        "mem_usage": 8.46,
+        "mem_energy": null,
+        "igpu_usage": null,
+        "igpu_energy": null,
+        "gpu_metrics": [
+            {
+                "device_index": 0,
+                "gpu_usage": 89.0,
+                "gpu_energy": 62.107760000000006
+            }
+        ],
+        "socket_metrics": [
+            {
+                "socket": 0,
+                "domain": "cpu",
+                "energy": 0.041085902109689716
+            }
+        ]
+    },
+    {
+        "id": 27,
+        "run_id": 0,
+        "pid": 155504,
+        "timestamp": "2026-04-28T14:35:13.292144410+00:00",
+        "cpu_usage": 8.40266227722168,
+        "cpu_energy": 0.034028933637046815,
+        "gpu_usage": 89.0,
+        "gpu_energy": 62.15404,
+        "mem_usage": 8.46,
+        "mem_energy": null,
+        "igpu_usage": null,
+        "igpu_energy": null,
+        "gpu_metrics": [
+            {
+                "device_index": 0,
+                "gpu_usage": 89.0,
+                "gpu_energy": 62.15404
+            }
+        ],
+        "socket_metrics": [
+            {
+                "socket": 0,
+                "domain": "cpu",
+                "energy": 0.034028933637046815
+            }
+        ]
+    },
+    {
+        "id": 28,
+        "run_id": 0,
+        "pid": 155504,
+        "timestamp": "2026-04-28T14:35:14.296871774+00:00",
+        "cpu_usage": 8.430717468261719,
+        "cpu_energy": 0.06876354519355773,
+        "gpu_usage": 89.0,
+        "gpu_energy": 62.98263,
+        "mem_usage": 8.46,
+        "mem_energy": null,
+        "igpu_usage": null,
+        "igpu_energy": null,
+        "gpu_metrics": [
+            {
+                "device_index": 0,
+                "gpu_usage": 89.0,
+                "gpu_energy": 62.98263
+            }
+        ],
+        "socket_metrics": [
+            {
+                "socket": 0,
+                "domain": "cpu",
+                "energy": 0.06876354519355773
+            }
+        ]
+    },
+    {
+        "id": 29,
+        "run_id": 0,
+        "pid": 155504,
+        "timestamp": "2026-04-28T14:35:15.299019162+00:00",
+        "cpu_usage": 8.423686981201172,
+        "cpu_energy": 0.0718449523677063,
+        "gpu_usage": 88.0,
+        "gpu_energy": 62.95005,
+        "mem_usage": 8.46,
+        "mem_energy": null,
+        "igpu_usage": null,
+        "igpu_energy": null,
+        "gpu_metrics": [
+            {
+                "device_index": 0,
+                "gpu_usage": 88.0,
+                "gpu_energy": 62.95005
+            }
+        ],
+        "socket_metrics": [
+            {
+                "socket": 0,
+                "domain": "cpu",
+                "energy": 0.0718449523677063
+            }
+        ]
+    },
+    {
+        "id": 30,
+        "run_id": 0,
+        "pid": 155504,
+        "timestamp": "2026-04-28T14:35:16.299396599+00:00",
+        "cpu_usage": 8.36820125579834,
+        "cpu_energy": 0.03543180093717575,
+        "gpu_usage": 88.0,
+        "gpu_energy": 64.50853500000001,
+        "mem_usage": 8.46,
+        "mem_energy": null,
+        "igpu_usage": null,
+        "igpu_energy": null,
+        "gpu_metrics": [
+            {
+                "device_index": 0,
+                "gpu_usage": 88.0,
+                "gpu_energy": 64.50853500000001
+            }
+        ],
+        "socket_metrics": [
+            {
+                "socket": 0,
+                "domain": "cpu",
+                "energy": 0.03543180093717575
+            }
+        ]
+    }
+]

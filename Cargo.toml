@@ -1,0 +1,40 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/ecocode-sensors",
+    "crates/ecocode-monitor",
+    "crates/ecocode-api",
+    "crates/ecocode-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "AGPL-3.0-only"
+repository = "https://github.com/abdeltawab/EcoCode"
+
+[workspace.dependencies]
+ecocode-sensors = { path = "crates/ecocode-sensors", version = "0.1.0", default-features = false }
+ecocode-monitor = { path = "crates/ecocode-monitor", version = "0.1.0", default-features = false }
+ecocode-api = { path = "crates/ecocode-api", version = "0.1.0" }
+
+chrono = "0.4"
+clap = { version = "4.5.56", features = ["derive", "env"] }
+core-foundation-sys = "0.8"
+ctrlc = { version = "3.4", features = ["termination"] }
+csv = "1.4.0"
+libc = "0.2"
+nvml-wrapper = "0.11.0"
+os_pipe = "1"
+prometheus = "0.14.0"
+regex = "1.12.3"
+# rustls instead of OpenSSL: the same TLS stack on every OS, no system library to
+# link, and the OS certificate store for roots (works behind corporate CAs).
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls-native-roots"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+sysinfo = "0.38.0"
+tempfile = "3"
+tiny_http = "0.12"
+windows-sys = "0.61"

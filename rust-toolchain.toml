@@ -1,0 +1,7 @@
+# Same Rust version on every OS. Cross-compilation targets are not listed here
+# so each machine only downloads its own standard library; add others with
+# `rustup target add <triple>` when needed (see docs/platforms/).
+[toolchain]
+channel = "1.99.0"
+components = ["clippy", "rustfmt"]
+profile = "minimal"

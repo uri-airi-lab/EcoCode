@@ -1,0 +1,62 @@
+[build-system]
+# The wheel bundles the `ecocode` monitor binary (built from crates/ecocode-cli)
+# next to the Python package, so `pip install ecocode` is all a user needs.
+# Building from source requires Rust (rust-toolchain.toml pins the version).
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "ecocode"
+version = "0.3.0"
+description = "Python SDK for EcoCode — energy and carbon tracking for ML training and inference."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "AGPL-3.0-only" }
+authors = [{ name = "EcoCode Authors" }]
+keywords = ["energy", "carbon", "ml", "llm", "monitoring", "sustainability", "rlhf", "training"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Rust",
+]
+
+# Zero runtime dependencies — HTTP via stdlib urllib.request,
+# energy monitoring via the bundled ecocode CLI binary.
+dependencies = []
+
+[project.optional-dependencies]
+hf        = ["transformers>=4.30.0"]
+trl       = ["trl>=0.7.0"]
+lightning  = ["pytorch-lightning>=2.0.0"]
+keras     = ["keras>=3.0.0"]
+onnx      = ["onnxruntime>=1.16.0"]
+all       = ["transformers>=4.30.0", "trl>=0.7.0", "keras>=3.0.0", "onnxruntime>=1.16.0"]
+dev       = ["pytest>=7.0.0", "pytest-mock>=3.0.0", "maturin>=1.7,<2"]
+
+[tool.maturin]
+# "bin": package the CLI binary into the wheel's scripts directory, so it is
+# installed as `ecocode` / `ecocode.exe` on PATH next to `python`.
+bindings = "bin"
+manifest-path = "../crates/ecocode-cli/Cargo.toml"
+python-source = "src"
+python-packages = ["ecocode"]
+locked = true
+
+[tool.pytest.ini_options]
+# unit: no hardware, frameworks or binary needed.
+# e2e: runs the real ecocode binary with fake sensors (skipped if it isn't built).
+# integration: torch, GPUs, an API key — run explicitly: pytest tests/integration
+testpaths = ["tests/unit", "tests/e2e"]
+pythonpath = ["src"]
