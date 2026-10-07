@@ -2,7 +2,7 @@
 
 <div align="center">
 
-<img src="docs/assets/ecocode-quill.png" alt="EcoCode logo" width="140"/>
+<img src="docs/assets/ecocode-quill.svg" alt="EcoCode logo" width="140"/>
 
 **Per-process energy monitoring for Linux, macOS and Windows**
 
