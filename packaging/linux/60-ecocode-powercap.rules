@@ -1,0 +1,10 @@
+# EcoCode: let members of the "powercap" group read RAPL energy counters.
+#
+# Since Linux 5.10, /sys/class/powercap/intel-rapl*/energy_uj is readable by
+# root only (CVE-2020-8694, "PLATYPUS": fine-grained energy readings can leak
+# information about other processes). This rule re-opens read access to one
+# group only. Install with: sudo packaging/linux/install-permissions.sh
+#
+# Applies to every RAPL zone and sub-zone (Intel and AMD), at boot and when the
+# intel_rapl modules are loaded.
+SUBSYSTEM=="powercap", KERNEL=="intel-rapl:*", ACTION=="add", RUN+="/bin/chgrp powercap /sys%p/energy_uj", RUN+="/bin/chmod g+r /sys%p/energy_uj"

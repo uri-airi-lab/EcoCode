@@ -1,0 +1,15 @@
+[package]
+name = "ecocode-monitor"
+description = "The EcoCode measurement engine: sampling, attribution and markers."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+chrono.workspace = true
+ecocode-sensors.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sysinfo.workspace = true

@@ -1,0 +1,297 @@
+//! Terminal exporter: prints measurement records to stdout as a live table.
+//!
+//! `export_line` is called on every tick to append the latest record row.
+//! `export` is called once at the end to print the complete run summary.
+//! Per-GPU and per-socket breakdowns are indented below each row.
+
+use crate::exporters::{CarbonConfig, Exporter, ExporterType, ProjectInfo, Record, SystemInfo};
+
+/// Streams records to stdout, printing a header row on the first record and
+/// appending one row per measurement interval.
+pub struct TerminalExporter {
+    records: Vec<Record>,
+    /// Whether the column header has been printed yet.
+    pub first_record: bool,
+    tracker: crate::exporters::LocalSummaryTracker,
+}
+
+impl TerminalExporter {
+    pub fn new() -> TerminalExporter {
+        TerminalExporter {
+            records: Vec::new(),
+            first_record: true,
+            tracker: crate::exporters::LocalSummaryTracker::new(),
+        }
+    }
+}
+
+impl Exporter for TerminalExporter {
+    fn exporter_type(&self) -> ExporterType {
+        ExporterType::Terminal
+    }
+    fn add_record(&mut self, record: Record) -> Result<(), Box<dyn std::error::Error>> {
+        self.tracker.add_record(&record);
+        self.records.push(record); // used to print the final summary in export()
+        Ok(())
+    }
+
+    fn export(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        println!("\n[TERMINAL EXPORT]");
+        println!("\n{}", "=".repeat(128));
+        println!(
+            "{:<5} {:<8} {:<32} {:<10} {:<10} {:<12} {:<12} {:<12} {:<12} {:<12} {:<12}",
+            "ID",
+            "PID",
+            "Timestamp",
+            "CPU%",
+            "CPU(W)",
+            "GPU%",
+            "GPU(W)",
+            "MEM%",
+            "MEM(W)",
+            "IGPU%",
+            "IGPU(W)"
+        );
+        println!("{}", "-".repeat(128));
+
+        for record in &self.records {
+            let es = record.elapsed_secs.max(0.001);
+            let mem_energy_s = record
+                .mem_energy
+                .map_or_else(|| "N/A".to_string(), |v| format!("{:.3}", v / es));
+            let igpu_usage_s = record
+                .igpu_usage
+                .map_or_else(|| "N/A".to_string(), |v| format!("{:.3}", v));
+            let igpu_energy_s = record
+                .igpu_energy
+                .map_or_else(|| "N/A".to_string(), |v| format!("{:.3}", v / es));
+            println!(
+                "{:<5} {:<8} {:<32} {:<10.2} {:<10.2} {:<12.3} {:<12.3} {:<12.3} {:<12} {:<12} {:<12}",
+                record.id,
+                record.pid,
+                record.timestamp,
+                record.cpu_usage,
+                record.cpu_energy / es,
+                record.gpu_usage,
+                record.gpu_energy / es,
+                record.mem_usage,
+                mem_energy_s,
+                igpu_usage_s,
+                igpu_energy_s
+            );
+            for gm in &record.gpu_metrics {
+                println!(
+                    "      └─ GPU {}: Usage {:.1}%, Power {:.3} W",
+                    gm.device_index,
+                    gm.gpu_usage,
+                    gm.gpu_energy / es
+                );
+            }
+            for sm in &record.socket_metrics {
+                println!(
+                    "      └─ Socket {} ({}): {:.4} W",
+                    sm.socket,
+                    sm.domain,
+                    sm.energy / es
+                );
+            }
+            if record.phase.is_some()
+                || record.tokens_processed.is_some()
+                || record.training_step.is_some()
+                || record.loss.is_some()
+                || record.learning_rate.is_some()
+                || record.sequence_length.is_some()
+            {
+                let mut parts = Vec::new();
+                if let Some(ref p) = record.phase {
+                    parts.push(format!("phase: {}", p));
+                }
+                if let Some(t) = record.tokens_processed {
+                    parts.push(format!("tokens: {}", t));
+                }
+                if let Some(s) = record.training_step {
+                    parts.push(format!("step: {}", s));
+                }
+                if let Some(l) = record.loss {
+                    parts.push(format!("loss: {:.4}", l));
+                }
+                if let Some(lr) = record.learning_rate {
+                    parts.push(format!("lr: {:.2e}", lr));
+                }
+                if let Some(seq) = record.sequence_length {
+                    parts.push(format!("seqlen: {}", seq));
+                }
+                println!("      └─ Marker: {}", parts.join(" | "));
+            }
+        }
+        println!("{}\n", "=".repeat(128));
+
+        Ok(())
+    }
+
+    fn export_line(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let Some(r) = self.records.last() else { return Ok(()) };
+
+        if self.first_record {
+            println!("\n{}", "=".repeat(128));
+            println!(
+                "{:<5} {:<8} {:<40} {:<10} {:<10} {:<12} {:<12} {:<12} {:<12} {:<12} {:<12}",
+                "ID",
+                "PID",
+                "Timestamp",
+                "CPU%",
+                "CPU(W)",
+                "GPU%",
+                "GPU(W)",
+                "MEM%",
+                "MEM(W)",
+                "IGPU%",
+                "IGPU(W)"
+            );
+            println!("{}", "-".repeat(128));
+            self.first_record = false;
+        }
+
+        let es = r.elapsed_secs.max(0.001);
+        let mem_energy_s = r
+            .mem_energy
+            .map_or_else(|| "N/A".to_string(), |v| format!("{:.3}", v / es));
+        let igpu_usage_s = r
+            .igpu_usage
+            .map_or_else(|| "N/A".to_string(), |v| format!("{:.3}", v));
+        let igpu_energy_s = r
+            .igpu_energy
+            .map_or_else(|| "N/A".to_string(), |v| format!("{:.3}", v / es));
+
+        println!(
+            "{:<5} {:<8} {:<40} {:<10.2} {:<10.2} {:<12.3} {:<12.3} {:<12.3} {:<12} {:<12} {:<12}",
+            r.id,
+            r.pid,
+            r.timestamp,
+            r.cpu_usage,
+            r.cpu_energy / es,
+            r.gpu_usage,
+            r.gpu_energy / es,
+            r.mem_usage,
+            mem_energy_s,
+            igpu_usage_s,
+            igpu_energy_s
+        );
+
+        for gm in &r.gpu_metrics {
+            println!(
+                "      └─ GPU {}: Usage {:.1}%, Power {:.3} W",
+                gm.device_index,
+                gm.gpu_usage,
+                gm.gpu_energy / es
+            );
+        }
+        for sm in &r.socket_metrics {
+            println!(
+                "      └─ Socket {} ({}): {:.4} W",
+                sm.socket,
+                sm.domain,
+                sm.energy / es
+            );
+        }
+        if r.phase.is_some()
+            || r.tokens_processed.is_some()
+            || r.training_step.is_some()
+            || r.loss.is_some()
+            || r.learning_rate.is_some()
+            || r.sequence_length.is_some()
+        {
+            let mut parts = Vec::new();
+            if let Some(ref p) = r.phase {
+                parts.push(format!("phase: {}", p));
+            }
+            if let Some(t) = r.tokens_processed {
+                parts.push(format!("tokens: {}", t));
+            }
+            if let Some(s) = r.training_step {
+                parts.push(format!("step: {}", s));
+            }
+            if let Some(l) = r.loss {
+                parts.push(format!("loss: {:.4}", l));
+            }
+            if let Some(lr) = r.learning_rate {
+                parts.push(format!("lr: {:.2e}", lr));
+            }
+            if let Some(seq) = r.sequence_length {
+                parts.push(format!("seqlen: {}", seq));
+            }
+            println!("      └─ Marker: {}", parts.join(" | "));
+        }
+
+        Ok(())
+    }
+
+    fn get_or_create_project(
+        &mut self,
+        _project_name: &str,
+        collaborator_name: Option<&str>,
+    ) -> Result<ProjectInfo, Box<dyn std::error::Error>> {
+        Ok(ProjectInfo {
+            id: 0,
+            selected_collaborator_name: collaborator_name.map(str::to_owned),
+            collaborators: collaborator_name.into_iter().map(str::to_owned).collect(),
+            is_new: false,
+        })
+    }
+    fn create_run(
+        &mut self,
+        _run_name: &str,
+        _project_id: i64,
+        _collaborator_name: Option<&str>,
+        _started_at: Option<&str>,
+        _command: Option<&str>,
+    ) -> Result<i64, Box<dyn std::error::Error>> {
+        Ok(1)
+    }
+
+    fn save_system_info(
+        &mut self,
+        _run_id: i64,
+        _info: SystemInfo,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(())
+    }
+
+    fn complete_run(
+        &mut self,
+        _run_id: i64,
+        _status: &str,
+        _ended_at: Option<&str>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(())
+    }
+    fn update_project_config(
+        &mut self,
+        _project_id: i64,
+        intensity: Option<f64>,
+        price: Option<f64>,
+        _address: Option<String>,
+        _use_api_for_cost: Option<bool>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.tracker.update_config(intensity, price);
+        Ok(())
+    }
+    fn get_carbon_config(
+        &mut self,
+        _project_id: i64,
+    ) -> Result<CarbonConfig, Box<dyn std::error::Error>> {
+        let intensity_val = self.tracker.intensity.unwrap_or(445.0);
+        Ok(CarbonConfig {
+            resolved_intensity_g_per_kwh: intensity_val,
+            pue_factor: 1.0,
+            intensity_source: if self.tracker.intensity.is_some() { "cli_override".to_string() } else { "static_WORLD_fallback".to_string() },
+            manual_cost_per_kwh: self.tracker.price,
+            manual_currency: Some("USD".to_string()),
+            use_api_for_cost: false,
+        })
+    }
+    fn run_summary(&mut self, _run_id: i64) -> Result<(), Box<dyn std::error::Error>> {
+        self.tracker.print_summary();
+        Ok(())
+    }
+}
