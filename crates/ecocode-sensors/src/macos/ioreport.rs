@@ -104,9 +104,19 @@ impl IoReportSensor {
     /// Subscribes to the Energy Model group. `None` when it has none of the
     /// channels we use (Intel Macs, virtual machines).
     pub fn open(chip: &str) -> Option<Self> {
+        Self::open_group(chip, "Energy Model")
+    }
+
+    fn open_group(chip: &str, group: &str) -> Option<Self> {
         unsafe {
-            let group = cf::cfstr("Energy Model");
+            let group = cf::cfstr(group);
             let found = Owned::new(IOReportCopyChannelsInGroup(group.as_ptr() as CFStringRef, std::ptr::null(), 0, 0, 0) as CFTypeRef)?;
+            // A missing group comes back as an empty channel list, not null.
+            // Subscribing to an empty list makes IOReport trap (SIGTRAP/SIGILL),
+            // so check for a channel we can use before going any further.
+            if !channel_items(&found).any(|(name, _, _)| classify(&name).is_some()) {
+                return None;
+            }
             let desired = Owned::new(CFDictionaryCreateMutableCopy(
                 std::ptr::null(),
                 CFDictionaryGetCount(found.as_ptr() as CFDictionaryRef),
@@ -268,6 +278,11 @@ mod tests {
         assert_eq!(to_joules(60_848_590, "nJ"), Some(0.06084859));
         assert_eq!(to_joules(5, "uJ "), Some(5e-6));
         assert_eq!(to_joules(5, "W"), None);
+    }
+
+    #[test]
+    fn missing_group_is_none_and_does_not_crash() {
+        assert!(IoReportSensor::open_group("Apple", "No Such Group").is_none());
     }
 
     #[test]

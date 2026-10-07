@@ -279,7 +279,7 @@ fn has_unreadable_counter(root: &Path) -> bool {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))] // the fake sysfs tree uses "intel-rapl:0" names, which Windows rejects
 mod tests {
     use super::*;
     use std::fs;
