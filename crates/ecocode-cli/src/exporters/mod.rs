@@ -1,12 +1,12 @@
-//! Exporter module — the output backends for measurement records.
+//! Exporter module: the output backends for measurement records.
 //!
 //! Available exporters:
-//! - [`terminal`] — pretty-printed table to stdout
-//! - [`csv`] — comma-separated values file
-//! - [`json`] — JSON array file
-//! - [`online`] — EcoCode SaaS platform (requires API key)
-//! - [`prometheus`] — Prometheus metrics endpoint via HTTP
-//! - [`logfile`] — formatted log file
+//! - [`terminal`]: pretty-printed table to stdout
+//! - [`csv`]: comma-separated values file
+//! - [`json`]: JSON array file
+//! - [`online`]: EcoCode SaaS platform (requires API key)
+//! - [`prometheus`]: Prometheus metrics endpoint via HTTP
+//! - [`logfile`]: formatted log file
 //!
 //! Besides receiving records, an exporter owns the run lifecycle for its
 //! destination (project lookup, run creation, completion, summary).

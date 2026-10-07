@@ -75,7 +75,7 @@ impl EnergySensor for NvmlSensor {
             // counter that resets to 0 on driver reload or GPU reset.
             if curr < self.prev_mj[i] {
                 eprintln!(
-                    "Warning: GPU energy counter decreased — driver reload or GPU reset detected. \
+                    "Warning: GPU energy counter decreased, driver reload or GPU reset detected. \
                      Applying rollover correction."
                 );
             }

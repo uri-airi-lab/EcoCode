@@ -1,27 +1,21 @@
 #!/usr/bin/env bash
 #
-# Run every test in tests/ one at a time, each in its own process.
-#
-# Each test file is a standalone script (has its own __main__), so we invoke
-# `python <file>` per file rather than collecting them into a single pytest run.
+# Run the heavy integration tests one file at a time, each in its own process,
+# so one framework's crash or leaked CUDA memory can't take the others down.
+# Without ECOCODE_API_KEY the tests record locally with fake sensors.
 #
 # Usage:
 #   ./run_tests.sh                 # run all test_*.py files
-#   ./run_tests.sh -k heavy        # only files whose name contains "heavy"
+#   ./run_tests.sh -k vllm         # only files whose name contains "vllm"
 #   ./run_tests.sh --from heavy_hf # start at the first file matching "heavy_hf"
-#   ./run_tests.sh test_standalone.py test_decorator.py
+#   ./run_tests.sh test_heavy_hf.py test_heavy_trl.py
 #
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TESTS_DIR="$SCRIPT_DIR"
 
-# Prefer the project venv if present, else fall back to python3.
-if [[ -x "$SCRIPT_DIR/env/bin/python" ]]; then
-    PYTHON="$SCRIPT_DIR/env/bin/python"
-else
-    PYTHON="$(command -v python3 || command -v python)"
-fi
+PYTHON="${PYTHON:-$(command -v python3 || command -v python)}"
 
 FILTER=""
 FROM=""
@@ -32,7 +26,7 @@ while [[ $# -gt 0 ]]; do
         -k)      FILTER="${2:-}"; shift 2 ;;
         --from)  FROM="${2:-}"; shift 2 ;;
         -h|--help)
-            sed -n '3,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+            sed -n '3,11p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
             exit 0 ;;
         *)       EXPLICIT_FILES+=("$1"); shift ;;
     esac
@@ -56,8 +50,7 @@ if [[ -n "$FILTER" ]]; then
     FILES=("${KEPT[@]:-}")
 fi
 
-# --from: drop everything before the first file whose basename matches $FROM,
-# keeping the rest in order. Applies after -k/--all and to explicit lists too.
+# --from: drop everything before the first file matching $FROM.
 if [[ -n "$FROM" ]]; then
     declare -a TAIL
     found=0
@@ -93,8 +86,8 @@ for f in "${FILES[@]}"; do
     echo ">>> $name"
     echo "------------------------------------------------------------"
     start=$SECONDS
-    # Run from the tests/ dir so relative paths inside scripts resolve.
-    ( cd "$TESTS_DIR" && "$PYTHON" "$name" )
+    # Run from the package root so the shared conftest.py applies.
+    ( cd "$TESTS_DIR/../.." && "$PYTHON" -m pytest "tests/integration/$name" -x -s -q -p no:cacheprovider )
     rc=$?
     dur=$((SECONDS - start))
     if [[ $rc -eq 0 ]]; then

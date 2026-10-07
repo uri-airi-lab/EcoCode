@@ -1,11 +1,11 @@
-//! EcoCode CLI — per-process energy and carbon-footprint monitor.
+//! EcoCode CLI: per-process energy and carbon-footprint monitor.
 //!
 //! Wraps any command and continuously samples the machine's energy sensors
 //! (RAPL, NVML, …) and the process tree's CPU and memory usage, attributes
 //! energy to the process proportionally, and exports records in one of six
 //! formats (terminal, CSV, JSON, online, Prometheus, logfile).
 //!
-//! Exporter selection is explicit — no data is ever sent to the network without
+//! Exporter selection is explicit: no data is ever sent to the network without
 //! the user choosing `--output online` (CLI) or `exporter="online"` (Python SDK).
 
 use clap::Parser;

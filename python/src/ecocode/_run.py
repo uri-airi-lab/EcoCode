@@ -1,33 +1,22 @@
-"""Core EcoCodeRun class — pure Python replacement for the PyO3 _core module.
+"""The ``EcoCodeRun`` class behind ``ecocode.run()`` and ``ecocode.track()``.
 
-Supports three usage patterns:
-    # Context manager
+A run can be used as a context manager, as a decorator, or with explicit
+``start()`` / ``stop()`` calls:
+
     with ecocode.run("name", exporter="terminal") as run: ...
 
-    # Decorator
     @ecocode.track("name", exporter="terminal")
     def train(): ...
 
-    # Explicit start/stop
     run = ecocode.run("name", exporter="terminal")
     run.start()
     ...
     run.stop()
 
-Exporter modes
---------------
-exporter="terminal" (default)
-    Energy metrics are printed to stdout in real time.
-    No API key, no network traffic.
-
-exporter="csv" / exporter="json" / exporter="logfile"
-    Records written to the file specified by output_file.
-    No API key, no network traffic.
-
-exporter="online"
-    Records sent to the EcoCode SaaS platform (https://ecocode.harmonyhpc.io).
-    Requires api_key (or ECOCODE_API_KEY env var).
-    Use this to access the web dashboard and workspaces.
+Exporters: ``terminal`` (default) prints metrics to stdout; ``csv``, ``json``
+and ``logfile`` write records to ``output_file``. None of these need an API
+key or the network. ``online`` sends records to https://ecocode.harmonyhpc.io
+and requires ``api_key`` (or ``ECOCODE_API_KEY``).
 """
 
 from __future__ import annotations
@@ -45,10 +34,9 @@ from ._pipe import NullWriter, PipeWriter, marker_pipe_in, open_inherited_writer
 from ._sysinfo import collect_system_info
 from ._validation import validate_api_key, validate_run_id
 
-# CS-CRED-001: Allowlist of environment variables forwarded to the monitor
-# subprocess. Passing the full parent environment ({**os.environ, ...}) would
-# spread every secret in the process environment into the child — visible via
-# /proc/<pid>/environ on Linux. Only forward what the monitor actually needs.
+# Only the environment variables the monitor subprocess needs are forwarded.
+# Passing the whole parent environment would expose every secret in it to the
+# child (visible via /proc/<pid>/environ on Linux).
 _SUBPROCESS_ENV_PASSTHROUGH = frozenset({
     # Shell / runtime essentials
     "PATH", "HOME", "USER", "LOGNAME", "SHELL",
@@ -61,7 +49,7 @@ _SUBPROCESS_ENV_PASSTHROUGH = frozenset({
     "PROGRAMFILES", "PROGRAMFILES(X86)", "NUMBER_OF_PROCESSORS",
     # EcoCode test hook: fake sensors for runs on machines without hardware
     "ECOCODE_SENSORS",
-    # Dynamic linker — required for native extensions
+    # Dynamic linker, needed for native extensions
     "LD_LIBRARY_PATH", "LD_PRELOAD",
     "DYLD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH",  # macOS
     # NVIDIA / CUDA
@@ -98,8 +86,7 @@ class EcoCodeRun:
         self._exporter = exporter.lower().strip()
         if self._exporter in ("local", "sqlite"):
             warnings.warn(
-                "[ecocode] The 'local' SQLite exporter is no longer supported and has been removed. "
-                "Falling back to the 'terminal' exporter.",
+                "[ecocode] The 'local' exporter was removed; using 'terminal' instead.",
                 UserWarning,
                 stacklevel=2,
             )
@@ -107,13 +94,13 @@ class EcoCodeRun:
 
         if db_path:
             warnings.warn(
-                "[ecocode] The 'db_path' argument is obsolete and ignored because the local SQLite exporter was removed.",
+                "[ecocode] 'db_path' is ignored: it belonged to the 'local' exporter, which was removed.",
                 UserWarning,
                 stacklevel=2,
             )
 
         self._output_file = output_file
-        self._db_path = None  # Obsolete
+        self._db_path = None
         self._project_id = project_id
         self._interval = interval
         self._run_id: Optional[int] = None
@@ -133,7 +120,7 @@ class EcoCodeRun:
         if self._exporter == "online":
             # Resolve the API key from arguments then environment, and validate it
             # eagerly so misconfiguration fails at construction time rather than at
-            # the first network call. (CS-CRED-002)
+            # the first network call.
             raw_key = api_key or os.environ.get("ECOCODE_API_KEY")
             self._api_key: Optional[str] = validate_api_key(raw_key) if raw_key else None
         else:
@@ -145,8 +132,6 @@ class EcoCodeRun:
             raise ValueError(
                 f"[ecocode] output_file is required when using exporter='{self._exporter}'."
             )
-
-    # --- Context manager protocol ---
 
     def __enter__(self) -> EcoCodeRun:
         # DDP rank detection: only track on rank 0
@@ -162,8 +147,8 @@ class EcoCodeRun:
         if env_run_id and marker_pipe_in(os.environ):
             self._mode = "attached"
 
-            # CS-INT-001: Validate run ID is a sane positive integer rather than
-            # blindly casting whatever the env var contains.
+            # Check the run ID is a sane positive integer rather than blindly
+            # casting whatever the env var contains.
             try:
                 self._run_id = validate_run_id(env_run_id)
             except ValueError as exc:
@@ -171,22 +156,22 @@ class EcoCodeRun:
                     f"[ecocode] Invalid ECOCODE_RUN_ID: {exc}"
                 ) from exc
 
-            # CS-FD-001: the inherited FD/handle is validated before it is
-            # opened. A tampered ECOCODE_MARKER_FD=1 would otherwise redirect
-            # all marker writes to stdout.
+            # The inherited FD/handle is validated before it is opened. A
+            # tampered ECOCODE_MARKER_FD=1 would otherwise redirect all marker
+            # writes to stdout.
             try:
                 self._pipe = open_inherited_writer(os.environ) or NullWriter()
             except ValueError as exc:
                 warnings.warn(
-                    f"[ecocode] Ignoring invalid marker pipe: {exc} — "
-                    "phase markers will not be recorded for this run.",
+                    f"[ecocode] Ignoring invalid marker pipe: {exc}. "
+                    "Phase markers will not be recorded for this run.",
                     stacklevel=3,
                 )
                 self._pipe = NullWriter()
 
             return self
 
-        # Standalone mode — branch on exporter type.
+        # Standalone mode: branch on exporter type.
         if self._exporter in _LOCAL_EXPORTERS:
             return self._start_local_standalone()
         else:
@@ -204,7 +189,7 @@ class EcoCodeRun:
         }
 
         # `ecocode monitor-local` writes locally, no network calls. Run ID 0 is
-        # a placeholder — the monitor subprocess manages the run itself.
+        # a placeholder; the monitor subprocess manages the run itself.
         self._run_id = 0
         self._mode = "standalone_local"
 
@@ -271,7 +256,7 @@ class EcoCodeRun:
 
         ecocode_bin = resolve_ecocode_binary()
 
-        # CS-CRED-001: Build a minimal environment for the monitor subprocess.
+        # Build a minimal environment for the monitor subprocess.
         safe_env: dict[str, str] = {
             k: v
             for k, v in os.environ.items()
@@ -332,8 +317,6 @@ class EcoCodeRun:
 
         return False  # Never suppress exceptions
 
-    # --- Explicit start/stop (alternative to context manager) ---
-
     def start(self) -> EcoCodeRun:
         """Begin tracking. Alternative to using as a context manager."""
         return self.__enter__()
@@ -341,8 +324,6 @@ class EcoCodeRun:
     def stop(self) -> None:
         """Stop tracking and finalize the run. Alternative to context manager exit."""
         self.__exit__(None, None, None)
-
-    # --- Marker API ---
 
     def mark(self, key: str, value: Any) -> None:
         self._pipe.send({"event": str(key), "value": str(value)})
@@ -372,12 +353,8 @@ class EcoCodeRun:
         self._pipe.send({"event": "custom", "key": key, "value": value})
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-# CS-LEAK-001: Expanded set of flag names that precede a secret value.
-# Keep this set lower-cased; matching is done case-insensitively.
+# Flag names whose next value is a secret. Keep this set lower-cased;
+# matching is done case-insensitively.
 _SENSITIVE_FLAG_NAMES: frozenset[str] = frozenset({
     # EcoCode / generic auth
     "--api-key", "--api_key", "--token", "-k", "-t",
@@ -397,11 +374,8 @@ _SENSITIVE_FLAG_NAMES: frozenset[str] = frozenset({
 
 
 def _sanitize_command(args: list[str]) -> str:
-    """Sanitize sensitive flag values (like API keys/tokens) from sys.argv.
-
-    CS-LEAK-001: redacts known secret flags so they never get sent to the
-    backend in the run's 'command' field.
-    """
+    """Redact the values of known secret flags (API keys, tokens) from sys.argv
+    so they never reach the backend in the run's 'command' field."""
     sanitized = []
     skip_next = False
     for i, arg in enumerate(args):

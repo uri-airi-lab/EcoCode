@@ -2,8 +2,8 @@
 //!
 //! This is the only crate with OS-specific sensor code. Everything else talks
 //! to hardware through two traits:
-//! - [`EnergySensor`] — whole-domain energy counters (RAPL, NVML, …)
-//! - [`ProcessInspector`] — per-process CPU time and memory, used to attribute
+//! - [`EnergySensor`]: whole-domain energy counters (RAPL, NVML, …)
+//! - [`ProcessInspector`]: per-process CPU time and memory, used to attribute
 //!   a share of that energy to the monitored process tree
 //!
 //! [`detect`] picks the implementations for the current OS and never fails:

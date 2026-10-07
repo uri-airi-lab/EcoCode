@@ -1,4 +1,4 @@
-//! Online exporter — sends measurement records to the EcoCode web platform via REST API.
+//! Online exporter: sends measurement records to the EcoCode web platform via its REST API.
 //! Requires a workspace-scoped API key (`ecocode_...`) for authentication.
 //!
 //! The sampling loop never waits on the network: records go into a bounded
@@ -61,7 +61,7 @@ impl OnlineExporter {
             } else {
                 "****".to_string()
             };
-            println!("💡 Tip: Save your API key to avoid entering it each time:");
+            println!("Tip: Save your API key to avoid entering it each time:");
             println!("   ecocode config set-api-key <YOUR_KEY>");
             println!("   (detected key: {})", masked);
         }

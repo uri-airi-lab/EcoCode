@@ -4,11 +4,11 @@ TRL (Transformer Reinforcement Learning) integration.
 Provides separate callbacks for each alignment training paradigm because
 their energy profiles differ fundamentally:
 
-  SFTTrainer   — standard supervised fine-tuning (forward + backward + step)
-  DPOTrainer   — direct preference optimisation (policy forward +
-                 reference forward + backward, no reward model)
-  GRPOTrainer  — group relative policy optimisation (policy rollout via
-                 generation + grpo gradient update, no reference model)
+  SFTTrainer:  standard supervised fine-tuning (forward + backward + step)
+  DPOTrainer:  direct preference optimisation (policy forward +
+               reference forward + backward, no reward model)
+  GRPOTrainer: group relative policy optimisation (policy rollout via
+               generation + grpo gradient update, no reference model)
 
 Usage:
     import ecocode
@@ -138,10 +138,10 @@ class EcoCodeGRPOCallback(_Base):
     Callback for trl.GRPOTrainer (Group Relative Policy Optimisation).
 
     GRPO energy profile: each step alternates between:
-      1. policy_rollout — autoregressive generation for a group of prompts
-                          (memory-bandwidth-bound, like decode in inference)
-      2. grpo_update    — gradient update using group-relative rewards
-                          (compute-bound, like a standard backward pass)
+      1. policy_rollout: autoregressive generation for a group of prompts
+                         (memory-bandwidth-bound, like decode in inference)
+      2. grpo_update: gradient update using group-relative rewards
+                      (compute-bound, like a standard backward pass)
 
     No separate reward model, no reference model forward pass.
     Used in DeepSeek-R1, Qwen reasoning models.

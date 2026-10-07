@@ -1,5 +1,5 @@
 """
-EcoCode — Keras / TensorFlow Integration.
+Keras / TensorFlow integration.
 
 Provides an ``EcoCodeCallback`` for Keras 3+ (or tf.keras) that automatically
 tracks training phases, epoch boundaries, and key metrics.
@@ -49,8 +49,6 @@ class EcoCodeCallback(_Base):
         self._run = run
         self._global_step = 0
 
-    # ── Training lifecycle ────────────────────────────────────────────
-
     def on_train_begin(self, logs=None):
         self._run.mark("phase", "data_loading")
 
@@ -86,8 +84,6 @@ class EcoCodeCallback(_Base):
                         self._run.log_custom(key, float(value))
                     except ValueError:
                         pass  # invalid key, skip it
-
-    # ── Eval & end ────────────────────────────────────────────────────
 
     def on_test_begin(self, logs=None):
         self._run.mark("phase", "eval")

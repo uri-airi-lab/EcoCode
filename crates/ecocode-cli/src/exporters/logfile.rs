@@ -1,4 +1,4 @@
-//! Log file exporter — writes measurement records to a log file.
+//! Log file exporter: writes measurement records to a log file.
 //!
 //! Similar to the terminal exporter but outputs to a file instead of stdout.
 //! Includes per-GPU and per-socket breakdowns when available.
@@ -21,7 +21,7 @@ impl LogFileExporter {
         let mut writer = BufWriter::new(file);
         writeln!(
             writer,
-            "EcoCode Log — started at {}",
+            "EcoCode Log, started at {}",
             chrono::Utc::now().to_rfc3339()
         )?;
         writeln!(writer, "{}", "=".repeat(140))?;

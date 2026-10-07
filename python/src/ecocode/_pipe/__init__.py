@@ -3,8 +3,8 @@
 - Standalone mode: the SDK starts ``ecocode monitor`` and writes to its stdin
   (:class:`PipeWriter`).
 - Attached mode (``ecocode run -- python train.py``): the CLI passes a pipe to
-  this process — a file descriptor in ``ECOCODE_MARKER_FD`` on Linux/macOS, a
-  handle in ``ECOCODE_MARKER_HANDLE`` on Windows — opened by
+  this process (a file descriptor in ``ECOCODE_MARKER_FD`` on Linux/macOS, a
+  handle in ``ECOCODE_MARKER_HANDLE`` on Windows), opened by
   :func:`open_inherited_writer`.
 - Non-zero DDP ranks and inactive runs use :class:`NullWriter`.
 
@@ -37,7 +37,7 @@ class PipeWriter:
             self._stream.write((json.dumps(event) + "\n").encode())
             self._stream.flush()
         except (BrokenPipeError, OSError, ValueError):
-            pass  # Monitor exited (or stream closed) — silently degrade
+            pass  # Monitor exited or stream closed; drop the marker
 
     def close(self) -> None:
         try:

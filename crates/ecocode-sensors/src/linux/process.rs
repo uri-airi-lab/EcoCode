@@ -70,7 +70,7 @@ fn clock_ticks_per_second() -> f64 {
 }
 
 /// Reads cumulative CPU ticks (utime + stime) for a single PID from /proc/[pid]/stat.
-/// Returns None if the process no longer exists or the file can't be parsed.
+/// Returns None if the process has exited or the file can't be parsed.
 pub fn read_cpu_ticks(pid: u32) -> Option<u64> {
     let stat = std::fs::read_to_string(format!("/proc/{}/stat", pid)).ok()?;
     parse_cpu_ticks(&stat)

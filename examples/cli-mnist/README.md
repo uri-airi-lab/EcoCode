@@ -1,13 +1,13 @@
 # CLI example: MNIST training
 
-Monitors a 5-epoch CNN training run on MNIST with no code changes.
+Monitors a 5-epoch CNN training run on MNIST with no code changes. The script keeps both the
+CPU (data-loader transforms) and the GPU (extra forward passes and a large matmul) busy so that
+every sensor has something to show.
 
 ```bash
 pip install -r requirements.txt   # pinned for Linux + CUDA 12
 ecocode run -o json -f out.json -- python script.py
 ```
 
-`sample-output.json` is a 30-second excerpt of this run on a Linux machine
-with one NVIDIA GPU (RAPL `cpu` domain only, no DRAM domain). It was recorded
-with an earlier CLI version, so records do not include the `elapsed_secs` and
-marker fields that current versions write.
+`out.json` holds one record per sampling interval; see [docs/cli.md](../../docs/cli.md) for the
+exporters and their fields.

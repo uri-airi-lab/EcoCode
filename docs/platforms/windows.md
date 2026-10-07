@@ -42,5 +42,5 @@ cargo test --workspace -- --ignored    # real sensors: a measured CPU burn (need
 ecocode doctor
 ```
 
-Please report what `ecocode doctor` prints under "Energy sensors" — in particular the EMI channel
+Please report what `ecocode doctor` prints under "Energy sensors", in particular the EMI channel
 names, which vary between vendors and are the least-tested part of Windows support.

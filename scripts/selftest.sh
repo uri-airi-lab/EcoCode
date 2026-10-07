@@ -22,7 +22,7 @@ CHECKS="$ROOT/scripts/selftest_checks.py"
 declare -a RESULTS
 log() { echo "$@" | tee -a "$REPORT"; }
 
-# step NAME COMMAND... — runs a step, records PASS/FAIL, keeps the output in the report.
+# step NAME COMMAND...: runs a step, records PASS/FAIL, keeps the output in the report.
 step() {
     local name=$1; shift
     log ""
@@ -40,7 +40,7 @@ step() {
 }
 skip() { log ""; log "=== $1"; log "  skipped: $2"; RESULTS+=("SKIP  $1 ($2)"); }
 
-log "EcoCode self-test — $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+log "EcoCode self-test, $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 log "$(uname -a)"
 log "$(cargo --version 2>&1) / $(rustc --version 2>&1)"
 log "Python: ${PY:+$($PY --version 2>&1)}${PY:-not found}"

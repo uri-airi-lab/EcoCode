@@ -8,16 +8,16 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 rust-version = "1.99"
 license = "AGPL-3.0-only"
 repository = "https://github.com/abdeltawab/EcoCode"
 
 [workspace.dependencies]
-ecocode-sensors = { path = "crates/ecocode-sensors", version = "0.1.0", default-features = false }
-ecocode-monitor = { path = "crates/ecocode-monitor", version = "0.1.0", default-features = false }
-ecocode-api = { path = "crates/ecocode-api", version = "0.1.0" }
+ecocode-sensors = { path = "crates/ecocode-sensors", version = "1.0.0", default-features = false }
+ecocode-monitor = { path = "crates/ecocode-monitor", version = "1.0.0", default-features = false }
+ecocode-api = { path = "crates/ecocode-api", version = "1.0.0" }
 
 chrono = "0.4"
 clap = { version = "4.5.56", features = ["derive", "env"] }

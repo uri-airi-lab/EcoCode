@@ -2,10 +2,10 @@
 DeepSpeed integration.
 
 DeepSpeed ZeRO stages have very different energy profiles:
-  Stage 0 — no sharding, standard DDP energy
-  Stage 1 — optimizer state sharding; reduces memory, minimal comms overhead
-  Stage 2 — optimizer + gradient sharding; some all-reduce communication
-  Stage 3 — full parameter sharding; highest communication overhead per step
+  Stage 0: no sharding, standard DDP energy
+  Stage 1: optimizer state sharding; reduces memory, minimal comms overhead
+  Stage 2: optimizer + gradient sharding; some all-reduce communication
+  Stage 3: full parameter sharding; highest communication overhead per step
 
 Use EcoCodeDeepSpeedCallback as a manual wrapper around your DeepSpeed
 training loop. Call the hook methods at the appropriate points.
@@ -65,7 +65,7 @@ class EcoCodeDeepSpeedCallback:
         self._run.mark("phase", "forward")
 
     def on_forward_end(self) -> None:
-        # no-op — phase stays "forward" until backward starts
+        # no-op; phase stays "forward" until backward starts
         pass
 
     def on_backward_begin(self) -> None:

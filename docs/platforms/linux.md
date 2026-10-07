@@ -39,7 +39,7 @@ Since Linux 5.10, RAPL counters are readable by root only (CVE-2020-8694: fine-g
 readings can leak information about other processes). `ecocode doctor` reports this as
 `[!!] powercap … readable by root only`. Options:
 
-**Permanent, for chosen users (recommended)** — a udev rule gives the `powercap` group read access
+**Permanent, for chosen users (recommended):** a udev rule gives the `powercap` group read access
 at every boot:
 ```bash
 sudo packaging/linux/install-permissions.sh            # installs the rule, adds you to the group

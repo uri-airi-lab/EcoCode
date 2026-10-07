@@ -1,267 +1,132 @@
 """
 Heavy TRL Integration Test
-- SFT:  GPT-2 fine-tuned with SFTTrainer (120 samples, seq_len=128, 3 epochs)
-- DPO:  GPT-2 policy vs frozen GPT-2 reference (SEQ=128, 60 steps)
-- GRPO: GPT-2 policy with group-relative reward rollout (GROUP_SIZE=4, 60 steps)
-- Device: CUDA
+- SFT:  GPT-2 fine-tuned with a real SFTTrainer
+- DPO:  GPT-2 policy vs frozen reference with a real DPOTrainer
+- GRPO: GPT-2 policy with a real GRPOTrainer and a length reward
+- Device: CUDA if available, else CPU (scaled down)
 """
-import os, torch, torch.nn as nn, time
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
-os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+import pytest
 
-from transformers import AutoTokenizer, AutoModelForCausalLM
-from datasets import Dataset as HFDataset
-from trl import SFTTrainer, SFTConfig
-import ecocode
-from ecocode.integrations.trl import EcoCodeSFTCallback, EcoCodeDPOCallback, EcoCodeGRPOCallback
-from types import SimpleNamespace
+from ecocode.integrations.trl import EcoCodeDPOCallback, EcoCodeGRPOCallback, EcoCodeSFTCallback
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
-print(f"[TRL heavy] device={device}")
+torch = pytest.importorskip("torch")
+pytest.importorskip("transformers")
+pytest.importorskip("trl", minversion="0.15")
+pytest.importorskip("datasets")
 
-# ─────────────────────────────────────────────────────────────
-# TEST 1: SFT — GPT-2 supervised fine-tuning
-# ─────────────────────────────────────────────────────────────
-print("\n" + "="*60)
-print("  TRL SFT — GPT-2 supervised fine-tuning (124M params)")
-print("="*60)
-
-MODEL_SFT = "gpt2"
-print(f"[TRL heavy] Loading {MODEL_SFT}...")
-tokenizer_sft = AutoTokenizer.from_pretrained(MODEL_SFT)
-tokenizer_sft.pad_token = tokenizer_sft.eos_token
-
-api_key  = os.environ.get("ECOCODE_API_KEY")
-base_url = os.environ.get("ECOCODE_API_URL")  # None -> SDK uses its _DEFAULT_BASE_URL
-
-model_sft = AutoModelForCausalLM.from_pretrained(MODEL_SFT, torch_dtype=torch.bfloat16).to(device)
-model_sft.config.use_cache = False
-params = sum(p.numel() for p in model_sft.parameters()) / 1e6
-print(f"[TRL heavy] {MODEL_SFT}: {params:.0f}M params")
+from datasets import Dataset  # noqa: E402
+from transformers import AutoModelForCausalLM, AutoTokenizer  # noqa: E402
+from trl import DPOConfig, DPOTrainer, GRPOConfig, GRPOTrainer, SFTConfig, SFTTrainer  # noqa: E402
 
 TOPICS = [
-    "backpropagation", "attention mechanisms", "dropout regularization",
-    "batch normalization", "gradient descent", "cross-entropy loss",
-    "softmax activation", "embedding layers", "tokenization",
-    "fine-tuning", "transfer learning", "overfitting",
-    "regularization", "activation functions", "residual connections",
-    "layer normalization", "weight decay", "learning rate scheduling",
-    "training epochs", "mini-batch training", "knowledge distillation",
-    "model pruning", "quantization", "speculative decoding",
-    "retrieval augmented generation", "constitutional AI", "RLHF",
+    "backpropagation", "attention mechanisms", "dropout regularization", "batch normalization",
+    "gradient descent", "cross-entropy loss", "softmax activation", "embedding layers", "tokenization",
+    "fine-tuning", "transfer learning", "overfitting", "regularization", "activation functions",
+    "residual connections", "layer normalization", "weight decay", "learning rate scheduling",
+    "training epochs", "mini-batch training", "knowledge distillation", "model pruning", "quantization",
+    "speculative decoding", "retrieval augmented generation", "constitutional AI", "RLHF",
     "mixture of experts", "flash attention", "low-rank adaptation",
 ]
-TEXTS = [
-    f"Question: Can you give a thorough technical explanation of {topic}? "
-    f"Answer: {topic} is a critical technique in modern deep learning. "
-    f"It works by optimizing the loss landscape through carefully designed "
-    f"mathematical operations that allow gradients to flow efficiently. "
-    f"The key insight is that neural networks benefit enormously from this "
-    f"approach because it enables stable optimization at scale."
-    for topic in TOPICS
-] * 4
-TEXTS = TEXTS[:120]
 
-sft_ds = HFDataset.from_dict({"text": TEXTS})
 
-with ecocode.run("trl-sft-gpt2", exporter="online", api_key=api_key, base_url=base_url, interval=1.0) as eco_run:
-    sft_args = SFTConfig(
-        output_dir="/tmp/trl_sft_xl",
-        num_train_epochs=3,
+@pytest.fixture
+def gpt2(device):
+    tok = AutoTokenizer.from_pretrained("gpt2")
+    tok.pad_token = tok.eos_token
+
+    def load():
+        m = AutoModelForCausalLM.from_pretrained(
+            "gpt2", torch_dtype=torch.bfloat16 if device == "cuda" else torch.float32
+        ).to(device)
+        m.config.use_cache = False
+        return m
+
+    return tok, load
+
+
+def _common(device, tmp_path, name):
+    return dict(
+        output_dir=str(tmp_path / name),
         per_device_train_batch_size=2,
-        gradient_accumulation_steps=2,
-        learning_rate=1e-5,
-        warmup_steps=10,
-        logging_steps=5,
+        logging_steps=1,
         save_strategy="no",
         report_to="none",
         bf16=(device == "cuda"),
-        fp16=False,
-        max_length=128,
-        push_to_hub=False,
-        gradient_checkpointing=True,
-        dataloader_num_workers=4,
         use_cpu=(device == "cpu"),
+        dataloader_num_workers=0,
+        disable_tqdm=True,
     )
-    trainer = SFTTrainer(
-        model=model_sft,
-        args=sft_args,
-        train_dataset=sft_ds,
-        processing_class=tokenizer_sft,
-        callbacks=[EcoCodeSFTCallback(eco_run)],
-    )
-    result = trainer.train()
-    print(f"\n[TRL SFT] PASS  run_id={eco_run._run_id}  steps={trainer.state.global_step}  loss={result.training_loss:.4f}")
-    if device == "cuda":
-        print(f"  VRAM peak: {torch.cuda.max_memory_allocated()/1e9:.2f}GB")
 
-del trainer, model_sft
-if device == "cuda":
-    import gc; gc.collect(); torch.cuda.empty_cache()
 
-# ─────────────────────────────────────────────────────────────
-# TEST 2: DPO — GPT-2 policy vs frozen reference
-# ─────────────────────────────────────────────────────────────
-print("\n" + "="*60)
-print("  TRL DPO — GPT-2 policy + frozen reference (124M params)")
-print("="*60)
+def _assert_stream(tap, trainer, update_phase, first_phase="forward_backward"):
+    n = trainer.state.global_step
+    assert n > 0
+    phases = tap.phases()
+    assert phases[0] == "data_loading" and phases[-1] == "done"
+    per_step = [p for p in phases if p in (first_phase, update_phase)]
+    assert per_step == [first_phase, update_phase] * n
+    assert tap.values("step") == list(range(n))
+    trainer_losses = [h["loss"] for h in trainer.state.log_history if "loss" in h]
+    assert all(any(abs(s - t) < 1e-9 for t in trainer_losses) for s in tap.values("loss"))
+    return n
 
-MODEL_DPO = "gpt2"
-print(f"[TRL heavy] Loading {MODEL_DPO} (policy + ref)...")
-tokenizer_dpo = AutoTokenizer.from_pretrained(MODEL_DPO)
-tokenizer_dpo.pad_token = tokenizer_dpo.eos_token
 
-policy_dpo = AutoModelForCausalLM.from_pretrained(MODEL_DPO, torch_dtype=torch.bfloat16).to(device)
-ref_dpo    = AutoModelForCausalLM.from_pretrained(MODEL_DPO, torch_dtype=torch.bfloat16).to(device)
-for p in ref_dpo.parameters(): p.requires_grad_(False)
-params = sum(p.numel() for p in policy_dpo.parameters()) / 1e6
-print(f"[TRL heavy] {MODEL_DPO}: {params:.0f}M params x2 (policy + frozen ref)")
+def test_heavy_trl_sft(device, scaled, gpt2, tmp_path, heavy_run, marker_tap):
+    tok, load = gpt2
+    texts = [
+        f"Question: Can you give a thorough technical explanation of {t}? Answer: {t} is a critical "
+        f"technique in modern deep learning. It works by optimizing the loss landscape through carefully "
+        f"designed mathematical operations that allow gradients to flow efficiently."
+        for t in TOPICS
+    ] * 4
+    ds = Dataset.from_dict({"text": texts[: scaled(120, 8)]})
+    with heavy_run("trl-sft-gpt2") as eco_run:
+        args = SFTConfig(num_train_epochs=scaled(3, 1), gradient_accumulation_steps=2, learning_rate=1e-5,
+                         warmup_steps=scaled(10, 1), max_length=128, gradient_checkpointing=True,
+                         **_common(device, tmp_path, "sft"))
+        trainer = SFTTrainer(model=load(), args=args, train_dataset=ds, processing_class=tok,
+                             callbacks=[EcoCodeSFTCallback(eco_run)])
+        trainer.train()
+    n = _assert_stream(marker_tap, trainer, "optimizer_step")
+    assert marker_tap.values("seq_len") == [128]
+    if not heavy_run.online:
+        assert heavy_run.last()["phase"] == "done" and heavy_run.max_of("training_step") == n - 1
 
-optimizer = torch.optim.AdamW(policy_dpo.parameters(), lr=5e-6)
-scaler    = torch.amp.GradScaler("cuda", enabled=False)
 
-VOCAB = tokenizer_dpo.vocab_size
-SEQ   = 128
-BATCH = 2
-N_STEPS = 60
+def test_heavy_trl_dpo(device, scaled, gpt2, tmp_path, heavy_run, marker_tap):
+    tok, load = gpt2
+    n_pairs = scaled(120, 8)
+    ds = Dataset.from_dict({
+        "prompt": [f"Explain {TOPICS[i % len(TOPICS)]}." for i in range(n_pairs)],
+        "chosen": [f"{TOPICS[i % len(TOPICS)]} is a well-studied technique with clear benefits." for i in range(n_pairs)],
+        "rejected": ["I don't know." for _ in range(n_pairs)],
+    })
+    with heavy_run("trl-dpo-gpt2") as eco_run:
+        args = DPOConfig(num_train_epochs=scaled(3, 1), learning_rate=5e-6, max_length=128,
+                         beta=0.1, **_common(device, tmp_path, "dpo"))
+        trainer = DPOTrainer(model=load(), ref_model=None, args=args, train_dataset=ds,
+                             processing_class=tok, callbacks=[EcoCodeDPOCallback(eco_run)])
+        trainer.train()
+    n = _assert_stream(marker_tap, trainer, "dpo_update")
+    assert marker_tap.values("seq_len") == [128]
+    if not heavy_run.online:
+        assert heavy_run.last()["phase"] == "done" and heavy_run.max_of("training_step") == n - 1
 
-def make_preference_batch():
-    chosen   = torch.randint(0, VOCAB, (BATCH, SEQ), device=device)
-    rejected = torch.randint(0, VOCAB, (BATCH, SEQ), device=device)
-    mask     = torch.ones(BATCH, SEQ, device=device, dtype=torch.long)
-    return chosen, rejected, mask
 
-def dpo_loss(policy_log_chosen, policy_log_rejected, ref_log_chosen, ref_log_rejected, beta=0.1):
-    log_ratio = (policy_log_chosen - ref_log_chosen) - (policy_log_rejected - ref_log_rejected)
-    return -nn.functional.logsigmoid(beta * log_ratio).mean()
+def test_heavy_trl_grpo(device, scaled, gpt2, tmp_path, heavy_run, marker_tap):
+    tok, load = gpt2
+    ds = Dataset.from_dict({"prompt": [f"Explain {t}." for t in TOPICS] * 2})
 
-def sequence_log_prob(model, input_ids, attention_mask):
-    ctx = torch.no_grad() if not model.training else torch.enable_grad()
-    with ctx, torch.autocast(device_type=device, dtype=torch.bfloat16, enabled=(device == "cuda")):
-        out = model(input_ids=input_ids, attention_mask=attention_mask)
-    logits    = out.logits[:, :-1].float()
-    targets   = input_ids[:, 1:]
-    log_probs = logits.log_softmax(-1)
-    token_lp  = log_probs.gather(2, targets.unsqueeze(-1)).squeeze(-1)
-    return (token_lp * attention_mask[:, 1:]).sum(-1) / attention_mask[:, 1:].sum(-1)
+    def reward_unique_tokens(completions, **kwargs):
+        return [len(set(c.split())) / max(1, len(c.split())) for c in completions]
 
-state = SimpleNamespace(global_step=0, epoch=0.0, log_history=[])
-args  = SimpleNamespace(max_length=SEQ, max_seq_length=None)
-ctrl  = SimpleNamespace()
-
-with ecocode.run("trl-dpo-gpt2large", exporter="online", api_key=api_key, base_url=base_url, interval=1.0) as eco_run:
-    cb = EcoCodeDPOCallback(eco_run)
-    cb.on_train_begin(args, state, ctrl)
-
-    for epoch in range(3):
-        state.epoch = float(epoch)
-        cb.on_epoch_begin(args, state, ctrl)
-        for step in range(N_STEPS // 3):
-            cb.on_step_begin(args, state, ctrl)
-            chosen, rejected, mask = make_preference_batch()
-
-            policy_dpo.train()
-            pi_ch   = sequence_log_prob(policy_dpo, chosen,   mask)
-            pi_rej  = sequence_log_prob(policy_dpo, rejected, mask)
-            ref_ch  = sequence_log_prob(ref_dpo,    chosen,   mask)
-            ref_rej = sequence_log_prob(ref_dpo,    rejected, mask)
-
-            loss = dpo_loss(pi_ch, pi_rej, ref_ch, ref_rej)
-            optimizer.zero_grad()
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
-
-            state.global_step += 1
-            state.log_history.append({"loss": loss.item(), "learning_rate": 5e-6, "step": state.global_step})
-            cb.on_optimizer_step(args, state, ctrl)
-
-    cb.on_train_end(args, state, ctrl)
-    print(f"\n[TRL DPO] PASS  run_id={eco_run._run_id}  steps={state.global_step}  final_loss={loss.item():.4f}")
-    if device == "cuda":
-        print(f"  VRAM peak: {torch.cuda.max_memory_allocated()/1e9:.2f}GB")
-
-del optimizer, scaler, policy_dpo, ref_dpo
-if device == "cuda":
-    import gc; gc.collect(); torch.cuda.empty_cache()
-
-# ─────────────────────────────────────────────────────────────
-# TEST 3: GRPO — GPT-2 policy rollout + group-relative reward
-# ─────────────────────────────────────────────────────────────
-print("\n" + "="*60)
-print("  TRL GRPO — GPT-2 rollout + group-relative rewards (124M params)")
-print("="*60)
-
-MODEL_GRPO = "gpt2"
-print(f"[TRL heavy] Loading {MODEL_GRPO}...")
-tokenizer_grpo = AutoTokenizer.from_pretrained(MODEL_GRPO)
-tokenizer_grpo.pad_token = tokenizer_grpo.eos_token
-
-policy_grpo = AutoModelForCausalLM.from_pretrained(MODEL_GRPO, torch_dtype=torch.bfloat16).to(device)
-optimizer_g = torch.optim.SGD(policy_grpo.parameters(), lr=5e-6, momentum=0.9)
-
-PROMPT_LEN   = 64
-COMPLETE_LEN = 64
-GROUP_SIZE   = 4    # completions per prompt — larger group = tighter advantage estimates
-N_STEPS      = 60
-VOCAB_G      = tokenizer_grpo.vocab_size
-
-state_g = SimpleNamespace(global_step=0, epoch=0.0, log_history=[])
-args_g  = SimpleNamespace(max_length=None, max_seq_length=None, max_completion_length=COMPLETE_LEN)
-ctrl_g  = SimpleNamespace()
-
-with ecocode.run("trl-grpo-gpt2", exporter="online", api_key=api_key, base_url=base_url, interval=1.0) as eco_run:
-    cb = EcoCodeGRPOCallback(eco_run)
-    cb.on_train_begin(args_g, state_g, ctrl_g)
-
-    for epoch in range(3):
-        state_g.epoch = float(epoch)
-        cb.on_epoch_begin(args_g, state_g, ctrl_g)
-
-        for step in range(N_STEPS // 3):
-            cb.on_step_begin(args_g, state_g, ctrl_g)
-
-            # Phase 1: rollout — greedy completions (no nan probs with random prompts)
-            prompts = torch.randint(0, VOCAB_G, (GROUP_SIZE, PROMPT_LEN), device=device)
-            policy_grpo.eval()
-            with torch.no_grad():
-                completions = policy_grpo.generate(
-                    prompts,
-                    max_new_tokens=COMPLETE_LEN,
-                    do_sample=False,
-                    pad_token_id=tokenizer_grpo.eos_token_id,
-                )
-            generated = completions[:, PROMPT_LEN:]
-
-            rewards = torch.tensor(
-                [len(set(g.tolist())) / COMPLETE_LEN for g in generated],
-                device=device, dtype=torch.float
-            )
-            advantages = (rewards - rewards.mean()) / (rewards.std() + 1e-8)
-
-            # Phase 2: policy gradient update
-            policy_grpo.train()
-            out = policy_grpo(completions[:, :-1])
-            log_probs = out.logits.float().log_softmax(-1)
-            token_lp  = log_probs.gather(
-                2, completions[:, 1:].unsqueeze(-1)
-            ).squeeze(-1)[:, PROMPT_LEN - 1:]
-
-            loss = -(token_lp.mean(-1) * advantages.detach()).mean()
-            optimizer_g.zero_grad()
-            loss.backward()
-            optimizer_g.step()
-
-            state_g.global_step += 1
-            state_g.log_history.append({"loss": loss.item(), "learning_rate": 5e-6, "step": state_g.global_step})
-            cb.on_optimizer_step(args_g, state_g, ctrl_g)
-            del out, log_probs, token_lp, completions, prompts, generated
-
-    cb.on_train_end(args_g, state_g, ctrl_g)
-    print(f"\n[TRL GRPO] PASS  run_id={eco_run._run_id}  steps={state_g.global_step}  final_loss={loss.item():.4f}")
-    if device == "cuda":
-        print(f"  VRAM peak: {torch.cuda.max_memory_allocated()/1e9:.2f}GB")
-
-del optimizer_g, policy_grpo
-if device == "cuda":
-    import gc; gc.collect(); torch.cuda.empty_cache()
+    with heavy_run("trl-grpo-gpt2") as eco_run:
+        args = GRPOConfig(max_steps=scaled(60, 2), learning_rate=5e-6,
+                          max_completion_length=64, num_generations=2, **_common(device, tmp_path, "grpo"))
+        trainer = GRPOTrainer(model=load(), reward_funcs=reward_unique_tokens, args=args, train_dataset=ds,
+                              processing_class=tok, callbacks=[EcoCodeGRPOCallback(eco_run)])
+        trainer.train()
+    n = _assert_stream(marker_tap, trainer, "grpo_update", first_phase="policy_rollout")
+    assert len(marker_tap.values("seq_len")) == 1
+    if not heavy_run.online:
+        assert heavy_run.last()["phase"] == "done" and heavy_run.max_of("training_step") == n - 1

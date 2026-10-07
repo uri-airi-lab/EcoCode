@@ -36,12 +36,12 @@ pub struct Record {
     pub gpu_usage: f64,    // percentage (0-100) (aggregate across GPUs)
     pub gpu_energy: f64,   // Joules (Watt-seconds) (aggregate across GPUs)
     pub mem_usage: f64,    // percentage (0-100), always available
-    pub mem_energy: Option<f64>, // Joules (Watt-seconds) — None when no DRAM domain on this system
-    pub igpu_usage: Option<f64>, // None — no per-process iGPU sensor available
+    pub mem_energy: Option<f64>, // Joules (Watt-seconds), None when no DRAM domain on this system
+    pub igpu_usage: Option<f64>, // None: no per-process iGPU sensor available
     pub igpu_energy: Option<f64>, // None when no iGPU domain on this system
     pub gpu_metrics: Vec<GpuMetric>,       // per-GPU breakdown
     pub socket_metrics: Vec<SocketMetric>, // per-socket breakdown
-    // ML semantic fields — sent by the Python SDK as markers
+    // ML semantic fields, sent by the Python SDK as markers
     pub phase: Option<String>,
     pub tokens_processed: Option<i64>,
     pub training_step: Option<i64>,
@@ -107,8 +107,9 @@ impl Record {
 
 #[cfg(test)]
 mod tests {
-    //! Golden tests: expected strings were captured from the pre-restructure
-    //! `Record` serialisation (JSON exporter) and `to_vec` (CSV exporter).
+    //! Golden tests: expected strings were captured from the original
+    //! implementation of `Record` serialisation (JSON exporter) and `to_vec`
+    //! (CSV exporter) and must not drift.
     use super::*;
 
     fn full() -> Record {

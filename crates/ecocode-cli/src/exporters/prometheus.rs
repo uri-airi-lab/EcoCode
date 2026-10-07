@@ -1,4 +1,4 @@
-//! Prometheus exporter — exposes measurement metrics via an HTTP `/metrics` endpoint.
+//! Prometheus exporter: exposes measurement metrics via an HTTP `/metrics` endpoint.
 //!
 //! Starts a background HTTP server on port 9091 (one thread, `tiny_http`),
 //! serving metrics in the Prometheus text exposition format.

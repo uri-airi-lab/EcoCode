@@ -1,7 +1,7 @@
 """
 EcoCode Python SDK
 
-Track energy consumption of ML training and inference runs — phases, epochs,
+Track energy consumption of ML training and inference runs: phases, epochs,
 token counts, optimizer steps, loss, learning rate, and sequence length.
 
 Three equivalent usage patterns:
@@ -21,12 +21,11 @@ Three equivalent usage patterns:
       train()
       r.stop()
 
-Exporter options
-----------------
-  exporter="terminal" (default) — Print live metrics to stdout.
-  exporter="csv"                — Write to a CSV file (requires output_file=).
-  exporter="json"               — Write to a JSON file (requires output_file=).
-  exporter="online"             — Send to the EcoCode SaaS dashboard
+Exporter options:
+  exporter="terminal" (default)   Print live metrics to stdout.
+  exporter="csv"                  Write to a CSV file (requires output_file=).
+  exporter="json"                 Write to a JSON file (requires output_file=).
+  exporter="online"               Send to the EcoCode dashboard
                                   (requires api_key= or ECOCODE_API_KEY).
 
 Attached mode (CLI wrapping) is auto-detected from environment variables.
@@ -39,17 +38,17 @@ ML Phase labels (use these consistently for cross-run comparisons):
   Inference         : model_load, prefill, decode, kv_cache_ops, done
 
 Additional methods:
-  run.log_custom(key, value)    — Log arbitrary numeric metrics (gradient norm,
+  run.log_custom(key, value)      Log arbitrary numeric metrics (gradient norm,
                                   perplexity, BLEU, reward score, batch size, etc.)
 
 Framework integrations:
-  ecocode.integrations.huggingface  — HuggingFace Trainer
-  ecocode.integrations.trl          — TRL (SFT, DPO, GRPO)
-  ecocode.integrations.lightning    — PyTorch Lightning
-  ecocode.integrations.deepspeed    — DeepSpeed
-  ecocode.integrations.vllm         — vLLM (async inference)
-  ecocode.integrations.keras        — Keras 3 / tf.keras
-  ecocode.integrations.onnxruntime  — ONNX Runtime inference
+  ecocode.integrations.huggingface    HuggingFace Trainer
+  ecocode.integrations.trl            TRL (SFT, DPO, GRPO)
+  ecocode.integrations.lightning      PyTorch Lightning
+  ecocode.integrations.deepspeed      DeepSpeed
+  ecocode.integrations.vllm           vLLM (async inference)
+  ecocode.integrations.keras          Keras 3 / tf.keras
+  ecocode.integrations.onnxruntime    ONNX Runtime inference
 """
 from __future__ import annotations
 
@@ -58,7 +57,7 @@ from typing import Callable, Optional, TypeVar
 
 from ._run import EcoCodeRun
 
-__version__ = "0.3.0"
+__version__ = "1.0.0"
 __all__ = ["run", "track", "EcoCodeRun"]
 
 F = TypeVar("F", bound=Callable)
@@ -84,14 +83,14 @@ def run(
         Human-readable label for this run.
     exporter : str
         Where to store results:
-        - "terminal" (default) — print metrics to stdout.
-        - "csv"      — CSV file (requires output_file=).
-        - "json"     — JSON file (requires output_file=).
-        - "online"   — EcoCode SaaS platform (requires api_key=).
+        - "terminal" (default): print metrics to stdout.
+        - "csv": CSV file (requires output_file=).
+        - "json": JSON file (requires output_file=).
+        - "online": EcoCode platform (requires api_key=).
     output_file : str, optional
         Output path for csv/json exporters.
     db_path : str, optional
-        (Obsolete/Ignored) Legacy parameter from the removed SQLite local exporter.
+        Ignored, with a warning. Accepted only so older call sites keep working.
     api_key : str, optional
         API key for the online exporter. Also read from ECOCODE_API_KEY.
     project_id : int, optional
@@ -102,8 +101,8 @@ def run(
     interval : float
         Sampling interval in seconds (default: 1.0).
 
-    In attached mode (CLI running), most parameters are ignored — the run was
-    already created by the CLI.
+    In attached mode (under `ecocode run`), most parameters are ignored: the
+    run was already created by the CLI.
     """
     return EcoCodeRun(
         name,

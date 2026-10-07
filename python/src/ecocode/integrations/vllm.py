@@ -1,13 +1,13 @@
 """
 vLLM inference server integration.
 
-Tracks the prefill vs decode energy split — the most important insight for
+Tracks the prefill vs decode energy split, the most important input to
 LLM inference cost modelling:
 
-  Prefill  — processes all prompt tokens in parallel (compute-bound).
-             Energy is roughly proportional to prompt_length^2 (attention).
-  Decode   — generates one token per autoregressive step (memory-bandwidth-bound).
-             Energy per token is much lower but latency is higher.
+  Prefill: processes all prompt tokens in parallel (compute-bound).
+           Energy is roughly proportional to prompt_length^2 (attention).
+  Decode:  generates one token per autoregressive step (memory-bandwidth-bound).
+           Energy per token is much lower but latency is higher.
 
 Understanding this split lets you:
   - Optimise prompt length to reduce prefill cost
@@ -88,7 +88,7 @@ class EcoCodeVLLMMiddleware:
             prompt, sampling_params, request_id, **kwargs
         ):
             if first_token and output.outputs:
-                # First token generated — prefill is done, decode begins
+                # First token generated: prefill is done, decode begins
                 self._run.mark("phase", "decode")
                 first_token = False
 

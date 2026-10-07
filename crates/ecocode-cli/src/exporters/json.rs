@@ -1,4 +1,4 @@
-//! JSON exporter — serialises measurement records to a JSON array file.
+//! JSON exporter: serialises measurement records to a JSON array file.
 //!
 //! Records are streamed as the monitoring loop runs: the array is opened on the
 //! first record and closed when `export()` is called at the end of the run.

@@ -1,5 +1,5 @@
 """
-EcoCode — ONNX Runtime Inference Integration.
+ONNX Runtime inference integration.
 
 Wraps ``onnxruntime.InferenceSession`` to mark inference phases and track
 per-request metrics via ``log_custom()``.
@@ -36,7 +36,7 @@ class EcoCodeORTWrapper:
     ``InferenceSession`` has no event that fires when the caller is finished
     issuing ``.run()`` calls, and marking ``done`` after every individual call
     would misuse the marker (elsewhere in this SDK ``done`` means "the whole
-    run just finished," e.g. HuggingFace/Lightning/TRL's ``on_train_end``).
+    run just finished," as in HuggingFace/Lightning/TRL's ``on_train_end``).
 
     The first call is always ``prefill``. Later calls are marked ``decode``
     when the first input tensor's sequence-length axis (``shape[1]``) is
@@ -47,10 +47,9 @@ class EcoCodeORTWrapper:
     since ONNX Runtime exposes no explicit signal distinguishing decode
     loops from one-shot small inputs.
 
-    Also logs:
-      - ``step``         — running count of inference calls
-      - ``batch_size``   — estimated from the first input tensor shape
-      - ``latency_ms``   — wall-clock time for the ``.run()`` call
+    Also logs ``step`` (running count of inference calls), ``batch_size``
+    (estimated from the first input tensor shape) and ``latency_ms``
+    (wall-clock time for the ``.run()`` call).
     """
 
     def __init__(self, session: Any, run: "EcoCodeRun") -> None:
@@ -72,11 +71,10 @@ class EcoCodeORTWrapper:
         # Estimate batch size from the first input tensor, and use its
         # sequence-length axis (if present) to distinguish prefill from
         # decode: shape[1] == 1 on a call after the first is treated as a
-        # single-token KV-cache decode step (see class docstring).
-        # CS-TYPE-002: Validate the shape value before forwarding. Some ONNX
-        # backends may return a symbolic/negative dimension for dynamic shapes;
-        # log only if the value is a concrete positive integer within a
-        # reasonable range to avoid corrupting dashboard aggregates.
+        # single-token KV-cache decode step (see class docstring). Some ONNX
+        # backends return a symbolic or negative dimension for dynamic shapes,
+        # so the batch size is logged only when it is a concrete positive
+        # integer in a sensible range.
         is_decode = False
         if input_feed:
             first_val = next(iter(input_feed.values()), None)

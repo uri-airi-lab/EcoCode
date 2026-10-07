@@ -55,7 +55,7 @@ pub fn run_monitor(args: MonitorArgs, default_exporter: &str) -> Result<(), Box<
         },
     };
 
-    // --- Marker reader thread (reads newline-delimited JSON from stdin) ---
+    // Marker reader thread: newline-delimited JSON from stdin.
     let marker_state = Arc::new(Mutex::new(MarkerState::default()));
     let marker_state_for_stdin = Arc::clone(&marker_state);
     let stdin_closed = Arc::new(AtomicBool::new(false));

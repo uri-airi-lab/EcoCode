@@ -14,8 +14,8 @@
 //! GPU time is shared out in turns that favour UI clients (see
 //! [`super::gpu_usage`]), so splitting energy by it badly under-credits compute
 //! jobs. Instead, the monitored process tree is credited with the **whole GPU's
-//! energy while it is using the GPU** — it completed or submitted GPU work in
-//! the last [`GPU_ACTIVE_WINDOW`] — and with none otherwise. The error is what
+//! energy while it is using the GPU** (it completed or submitted GPU work in
+//! the last [`GPU_ACTIVE_WINDOW`]), and with none otherwise. The error is what
 //! other apps draw on the GPU at the same time (an idle desktop: ~0.1 W).
 
 use std::collections::HashMap;

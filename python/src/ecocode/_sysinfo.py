@@ -16,7 +16,7 @@ def _linux_cpu_name() -> Optional[str]:
     try:
         with open("/proc/cpuinfo") as f:
             for i, line in enumerate(f):
-                if i > 200:  # CS-DOS-001: never read an unbounded file
+                if i > 200:  # don't read an unbounded file
                     break
                 if line.lower().startswith("model name"):
                     return line.split(":", 1)[1].strip()
@@ -28,7 +28,7 @@ def _linux_cpu_name() -> Optional[str]:
 def _linux_ram_bytes() -> Optional[int]:
     try:
         with open("/proc/meminfo") as f:
-            # CS-DOS-001: the real file has ~50 lines; stop past that.
+            # The real file has about 50 lines; stop past that.
             for i, line in enumerate(f):
                 if i >= 60:
                     break

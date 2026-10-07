@@ -36,10 +36,9 @@ pub fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn Error>> {
         .filter(|s| !s.is_empty())
         .map(str::to_string);
 
-    // --- Exporter setup ---
-    // Each exporter is independent. No silent data mirroring.
-    // Use `--output online` (or exporter="online" in the Python SDK) to send data
-    // to the EcoCode platform. All other exporters store data locally.
+    // Each exporter is independent. `--output online` (or exporter="online" in
+    // the Python SDK) sends data to the EcoCode platform; every other exporter
+    // stores data locally.
     let mut exporter: Box<dyn Exporter> = match output.as_str() {
         "online" => Box::new(OnlineExporter::new(args.api_key)?),
         "prometheus" => Box::new(PrometheusExporter::new()?),
@@ -115,10 +114,9 @@ pub fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn Error>> {
     let detection = detect(args.sensors);
     warn_about_sensors(&detection);
 
-    // --- Pipe-based marker IPC (attached mode) ---
-    // The Python SDK running inside the child process sends semantic marker
-    // events (phase, tokens, step, loss, lr, seq_len, …) as newline-delimited
-    // JSON to the inherited write end.
+    // Marker pipe for attached mode. The Python SDK running inside the child
+    // process sends marker events (phase, tokens, step, loss, lr, seq_len and
+    // so on) as newline-delimited JSON to the inherited write end.
     let marker_state = Arc::new(Mutex::new(MarkerState::default()));
 
     // Marker pipe transit latency (nanoseconds), one sample per marker received,
@@ -153,7 +151,6 @@ pub fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn Error>> {
         }
     });
 
-    // --- Spawn the target process ---
     // ECOCODE_RUN_ID plus the marker pipe variable let the Python SDK running
     // inside the child attach to this run (attached mode).
     let mut command = Command::new(&args.command[0]);
@@ -163,7 +160,7 @@ pub fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn Error>> {
         .spawn()
         .map_err(|e| format!("Failed to execute '{}': {}", args.command[0], e))?;
 
-    // Close the write end in the parent — only the child writes markers.
+    // Close the write end in the parent; only the child writes markers.
     drop(pipe_writer);
     drop(command);
 
@@ -216,7 +213,7 @@ pub fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn Error>> {
 
     let canceled = matches!(loop_result, Ok(LoopEnd::Interrupted));
     if canceled {
-        eprintln!("\nCtrl+C received — saving run data...");
+        eprintln!("\nCtrl+C received, saving run data...");
     }
     let execution_result = loop_result.and_then(|_| exporter.export());
 

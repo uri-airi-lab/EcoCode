@@ -1,12 +1,12 @@
 //! Blocking HTTP client for the EcoCode web backend.
 //!
 //! Endpoints:
-//!   - `GET  /api/projects`                       — projects visible to the API key
-//!   - `GET  /api/project/{id}/carbon-config`     — carbon and cost settings
-//!   - `POST /api/ingest/run`                     — create a new run
-//!   - `POST /api/ingest/run/{id}/record`         — add a measurement record
-//!   - `POST /api/ingest/run/{id}/system-info`    — save system hardware info
-//!   - `POST /api/ingest/run/{id}/complete`       — mark run as finished/failed
+//!   - `GET  /api/projects`: projects visible to the API key
+//!   - `GET  /api/project/{id}/carbon-config`: carbon and cost settings
+//!   - `POST /api/ingest/run`: create a new run
+//!   - `POST /api/ingest/run/{id}/record`: add a measurement record
+//!   - `POST /api/ingest/run/{id}/system-info`: save system hardware info
+//!   - `POST /api/ingest/run/{id}/complete`: mark run as finished/failed
 //!
 //! Uses `reqwest::blocking`, so it runs on plain threads with no async runtime.
 
@@ -25,8 +25,6 @@ pub struct EcoCodeHttpClient {
     client: Client,
     base_url: String,
 }
-
-// ── Request / Response payloads ─────────────────────────────────────────────
 
 #[derive(Serialize)]
 struct CreateRunPayload {
@@ -60,8 +58,6 @@ struct CompletePayload {
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
 
-// ── Implementation ──────────────────────────────────────────────────────────
-
 impl EcoCodeHttpClient {
     /// Client for [`BASE_URL`] authenticated with `api_key`
     /// (e.g. `"ecocode_SvB6ETEjqwdJVjd6x2QkfdBZqXObta0F"`).
@@ -88,7 +84,7 @@ impl EcoCodeHttpClient {
         })
     }
 
-    /// `GET /api/projects` — all projects visible to the API key.
+    /// `GET /api/projects`: all projects visible to the API key.
     pub fn list_projects(&self) -> Result<Vec<Project>, Error> {
         let res = self.client.get(format!("{}/api/projects", self.base_url)).send()?;
         if !res.status().is_success() {
@@ -104,7 +100,7 @@ impl EcoCodeHttpClient {
         Ok(res.json()?)
     }
 
-    /// `GET /api/project/{id}/carbon-config` — `None` if the backend has no
+    /// `GET /api/project/{id}/carbon-config`: `None` if the backend has no
     /// settings for this project (non-success status).
     pub fn carbon_config(&self, project_id: i64) -> Result<Option<CarbonConfig>, Error> {
         let url = format!("{}/api/project/{}/carbon-config", self.base_url, project_id);
@@ -115,7 +111,7 @@ impl EcoCodeHttpClient {
         Ok(Some(res.json()?))
     }
 
-    /// `POST /api/ingest/run` — create a new run, returns the run ID.
+    /// `POST /api/ingest/run`: create a new run, returns the run ID.
     /// `exporter_type` labels where the run came from (`"online"` for the CLI,
     /// `"sdk"` for the Python SDK).
     pub fn create_run(
@@ -150,13 +146,13 @@ impl EcoCodeHttpClient {
         Ok(data.id)
     }
 
-    /// `POST /api/ingest/run/{id}/record` — add a measurement record.
+    /// `POST /api/ingest/run/{id}/record`: add a measurement record.
     pub fn add_record(&self, run_id: i64, record: &IngestRecord) -> Result<(), Error> {
         let url = format!("{}/api/ingest/run/{}/record", self.base_url, run_id);
         check(self.client.post(&url).json(record).send()?, "Failed to ingest record")
     }
 
-    /// `POST /api/ingest/run/{id}/system-info` — save system hardware info.
+    /// `POST /api/ingest/run/{id}/system-info`: save system hardware info.
     pub fn save_system_info(&self, run_id: i64, info: &SystemInfo) -> Result<(), Error> {
         let url = format!("{}/api/ingest/run/{}/system-info", self.base_url, run_id);
         let payload = SystemInfoPayload {
@@ -169,7 +165,7 @@ impl EcoCodeHttpClient {
         check(self.client.post(&url).json(&payload).send()?, "Failed to save system info")
     }
 
-    /// `POST /api/ingest/run/{id}/complete` — mark run as finished/failed/canceled.
+    /// `POST /api/ingest/run/{id}/complete`: mark run as finished/failed/canceled.
     pub fn complete_run(&self, run_id: i64, status: &str, ended_at: Option<&str>) -> Result<(), Error> {
         let url = format!("{}/api/ingest/run/{}/complete", self.base_url, run_id);
         let payload = CompletePayload {

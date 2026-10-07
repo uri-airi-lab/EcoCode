@@ -1,4 +1,4 @@
-//! CSV exporter — writes measurement records to a comma-separated values file.
+//! CSV exporter: writes measurement records to a comma-separated values file.
 //!
 //! A header row is written on the first record, with extra columns appended for
 //! each detected GPU (e.g. `GPU0%`, `GPU0(W)`, `GPU1%`, `GPU1(W)`, …).

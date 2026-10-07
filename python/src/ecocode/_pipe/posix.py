@@ -11,7 +11,7 @@ from .._validation import validate_marker_fd
 def open_marker_fd(raw: str) -> IO[bytes]:
     """Opens the descriptor named by ``ECOCODE_MARKER_FD`` for writing.
 
-    The value is validated first (CS-FD-001): it must be > 2 and open in this
+    The value is validated first: it must be > 2 and open in this
     process, so a tampered value cannot redirect markers to stdout.
     """
     fd = validate_marker_fd(raw)

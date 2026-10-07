@@ -1,6 +1,5 @@
-//! Golden tests: expected values were captured by running the pre-restructure
-//! functions (`ecocode-core` `delta_cpu_energy_per_pid_j` and
-//! `get_gpu_energy_by_pid`) on these exact inputs. Each test recombines the
+//! Golden tests: expected values were captured from the original
+//! implementation on these exact inputs and must not drift. Each test recombines the
 //! counter correction the sensor applies with the attribution the sampler
 //! applies; any change here changes the numbers users see on Linux.
 

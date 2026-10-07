@@ -8,9 +8,6 @@ import time
 import math
 import random
 
-# ----------------------------
-# Heavier CNN Model
-# ----------------------------
 class HeavyNet(nn.Module):
     def __init__(self):
         super().__init__()
@@ -20,7 +17,6 @@ class HeavyNet(nn.Module):
 
         self.dropout = nn.Dropout(0.5)
 
-        # much larger fully connected layers
         self.fc1 = nn.Linear(512 * 11 * 11, 1024)
         self.fc2 = nn.Linear(1024, 512)
         self.fc3 = nn.Linear(512, 10)
@@ -42,15 +38,11 @@ class HeavyNet(nn.Module):
         return F.log_softmax(x, dim=1)
 
 
-# ----------------------------
-# CPU-heavy transform
-# ----------------------------
 class HeavyTransform:
     def __call__(self, img):
-        # convert to tensor first
         x = transforms.ToTensor()(img)
 
-        # simulate CPU work
+        # Burn CPU in the data-loader workers so the CPU sensors have load to attribute.
         for _ in range(50):
             x = x + torch.sin(x)
             x = x * torch.cos(x)
@@ -58,9 +50,6 @@ class HeavyTransform:
         return x
 
 
-# ----------------------------
-# Training loop (heavier)
-# ----------------------------
 def train(model, device, loader, optimizer):
     model.train()
     for batch_idx, (data, target) in enumerate(loader):
@@ -68,7 +57,8 @@ def train(model, device, loader, optimizer):
 
         optimizer.zero_grad()
 
-        # do multiple forward passes to increase GPU load
+        # Extra forward passes and a large matmul keep the GPU busy; the output of the
+        # last pass is the one used for the loss.
         output = model(data)
         for _ in range(2):
             output = model(data)
@@ -76,7 +66,6 @@ def train(model, device, loader, optimizer):
         loss = F.nll_loss(output, target)
         loss.backward()
 
-        # extra GPU work (large matrix multiply)
         dummy = torch.randn(4096, 4096, device=device)
         dummy2 = torch.matmul(dummy, dummy)
 
@@ -86,11 +75,8 @@ def train(model, device, loader, optimizer):
             print(f"Batch {batch_idx}, Loss: {loss.item():.4f}")
 
 
-# ----------------------------
-# Main
-# ----------------------------
 def main():
-    batch_size = 256  # larger batch = more GPU load
+    batch_size = 256
     epochs = 5
 
     use_cuda = torch.cuda.is_available()
@@ -112,8 +98,8 @@ def main():
         dataset,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=8,      # more CPU workers
-        pin_memory=True     # faster GPU transfer
+        num_workers=8,
+        pin_memory=True
     )
 
     model = HeavyNet().to(device)

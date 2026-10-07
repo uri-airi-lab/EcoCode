@@ -1,28 +1,15 @@
-"""
-Input validation helpers for the EcoCode SDK.
+"""Validators for the values the SDK reads from arguments and the environment:
+API keys, run IDs, marker pipe descriptors and custom metric keys.
 
-All validators raise ``ValueError`` with a clear message on bad input so that
-misconfigured environments fail loudly rather than silently forwarding credentials
-or corrupted data to the backend.
-
-Security findings addressed:
-  CS-CRED-002  validate_api_key       — reject malformed / injected API key strings
-  CS-INT-001   validate_run_id        — reject out-of-range / non-positive run IDs
-  CS-FD-001    validate_marker_fd     — reject stdin/stdout/stderr FD aliases (Linux, macOS)
-  CS-FD-001    validate_marker_handle — reject malformed Windows handle values
-  CS-TYPE-001  validate_metric_key    — reject keys with unsafe characters / lengths
-
-The backend URL is fixed (see ``_http.BASE_URL``), so it needs no validation.
+Each one raises ``ValueError`` with a clear message, so a misconfigured
+environment fails loudly instead of forwarding bad credentials or corrupted
+data to the backend.
 """
 
 from __future__ import annotations
 
 import os
 import re
-
-# ---------------------------------------------------------------------------
-# API key (CS-CRED-002)
-# ---------------------------------------------------------------------------
 
 _API_KEY_RE = re.compile(r"^(?:eco|ecocode)_[A-Za-z0-9_\-]{8,240}$")
 _CTRL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
@@ -49,15 +36,11 @@ def validate_api_key(key: str) -> str:
     if not _API_KEY_RE.match(key):
         raise ValueError(
             f"ECOCODE_API_KEY does not match the expected format (ecocode_<token> or eco_<token>). "
-            f"Received a key starting with: {key[:12]!r}... — "
-            "generate a valid key from the EcoCode dashboard."
+            f"Received a key starting with: {key[:12]!r}... "
+            "Generate a valid key from the EcoCode dashboard."
         )
     return key
 
-
-# ---------------------------------------------------------------------------
-# Run ID (CS-INT-001)
-# ---------------------------------------------------------------------------
 
 _RUN_ID_MAX = 2 ** 53  # JavaScript-safe integer boundary (matches most backends)
 
@@ -88,11 +71,6 @@ def validate_run_id(raw: str) -> int:
         )
 
     return run_id
-
-
-# ---------------------------------------------------------------------------
-# Marker file descriptor (CS-FD-001)
-# ---------------------------------------------------------------------------
 
 
 def validate_marker_fd(raw: str) -> int:
@@ -128,10 +106,6 @@ def validate_marker_fd(raw: str) -> int:
     return fd
 
 
-# ---------------------------------------------------------------------------
-# Marker handle (CS-FD-001, Windows)
-# ---------------------------------------------------------------------------
-
 _HANDLE_MAX = 2 ** 63 - 1
 
 
@@ -152,10 +126,6 @@ def validate_marker_handle(raw: str) -> int:
         raise ValueError(f"ECOCODE_MARKER_HANDLE={handle} is out of range.")
     return handle
 
-
-# ---------------------------------------------------------------------------
-# Custom metric key (CS-TYPE-001)
-# ---------------------------------------------------------------------------
 
 _METRIC_KEY_RE = re.compile(r"^[A-Za-z0-9_\-]{1,128}$")
 

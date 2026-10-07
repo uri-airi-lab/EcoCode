@@ -134,7 +134,7 @@ pub fn socket_of(name: &str) -> i16 {
 
 /// Picks the channels to report: (index into `channels`, domain). CPU is the
 /// core channel per socket, or the package channel when a socket has no core
-/// channel — never both.
+/// channel, never both.
 pub fn select(channels: &[EmiChannel]) -> Vec<(usize, Domain)> {
     let roles: Vec<Option<Role>> = channels
         .iter()

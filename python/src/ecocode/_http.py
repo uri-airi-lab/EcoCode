@@ -7,11 +7,10 @@ import ssl
 import urllib.request
 from typing import Any, Optional
 
-# CS-HTTP-002: Cap response body at 1 MiB to prevent DoS via huge payloads.
+# Cap on the response body, so a misbehaving backend cannot exhaust memory.
 _MAX_RESPONSE_BYTES = 1_048_576  # 1 MiB
 
-# CS-HTTP-001: Reuse one strict SSL context (CERT_REQUIRED + check_hostname)
-# for every request instead of creating it per call.
+# One strict SSL context (CERT_REQUIRED + check_hostname) shared by every request.
 _SSL_CONTEXT = ssl.create_default_context()
 
 
@@ -37,8 +36,8 @@ class EcoCodeHTTPClient:
         req = urllib.request.Request(
             url, data=data, headers=self._headers, method="POST"
         )
-        # CS-HTTP-001: explicit context so cert validation is always enforced.
-        # CS-HTTP-002: cap the read size so a bad backend can't exhaust memory.
+        # Explicit SSL context so certificate validation is always enforced;
+        # the read is capped so a bad backend cannot exhaust memory.
         with urllib.request.urlopen(req, timeout=10, context=_SSL_CONTEXT) as resp:
             if resp.status in (200, 201):
                 raw = resp.read(_MAX_RESPONSE_BYTES)

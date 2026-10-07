@@ -24,27 +24,24 @@ pub const RAPL_PATH: &str = "/sys/class/powercap/intel-rapl/";
 /// to avoid repeated `open()` syscalls on every tick.
 #[derive(Debug)]
 pub struct RaplFile {
-    /// CPU socket index (0-based). Multi-socket systems have one entry per socket.
+    /// CPU socket index, 0-based.
     pub socket: i16,
-    /// Power domain: `"cpu"`, `"dram"`, or `"igpu"`.
+    /// `"cpu"`, `"dram"`, `"igpu"`, or the raw sysfs name for anything else.
     pub domain: String,
-    /// Buffered reader positioned at the `energy_uj` sysfs file.
+    /// Reader positioned at the `energy_uj` sysfs file.
     pub file: BufReader<File>,
-    /// Counter ceiling read from `max_energy_range_uj`, used to detect wrap-around.
+    /// Counter ceiling from `max_energy_range_uj`, used to detect wrap-around.
     pub max_energy: f64,
-    /// Reusable buffer for reading energy values, avoids allocation on every sample.
+    /// Reused across samples to avoid allocating on every tick.
     buffer: String,
 }
 
-/// A snapshot of a RAPL energy counter at one point in time (in microjoules).
+/// A snapshot of a RAPL energy counter at one point in time, in microjoules.
 #[derive(Debug)]
 pub struct RaplEnergy {
     pub socket: i16,
-    /// Power domain: `"cpu"`, `"dram"`, or `"igpu"`.
     pub domain: String,
-    /// Absolute energy counter value in microjoules at this sample.
     pub energy: f64,
-    /// Counter ceiling from `max_energy_range_uj`; used for wrap-around correction.
     pub max_energy: f64,
 }
 

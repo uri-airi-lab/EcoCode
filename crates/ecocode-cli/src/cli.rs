@@ -31,8 +31,9 @@ pub enum TopCommand {
     },
 }
 
-/// Subcommands available under `ecocode config`.
-#[derive(Subcommand, Debug)] // Also matched by clap: SetApiKey → "set-api-key" (camelCase words become kebab-case)
+/// Subcommands available under `ecocode config`. Clap derives the kebab-case
+/// names, so `SetApiKey` is matched as `set-api-key`.
+#[derive(Subcommand, Debug)]
 pub enum ConfigAction {
     /// Persist an API key to `~/.ecocode/config.json` for the online exporter.
     SetApiKey {

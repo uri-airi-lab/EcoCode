@@ -146,7 +146,7 @@ impl Sampler {
         // included in CPU, memory, and GPU attribution.
         let tree = get_process_tree_pids_from_sys(&self.sys, self.root);
 
-        // --- CPU: interval-average from cumulative CPU-time deltas ---
+        // CPU: interval average from cumulative CPU-time deltas.
         let now_cpu = Instant::now();
         let elapsed_units =
             now_cpu.duration_since(self.prev_cpu_at).as_secs_f64() * self.inspector.cpu_time_units_per_sec();
@@ -165,7 +165,7 @@ impl Sampler {
         self.prev_cpu = curr_cpu;
         self.prev_cpu_at = now_cpu;
 
-        // --- Memory share of total physical memory ---
+        // Memory share of total physical memory.
         let mem_bytes = self.inspector.memory_bytes(&self.sys, &tree);
         let mem_usage = if self.total_memory > 0 {
             ((mem_bytes as f64 / self.total_memory as f64) * 100.0).min(100.0)
@@ -173,7 +173,7 @@ impl Sampler {
             0.0
         };
 
-        // --- Per-process CPU energy, where the OS measures it (Apple Silicon) ---
+        // Per-process CPU energy, where the OS measures it (Apple Silicon).
         let direct_cpu_j = self.inspector.cpu_energy_nj(&tree).map(|curr| {
             let prev = self.prev_energy.take().unwrap_or_default();
             // A process missing from the previous tick started since, so all
@@ -192,7 +192,6 @@ impl Sampler {
             igpu_pct: cpu_usage as f64, // igpu proxy: no per-process iGPU sensor available
         };
 
-        // --- Energy ---
         let mut cpu_j = 0.0_f64;
         let mut mem_j: Option<f64> = None;
         let mut igpu_j: Option<f64> = None;

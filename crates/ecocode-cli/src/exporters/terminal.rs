@@ -1,4 +1,4 @@
-//! Terminal exporter — prints measurement records to stdout as a live table.
+//! Terminal exporter: prints measurement records to stdout as a live table.
 //!
 //! `export_line` is called on every tick to append the latest record row.
 //! `export` is called once at the end to print the complete run summary.

@@ -3,10 +3,10 @@
 //! drivers expose power telemetry.
 //!
 //! Each `hwmonN` directory may provide, per channel `N`:
-//! - `energyN_input` — cumulative energy in µJ → used as measured energy
-//! - `powerN_input` / `powerN_average` — power in µW → integrated between
+//! - `energyN_input`: cumulative energy in µJ → used as measured energy
+//! - `powerN_input` / `powerN_average`: power in µW → integrated between
 //!   reads (trapezoid rule), reported as estimated
-//! - `energyN_label` / `powerN_label` — what the channel measures
+//! - `energyN_label` / `powerN_label`: what the channel measures
 //!
 //! Channels are classified by label: `cpu`, `package` or `socket` → CPU;
 //! `dram`, `ddr` or `memory` → DRAM. Unlabelled and other channels (GPU, I/O,

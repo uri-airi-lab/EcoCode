@@ -1,5 +1,5 @@
 //! Golden test: the JSON posted to `/api/ingest/run/{id}/record` must stay
-//! byte-identical to what the pre-restructure client sent.
+//! byte-identical to what the original implementation sent.
 
 use std::collections::HashMap;
 

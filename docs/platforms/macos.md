@@ -9,7 +9,7 @@ Run `ecocode doctor` to see what your Mac can measure. No `sudo` is needed for a
 | CPU energy | IOReport `CPU Energy`, measured | SMC CPU package power (`PCPT`/`PCPC`), sampled and integrated (estimated) |
 | CPU energy of *your* process | Measured per process by macOS (`proc_pid_rusage` → `ri_energy_nj`) | Package energy × your share of CPU time |
 | GPU energy | IOReport `GPU Energy`, measured | Not measured |
-| Neural Engine energy | IOReport `ANE*`, measured; reported as `ane` in `socket_metrics` | — |
+| Neural Engine energy | IOReport `ANE*`, measured; reported as `ane` in `socket_metrics` | Not present |
 | Memory (DRAM) energy | IOReport `DRAM*`, measured | Not measured |
 | CPU usage | `proc_pid_rusage` CPU time | same |
 | Memory usage | Physical footprint (Activity Monitor's "Memory" column) | same |
@@ -28,14 +28,14 @@ Run `ecocode doctor` to see what your Mac can measure. No `sudo` is needed for a
   of the time while causing nearly all of the GPU's 11 W. Instead, while your program has
   completed or submitted GPU work within the last 5 seconds, it is credited with the GPU's full
   energy; otherwise with none.
-  - Typical error: whatever other apps draw on the GPU at the same time — about 0.1 W for an
+  - Typical error: whatever other apps draw on the GPU at the same time, about 0.1 W for an
     idle desktop.
   - Overcounts if you run another GPU-heavy app (a game, a video export) during the run.
   - The GPU % column shows how busy the whole GPU is at each sample while your program is using
     it, and 0 otherwise.
 - **Neural Engine:** no per-process data; attributed by your share of CPU time (an
-  underestimate if your program is the only Neural Engine user). A better rule — whole Neural
-  Engine while your program is using it, like the GPU — is pending a test with a Core ML workload.
+  underestimate if your program is the only Neural Engine user). A better rule (whole Neural
+  Engine while your program is using it, like the GPU) is pending a test with a Core ML workload.
 - **DRAM:** attributed by your share of physical memory, the same rule as on Linux. This is an
   estimate: macOS reports how much memory each process *holds*, but memory energy comes mostly
   from reading and writing it, which no tool can measure per process. It undercounts programs

@@ -2,9 +2,9 @@
 
 <div align="center">
 
-<img src="docs/assets/ecocode-logo.png" alt="EcoCode Logo" width="140"/>
+<img src="docs/assets/ecocode-logo.png" alt="EcoCode logo" width="140"/>
 
-**High-precision, multi-GPU energy monitoring for sustainable software development**
+**Per-process energy monitoring for Linux, macOS and Windows**
 
 [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.99%2B-orange.svg)](https://www.rust-lang.org/)
@@ -12,59 +12,51 @@
 
 </div>
 
----
+EcoCode measures how much energy a program uses while it runs. It reads the machine's hardware
+energy counters (RAPL on Linux, Apple's energy counters on macOS, the Energy Meter Interface on
+Windows, NVIDIA NVML for GPUs) and attributes that energy to the monitored process and its
+children based on their share of CPU, memory and GPU. It does not estimate from TDP.
 
-EcoCode is an open-source toolchain that monitors the real-time energy footprint of processes on **Linux, macOS and Windows**. It tracks **CPU, multiple GPUs, RAM, and integrated GPU** power consumption.
+It ships as a CLI that can wrap any command, and as a Python SDK for ML training loops that
+also records steps, loss and training phases alongside the energy data.
 
-Unlike other tools that rely on TDP (thermal design power) estimations, EcoCode reads **direct hardware sensors** — RAPL on Linux, Apple's energy counters on macOS, the Energy Meter Interface on Windows, and NVIDIA NVML for GPUs — in real time. It attributes energy to a monitored process and its child processes based on their CPU/GPU/memory utilisation, or uses per-process energy directly where the OS measures it (Apple Silicon).
+![EcoCode live run dashboard](docs/assets/live-run-dashboard.png)
 
----
+Runs can be streamed to the EcoCode web dashboard, where each run gets a leaf rating from 0.5
+to 5 based on energy-normalised utilisation, grid carbon intensity and data-centre overhead
+(PUE), so runs of different length and size can be compared.
 
-## Live Dashboard Preview
-
-EcoCode comes with a premium-grade collaborative web dashboard. When you run your experiments, metrics are streamed in real time via Server-Sent Events (SSE).
-
-![EcoCode Live Run Dashboard](docs/assets/live-run-dashboard.png)
-
-Every completed run is also graded with a **leaf rating** from 0.5 to 5 🍃 — a weighted blend of energy-normalized utilization (50%), grid carbon cleanliness (35%), and infrastructure overhead via PUE (15%), so runs of any length or size can be compared on equal footing.
-
----
-
-## Why EcoCode?
-
-* **Real Hardware Measurements:** Reads actual energy counters (RAPL, Apple IOReport, Windows EMI, NVIDIA NVML) rather than estimating from manufacturer TDP specifications. `ecocode doctor` shows exactly what your machine can measure.
-* **Per-Process GPU Attribution:** Attributes GPU energy proportionally to the specific monitored process across multiple GPUs independently.
-* **Language & Runtime Agnostic:** Run any process out-of-the-box (e.g. C++, Node.js, Python, simulation scripts) using the CLI wrapper, or use the native Python SDK for ML training loops.
-* **Team Collaboration:** Group runs under projects, invite team members, manage developer API keys, and track grid carbon intensity.
-* **Leaf Sustainability Score:** A single 0.5–5 leaf rating per run, project, or workspace — blending hardware utilization, grid cleanliness, and PUE into one comparable number, so a short script and a long training job are judged fairly.
-* **Ultra-Low Overhead:** Written in Rust; uploads happen in the background, so sampling never waits on the network.
-
----
-
-## Quick Start in 2 Minutes
-
-EcoCode can be used as a standalone terminal CLI wrapper or integrated directly into Python scripts.
-
-### Option 1: CLI (Zero Code Changes)
-Monitor any process or script from the outside. Install with `pip install ecocode` (the package includes the `ecocode` binary) or build from source (`cargo build --release`), then run:
-
-```bash
-# 0. See what this machine can measure
-ecocode doctor
-
-# 1. Save your dashboard API key (optional)
-ecocode config set-api-key eco_your_api_key_here
-
-# 2. Run and stream to the web dashboard
-ecocode run -o online --project "efficiency-study" -- python train.py
-```
-
-### Option 2: Python SDK (In-Code Control)
-Perfect for ML training loops where you want to log loss, steps, and epochs alongside energy data.
+## Install
 
 ```bash
 pip install ecocode
 ```
+
+The wheel includes the `ecocode` binary. To build from source instead, see
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Usage
+
+Check what this machine can measure:
+
+```bash
+ecocode doctor
+```
+
+Monitor any command and print a live table:
+
+```bash
+ecocode run -- python train.py
+```
+
+Send results to the web dashboard:
+
+```bash
+ecocode config set-api-key eco_your_key
+ecocode run -o online --project efficiency-study -- python train.py
+```
+
+From Python, with ML markers:
 
 ```python
 import ecocode
@@ -79,9 +71,10 @@ with ecocode.run("llama3-finetune", exporter="online", api_key="eco_...") as run
             run.log_step(global_step)
 ```
 
----
+Other exporters: `terminal` (default), `csv`, `json`, `logfile` and `prometheus`. See
+[docs/cli.md](docs/cli.md) and [python/README.md](python/README.md).
 
-## Platform Support
+## Platform support
 
 | | Linux (x86_64, arm64) | macOS (Apple Silicon, Intel) | Windows (x86_64) |
 |---|---|---|---|
@@ -92,30 +85,19 @@ with ecocode.run("llama3-finetune", exporter="online", api_key="eco_...") as run
 | Python SDK + markers | ✅ | ✅ | ✅ |
 | Needs admin/root | Once, to install the RAPL udev rule (or never, if RAPL is already readable) | No | No |
 
-How each value is measured and attributed: [Linux](docs/platforms/linux.md) · [macOS](docs/platforms/macos.md) · [Windows](docs/platforms/windows.md).
-To check a machine end to end, run `scripts/selftest.sh` (Linux/macOS) or `scripts\selftest.ps1` (Windows).
+How each value is measured: [Linux](docs/platforms/linux.md), [macOS](docs/platforms/macos.md),
+[Windows](docs/platforms/windows.md).
 
----
+## Documentation
 
-## Documentation Hub
-
-For advanced configurations, integration guides, and platform setup, refer to the following sub-folder guides:
-
-* **[Getting Started Tutorial](docs/tutorial.md)** — step-by-step guide: install the CLI, run your first experiment, and use the Python SDK with ML framework callbacks.
-* **[CLI Reference & Installation Guide](docs/cli.md)** — detailed usage, CLI flags, CSV/JSON/logfile/Prometheus exporters, and permissions.
-* **[Python SDK & ML Integrations Guide](python/README.md)** — callback references for HuggingFace, PyTorch Lightning, TRL, Keras, DeepSpeed, vLLM, and ONNX Runtime.
-* **[Architecture](docs/architecture.md)** — crates, the sampling loop, energy attribution, and how each OS is handled.
-* **Platform guides** — [Linux](docs/platforms/linux.md), [macOS](docs/platforms/macos.md), [Windows](docs/platforms/windows.md): sensors, permissions, accuracy notes.
-* **[Packaging](packaging/README.md)** — pip wheels, the Linux install scripts, Homebrew, winget.
-* **[Contributing](CONTRIBUTING.md)** — building, testing on each OS, and submitting changes.
-
----
+- [Tutorial](docs/tutorial.md): install, first run, Python SDK and framework callbacks.
+- [CLI reference](docs/cli.md): commands, flags, exporters.
+- [Python SDK](python/README.md): API, integrations (HuggingFace, TRL, Lightning, DeepSpeed, vLLM, Keras, ONNX Runtime).
+- [Architecture](docs/architecture.md): crates, the sampling loop, attribution, per-OS sensors.
+- [Packaging](packaging/README.md): wheels, Linux install scripts, Homebrew, winget.
+- [Contributing](CONTRIBUTING.md): building, testing, submitting changes.
 
 ## License
 
-EcoCode (CLI and Python SDK) is licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only).
-
-You are free to use, modify, and distribute this software under the terms of the AGPL-3.0. If you run a modified version as a network service, you must make the complete corresponding source code available to users of that service.
-
-See the [LICENSE](LICENSE) file for the full license text.
-
+EcoCode is licensed under the [GNU Affero General Public License v3.0](LICENSE). If you run a
+modified version as a network service, you must make the source available to its users.

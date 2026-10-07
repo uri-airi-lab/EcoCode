@@ -336,7 +336,7 @@ dependencies = [
 
 [[package]]
 name = "ecocode-api"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "reqwest",
  "serde",
@@ -346,7 +346,7 @@ dependencies = [
 
 [[package]]
 name = "ecocode-cli"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "chrono",
  "clap",
@@ -368,7 +368,7 @@ dependencies = [
 
 [[package]]
 name = "ecocode-monitor"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "chrono",
  "ecocode-sensors",
@@ -379,7 +379,7 @@ dependencies = [
 
 [[package]]
 name = "ecocode-sensors"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "core-foundation-sys",
  "libc",

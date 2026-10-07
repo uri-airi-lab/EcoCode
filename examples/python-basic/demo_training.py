@@ -1,41 +1,31 @@
 """
-EcoCode SDK — PyTorch ResNet-18 on CIFAR-10.
+EcoCode SDK example: PyTorch ResNet-18 on CIFAR-10.
 
-A realistic image classification training run:
-  - ResNet-18 (~11.2M parameters, built from scratch)
-  - CIFAR-10 dataset (50k train / 10k val, auto-downloaded ~170 MB)
-  - AdamW + cosine LR with linear warmup
-  - Mixed-precision training (AMP) when CUDA is available
+A realistic image classification run that exercises every SDK marker:
+  - ResNet-18 (about 11.2M parameters, built from scratch)
+  - CIFAR-10 (50k train / 10k val, downloaded automatically, about 170 MB)
+  - AdamW with linear warmup and cosine decay
+  - Mixed precision (AMP) when CUDA is available
   - Gradient clipping, label smoothing, random erasing augmentation
   - Best-checkpoint saving
 
-Setup
------
-1. Start the EcoCode backend:
-       cd web && docker compose up
+Setup:
+  1. Generate an API key on the EcoCode dashboard (Settings, Developer, pick a project).
+  2. pip install ecocode
+     pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+  3. ECOCODE_API_KEY=eco_xxx python demo_training.py
 
-2. Generate a project-scoped API key:
-       Dashboard → Settings → Developer → select project → Generate Key
+Hyperparameters can be overridden from the environment:
+  EPOCHS=30 BATCH_SIZE=256 LR=3e-4 ECOCODE_API_KEY=eco_xxx python demo_training.py
 
-3. Install dependencies:
-       pip install -e ".[gpu]"
-       pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-
-4. Run:
-       API_KEY=ecocode_xxx python demo_training.py
-
-   Tune with env vars:
-       EPOCHS=30 BATCH_SIZE=256 LR=3e-4 API_KEY=ecocode_xxx python demo_training.py
-
-What to expect on the dashboard
---------------------------------
-  Phases   : data_loading → warmup → forward → backward →
-             optimizer_step → eval → checkpoint_save → done
-  Loss     : drops from ~2.3 → ~0.4 over 20 epochs
-  Accuracy : ~70-75% val after 20 epochs on CPU; ~92%+ with GPU + more epochs
-  LR       : linear warmup over WARMUP_EPOCHS epochs, then cosine decay to 1e-6
-  Tokens   : cumulative samples processed (reaches ~1M for 20 epochs)
-  GPU energy: real NVML joules per second if CUDA is available
+What to expect on the dashboard:
+  Phases    data_loading, warmup, forward, backward, optimizer_step, eval,
+            checkpoint_save, done
+  Loss      drops from about 2.3 to about 0.4 over 20 epochs
+  Accuracy  70-75% validation after 20 epochs on CPU; 92%+ with a GPU and more epochs
+  LR        linear warmup over WARMUP_EPOCHS, then cosine decay to 1e-6
+  Tokens    cumulative samples processed (about 1M for 20 epochs)
+  GPU       NVML energy per sample when CUDA is available
 """
 
 import os
@@ -52,9 +42,9 @@ from torch.optim.lr_scheduler import LambdaLR
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 
-# ── CONFIG ────────────────────────────────────────────────────────────────────
-API_KEY     = os.environ.get("ECOCODE_API_KEY") or os.environ.get("API_KEY")
-BASE_URL    = os.environ.get("ECOCODE_API_URL")  # None -> SDK uses its _DEFAULT_BASE_URL
+DASHBOARD_URL = "https://ecocode.harmonyhpc.io"
+
+API_KEY     = os.environ.get("ECOCODE_API_KEY")
 EPOCHS      = int(os.environ.get("EPOCHS", 20))
 BATCH_SIZE  = int(os.environ.get("BATCH_SIZE", 128))
 LR          = float(os.environ.get("LR", 1e-3))
@@ -65,7 +55,6 @@ LABEL_SMOOTH= float(os.environ.get("LABEL_SMOOTH", 0.1))
 EVAL_EVERY  = int(os.environ.get("EVAL_EVERY", 2))
 DATA_DIR    = os.environ.get("DATA_DIR", "/tmp/cifar10")
 CKPT_PATH   = os.environ.get("CKPT_PATH", "/tmp/resnet18_cifar10_best.pt")
-# ─────────────────────────────────────────────────────────────────────────────
 
 CIFAR10_CLASSES = [
     "airplane", "automobile", "bird", "cat", "deer",
@@ -77,22 +66,17 @@ def check_config():
     if not API_KEY:
         print(
             "\n[error] Missing API key.\n"
-            "  Generate a project-scoped key from the dashboard:\n"
-            "  Settings → Developer → select a project → Generate Key\n\n"
-            "  Then run:\n"
-            "    API_KEY=ecocode_xxx python demo_training.py\n"
+            "  Generate a project-scoped key from the dashboard\n"
+            "  (Settings, Developer, select a project, Generate Key), then run:\n"
+            "    ECOCODE_API_KEY=eco_xxx python demo_training.py\n"
         )
         sys.exit(1)
 
 
-# ── Model: ResNet-18 for CIFAR-10 ─────────────────────────────────────────────
-#
-# Standard ResNet-18 adapted for 32×32 inputs:
-#   - No 7×7 stem or initial MaxPool (would collapse 32×32 too quickly)
-#   - 3×3 stem conv instead, stride=1
-#   - 4 residual stages: 64 → 128 → 256 → 512 channels
-#   - Global average pool → FC(512, 10)
-#   ~11.2M parameters
+# Standard ResNet-18 adapted for 32x32 inputs: a 3x3 stride-1 stem instead of
+# the 7x7 conv and max-pool (which would shrink 32x32 too quickly), four
+# residual stages of 64, 128, 256 and 512 channels, global average pool and a
+# 512 -> 10 linear head. About 11.2M parameters.
 
 class ResidualBlock(nn.Module):
     """BasicBlock with optional downsampling shortcut."""
@@ -119,20 +103,18 @@ class ResidualBlock(nn.Module):
 
 
 class ResNet18(nn.Module):
-    """ResNet-18 for CIFAR-10 (32×32 input, 10 classes)."""
+    """ResNet-18 for CIFAR-10 (32x32 input, 10 classes)."""
 
     def __init__(self, num_classes: int = 10) -> None:
         super().__init__()
         self._in_ch = 64
 
-        # Stem: single 3×3 conv, no maxpool
         self.stem = nn.Sequential(
             nn.Conv2d(3, 64, 3, padding=1, bias=False),
             nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
         )
 
-        # Residual stages — [2, 2, 2, 2] blocks per stage
         self.layer1 = self._make_stage(64,  2, stride=1)
         self.layer2 = self._make_stage(128, 2, stride=2)
         self.layer3 = self._make_stage(256, 2, stride=2)
@@ -171,7 +153,7 @@ class ResNet18(nn.Module):
         return self.head(x)
 
 
-# ── LR schedule: linear warmup + cosine decay ─────────────────────────────────
+# LR schedule: linear warmup, then cosine decay.
 
 def build_scheduler(optimizer, warmup_epochs: int, total_epochs: int, steps_per_epoch: int):
     warmup_steps = warmup_epochs * steps_per_epoch
@@ -186,8 +168,6 @@ def build_scheduler(optimizer, warmup_epochs: int, total_epochs: int, steps_per_
     return LambdaLR(optimizer, lr_lambda)
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
 def grad_norm(model: nn.Module) -> float:
     total = 0.0
     for p in model.parameters():
@@ -201,8 +181,6 @@ def format_time(seconds: float) -> str:
     return f"{m}m{s:02d}s" if m else f"{s}s"
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
-
 def main():
     check_config()
 
@@ -213,7 +191,7 @@ def main():
     scaler   = GradScaler('cuda', enabled=use_amp)
 
     print("=" * 65)
-    print("  EcoCode SDK — ResNet-18 on CIFAR-10")
+    print("  EcoCode SDK: ResNet-18 on CIFAR-10")
     print(f"  device     : {device}")
     if device.type == "cuda":
         print(f"  GPU        : {torch.cuda.get_device_name(0)}")
@@ -225,14 +203,13 @@ def main():
         "resnet18-cifar10",
         exporter="online",
         api_key=API_KEY,
-        base_url=BASE_URL,
         interval=1.0,
     ) as eco:
 
-        # ── Data loading ──────────────────────────────────────────────────────
-        print(f"\n⏱ Run started! You have 20 seconds to open the dashboard...")
-        print(f"URL: {BASE_URL}")
-        time.sleep(20) # WARMUP
+        # Give the viewer time to open the run on the dashboard before training starts.
+        print("\nRun started. You have 20 seconds to open the dashboard...")
+        print(f"URL: {DASHBOARD_URL}")
+        time.sleep(20)
 
         eco.mark("phase", "data_loading")
         print("\n[phase] data_loading")
@@ -255,11 +232,11 @@ def main():
             val_ds   = datasets.CIFAR10(DATA_DIR, train=False, download=True, transform=val_tfm)
         except Exception as e:
             print(f"  [warn] CIFAR-10 download failed ({e}).")
-            print("  [warn] Falling back to FashionMNIST (28×28 grayscale, same 10 classes).")
-            # FashionMNIST needs 32×32 for ResNet — pad with transforms
+            print("  [warn] Falling back to FashionMNIST (28x28 grayscale, same 10 classes).")
+            # FashionMNIST is 28x28 single-channel; pad to 32x32 and repeat to 3 channels for ResNet.
             fm_tfm_train = transforms.Compose([
-                transforms.Pad(2),                          # 28 → 32
-                transforms.Grayscale(num_output_channels=3),# 1ch → 3ch
+                transforms.Pad(2),
+                transforms.Grayscale(num_output_channels=3),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
                 transforms.Normalize((0.5,), (0.5,)),
@@ -291,7 +268,6 @@ def main():
         print(f"  val  : {len(val_ds):,} samples")
         print(f"  classes: {', '.join(CIFAR10_CLASSES)}")
 
-        # ── Build model ───────────────────────────────────────────────────────
         model     = ResNet18(num_classes=10).to(device)
         criterion = nn.CrossEntropyLoss(label_smoothing=LABEL_SMOOTH)
         optimizer = optim.AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
@@ -300,14 +276,13 @@ def main():
         n_params = sum(p.numel() for p in model.parameters())
         print(f"  parameters: {n_params:,}  (~{n_params/1e6:.1f}M)")
 
-        # Image = 3 × 32 × 32 = 3072 "features" per sample
+        # One image is 3 x 32 x 32 = 3072 input values; logged as the "sequence length".
         eco.log_sequence_length(3 * 32 * 32)
 
         global_step  = 0
         tokens_seen  = 0
         best_val_acc = 0.0
 
-        # ── Training loop ─────────────────────────────────────────────────────
         for epoch in range(EPOCHS):
             model.train()
             eco.log_epoch(epoch)
@@ -325,7 +300,6 @@ def main():
             for batch_idx, (images, labels) in enumerate(train_loader):
                 images, labels = images.to(device, non_blocking=True), labels.to(device, non_blocking=True)
 
-                # ── forward ───────────────────────────────────────────────────
                 eco.mark("phase", "forward")
                 optimizer.zero_grad(set_to_none=True)
 
@@ -333,7 +307,6 @@ def main():
                     logits = model(images)
                     loss   = criterion(logits, labels)
 
-                # ── backward ──────────────────────────────────────────────────
                 eco.mark("phase", "backward")
                 scaler.scale(loss).backward()
 
@@ -341,7 +314,6 @@ def main():
                 gnorm = grad_norm(model)
                 nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP)
 
-                # ── optimizer step ────────────────────────────────────────────
                 eco.mark("phase", "optimizer_step")
                 scaler.step(optimizer)
                 scaler.update()
@@ -386,7 +358,6 @@ def main():
                 f"  {format_time(elapsed)}"
             )
 
-            # ── Eval ──────────────────────────────────────────────────────────
             if (epoch + 1) % EVAL_EVERY == 0 or epoch == EPOCHS - 1:
                 eco.mark("phase", "eval")
                 model.eval()
@@ -437,11 +408,10 @@ def main():
                         "val_acc": val_acc,
                         "step": global_step,
                     }, CKPT_PATH)
-                    print(f"         [checkpoint]  new best → {val_acc:.1f}%  saved to {CKPT_PATH}")
+                    print(f"         [checkpoint]  new best {val_acc:.1f}%  saved to {CKPT_PATH}")
 
                 model.train()
 
-        # ── Done ──────────────────────────────────────────────────────────────
         eco.mark("phase", "done")
         print("\n" + "=" * 65)
         print(f"  Training complete")
@@ -451,7 +421,7 @@ def main():
         print(f"  Checkpoint        : {CKPT_PATH}")
         print("=" * 65)
 
-    print(f"\nView energy breakdown at: {BASE_URL}")
+    print(f"\nView the energy breakdown at: {DASHBOARD_URL}")
 
 
 if __name__ == "__main__":

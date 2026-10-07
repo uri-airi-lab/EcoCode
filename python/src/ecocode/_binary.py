@@ -65,8 +65,8 @@ def _is_under(path: str, prefix: str) -> bool:
 def resolve_ecocode_binary() -> str:
     """Locate and validate the ecocode CLI binary.
 
-    CS-EXEC-001: warns when the binary is found outside the expected
-    install locations, which can mean an unexpected ``PATH`` entry.
+    Warns when the binary is found outside the expected install locations,
+    which can mean an unexpected ``PATH`` entry.
     """
     path = find_ecocode_binary()
     if path is None:
