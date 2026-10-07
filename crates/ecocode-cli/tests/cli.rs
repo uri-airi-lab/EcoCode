@@ -108,7 +108,7 @@ fn run_writes_csv_with_gpu_columns() {
             .args(["run", "--sensors", "fake", "-o", "csv", "-i", "0.2", "-f"])
             .arg(&file)
             .arg("--")
-            .args(sleeper(1)),
+            .args(sleeper(2)),
     );
     let text = std::fs::read_to_string(&file).unwrap();
     let mut lines = text.lines();

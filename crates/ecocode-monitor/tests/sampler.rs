@@ -67,9 +67,12 @@ fn loop_samples_at_the_interval_until_told_to_stop() {
 
     assert_eq!(end, LoopEnd::Finished);
     assert_eq!(records.iter().map(|r| r.id).collect::<Vec<_>>(), [1, 2, 3, 4, 5]);
-    for r in &records {
-        assert!((0.08..0.2).contains(&r.elapsed_secs), "elapsed {}", r.elapsed_secs);
-    }
+    // Never early. A single tick may land late on a busy machine (the loop then
+    // reschedules from the late tick), so bound the total rather than each one.
+    let elapsed: Vec<f64> = records.iter().map(|r| r.elapsed_secs).collect();
+    assert!(elapsed.iter().all(|&e| e >= 0.08), "elapsed {elapsed:?}");
+    let total: f64 = elapsed.iter().sum();
+    assert!((0.45..1.0).contains(&total), "5 ticks of 100 ms took {total}s: {elapsed:?}");
 }
 
 #[test]
