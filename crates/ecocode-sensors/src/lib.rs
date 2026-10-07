@@ -74,6 +74,14 @@ pub trait ProcessInspector: Send {
     fn has_cpu_energy(&self) -> bool {
         false
     }
+
+    /// Whether this inspector reads CPU time and memory out of the `sysinfo`
+    /// process table (so the sampler must refresh those fields every tick).
+    /// Inspectors that query the OS directly leave this false, which keeps the
+    /// per-tick refresh down to the process list and parent PIDs.
+    fn needs_process_stats(&self) -> bool {
+        false
+    }
 }
 
 /// Which sensors [`detect`] should use.

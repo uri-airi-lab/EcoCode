@@ -42,6 +42,10 @@ impl ProcessInspector for SysinfoInspector {
     fn memory_kind(&self) -> &'static str {
         "RSS"
     }
+
+    fn needs_process_stats(&self) -> bool {
+        true
+    }
 }
 
 #[cfg(test)]

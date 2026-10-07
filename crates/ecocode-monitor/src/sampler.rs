@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use chrono::Utc;
 use ecocode_sensors::common::process_tree::get_process_tree_pids_from_sys;
 use ecocode_sensors::{Domain, EnergySensor, ProcessInspector, Reading};
-use sysinfo::{Pid, ProcessesToUpdate, RefreshKind, System};
+use sysinfo::{CpuRefreshKind, MemoryRefreshKind, Pid, ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System};
 
 use crate::attribution::{Usage, gpu_process_share, share_energy};
 use crate::markers::MarkerState;
@@ -63,7 +63,10 @@ impl Sampler {
         root_pid: u32,
         run_id: i64,
     ) -> Self {
-        let sys = System::new_with_specifics(RefreshKind::everything());
+        // Core count and total memory only; the process table is refreshed below.
+        let sys = System::new_with_specifics(
+            RefreshKind::nothing().with_cpu(CpuRefreshKind::everything()).with_memory(MemoryRefreshKind::everything()),
+        );
         let num_cores = sys.cpus().len();
         let total_memory = sys.total_memory();
         let mut sampler = Sampler {
@@ -81,9 +84,8 @@ impl Sampler {
             iteration: 0,
             failed: BTreeMap::new(),
         };
-        sampler
-            .sys
-            .refresh_processes(ProcessesToUpdate::Some(&[Pid::from_u32(root_pid)]), true);
+        let kind = sampler.process_refresh_kind();
+        sampler.sys.refresh_processes_specifics(ProcessesToUpdate::Some(&[Pid::from_u32(root_pid)]), true, kind);
         let tree = get_process_tree_pids_from_sys(&sampler.sys, root_pid);
         for sensor in &mut sampler.sensors {
             let _ = sensor.read(&tree);
@@ -119,7 +121,19 @@ impl Sampler {
 
     /// Refreshes the process table. Call once per tick, before [`root_alive`](Self::root_alive).
     pub fn refresh(&mut self) {
-        self.sys.refresh_processes(ProcessesToUpdate::All, true);
+        let kind = self.process_refresh_kind();
+        self.sys.refresh_processes_specifics(ProcessesToUpdate::All, true, kind);
+    }
+
+    /// What to read for every process on each refresh. The tree only needs PIDs
+    /// and parents; reading CPU, memory and disk stats for every process as well
+    /// (sysinfo's default) takes hundreds of milliseconds on Windows.
+    fn process_refresh_kind(&self) -> ProcessRefreshKind {
+        if self.inspector.needs_process_stats() {
+            ProcessRefreshKind::nothing().with_cpu().with_memory()
+        } else {
+            ProcessRefreshKind::nothing()
+        }
     }
 
     /// The root process and all its descendants, as of the last refresh.
