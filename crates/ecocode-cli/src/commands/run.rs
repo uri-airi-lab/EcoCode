@@ -55,10 +55,10 @@ fn describe_intensity_source(source: &str) -> String {
     if source == "cli_override" {
         return "--intensity".to_string();
     }
-    if let Some(rest) = source.strip_prefix("ember_") {
-        if let Some((region, year)) = rest.rsplit_once('_') {
-            return format!("Ember {year}, {region} grid");
-        }
+    if let Some(rest) = source.strip_prefix("ember_")
+        && let Some((region, year)) = rest.rsplit_once('_')
+    {
+        return format!("Ember {year}, {region} grid");
     }
     if source.starts_with("static_WORLD") {
         return "world average".to_string();
