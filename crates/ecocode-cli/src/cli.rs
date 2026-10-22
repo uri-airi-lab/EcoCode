@@ -74,20 +74,22 @@ pub struct RunArgs {
     #[arg(short, long, default_value = "1.0")]
     pub interval: f64,
 
-    /// Override carbon intensity in gCO2eq/kWh.
+    /// Carbon intensity in gCO2eq/kWh for local outputs. Online runs use the project's
+    /// settings in the web app.
     #[arg(long)]
     pub intensity: Option<f64>,
 
-    /// Electricity cost in the local currency per kWh.
+    /// Electricity cost per kWh in your currency, for local outputs. Online runs use the
+    /// project's settings in the web app.
     #[arg(long, alias = "cost")]
     pub price: Option<f64>,
 
-    /// Physical address or city used to resolve the grid carbon intensity automatically.
-    #[arg(long)]
+    /// Removed. Kept hidden so old scripts get an explanation instead of a parse error.
+    #[arg(long, hide = true)]
     pub address: Option<String>,
 
-    /// Fetch electricity prices from an external API instead of using a fixed cost.
-    #[arg(long)]
+    /// Removed. Kept hidden so old scripts get an explanation instead of a parse error.
+    #[arg(long, hide = true)]
     pub use_api_cost: bool,
 
     /// API key for the `online` exporter.

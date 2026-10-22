@@ -185,7 +185,6 @@ impl Exporter for OnlineExporter {
             id: project.id,
             selected_collaborator_name: collaborator_name.map(|s| s.to_string()),
             collaborators: vec![],
-            is_new: false,
         })
     }
 

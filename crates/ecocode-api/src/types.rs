@@ -75,7 +75,6 @@ pub struct CarbonConfig {
     pub intensity_source: String,
     pub manual_cost_per_kwh: Option<f64>,
     pub manual_currency: Option<String>,
-    pub use_api_for_cost: bool,
 }
 
 impl CarbonConfig {
@@ -87,7 +86,6 @@ impl CarbonConfig {
             intensity_source: "static_WORLD_fallback".to_string(),
             manual_cost_per_kwh: None,
             manual_currency: Some("USD".to_string()),
-            use_api_for_cost: false,
         }
     }
 }

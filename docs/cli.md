@@ -65,13 +65,13 @@ ecocode run -o csv -f results.csv -- python train.py
 ecocode run -o json -f results.json -- python train.py
 ecocode run -o logfile -f run.log -- python train.py
 
-# Send to the web dashboard
-ecocode run -o online --api-key eco_... --project my-project --price 0.12 -- python train.py
+# Send to the web dashboard (carbon intensity and price come from the project in the web app)
+ecocode run -o online --api-key eco_... --project my-project -- python train.py
 
 # Prometheus gauges on http://localhost:9091/metrics
 ecocode run -o prometheus -- python train.py
 
-# Override the grid carbon intensity (gCO2eq/kWh) and electricity price (per kWh)
+# Local outputs: set the grid carbon intensity (gCO2eq/kWh) and electricity price (per kWh)
 ecocode run --intensity 52 --price 0.12 -- python train.py
 
 # Any language works
@@ -89,10 +89,8 @@ ecocode run -- node server.js
 | `-o, --output <FORMAT>` | `terminal` | `terminal`, `csv`, `json`, `online`, `prometheus` or `logfile` |
 | `-f, --file <PATH>` | | Output file, required for `csv`, `json` and `logfile` |
 | `-i, --interval <SECS>` | `1.0` | Sampling interval; sub-second values are allowed |
-| `--intensity <G/KWH>` | 445 | Grid carbon intensity in gCO2eq/kWh |
-| `--price <COST>` (alias `--cost`) | | Electricity price per kWh, in your currency |
-| `--address <LOCATION>` | | City or address used to look up the grid intensity (`online` only) |
-| `--use-api-cost` | | Fetch electricity prices from an external API instead of `--price` (`online` only) |
+| `--intensity <G/KWH>` | 445 | Grid carbon intensity in gCO2eq/kWh (local outputs only) |
+| `--price <COST>` (alias `--cost`) | | Electricity price per kWh, in your currency (local outputs only) |
 | `--api-key <KEY>` | | API key for the `online` exporter |
 | `-h, --help`, `-V, --version` | | |
 
@@ -154,10 +152,12 @@ Total energy is the sum of CPU, GPU, memory and iGPU energy. For local exporters
 is `--intensity` if given, otherwise the IEA global average of 445 gCO2eq/kWh, and the PUE is
 1.0. Cost is shown only when `--price` is given.
 
-With the `online` exporter the intensity, price and PUE come from the project's configuration on
-the backend, which is where `--address` (grid intensity by location) and `--use-api-cost` (live
-electricity prices) are resolved. A project that has no price configured yet must be given either
-`--price` or `--use-api-cost` on its first `online` run.
+With the `online` exporter the intensity, price and PUE come from the project's Environmental
+settings in the web app, and `--intensity` and `--price` are rejected. There, a project uses the
+Ember grid intensity of its country or US state (picked, or detected from an address) or a value
+you enter yourself. Projects are created in the web app too; a run whose project has no price yet
+still records energy and carbon, without cost. The `--address` and `--use-api-cost` flags were
+removed along with the Electricity Maps integration.
 
 ## Third-party dependencies
 

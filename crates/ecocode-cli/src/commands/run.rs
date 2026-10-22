@@ -23,11 +23,58 @@ use crate::exporters::terminal::TerminalExporter;
 use crate::exporters::{Exporter, ExporterSink, ExporterType, box_row};
 use crate::platform;
 
+const WEB_SETTINGS: &str = "the web app, under the project's Environmental settings";
+
+const NO_PRICE_NOTICE: &str = "this project has no energy price yet, so run cost won't be calculated. \
+     Set it in the web app, under the project's Environmental settings.";
+
+/// Online runs take carbon intensity and price from the project in the web app, so the
+/// command-line overrides only apply to local outputs. `--address` and `--use-api-cost`
+/// went away with the Electricity Maps integration.
+fn check_carbon_flags(output: &str, args: &RunArgs) -> Result<(), String> {
+    if args.address.is_some() || args.use_api_cost {
+        return Err(format!(
+            "--address and --use-api-cost were removed. Grid carbon intensity now comes from Ember for \
+             the project's country or US state; set the region and energy price in {WEB_SETTINGS}."
+        ));
+    }
+    if output == "online" && (args.intensity.is_some() || args.price.is_some()) {
+        return Err(format!(
+            "--intensity and --price only apply to local outputs (terminal, csv, json, logfile, \
+             prometheus). Online runs use the project's carbon intensity and energy price from {WEB_SETTINGS}."
+        ));
+    }
+    Ok(())
+}
+
+/// Human wording for the backend's intensity source codes.
+fn describe_intensity_source(source: &str) -> String {
+    if source == "manual" {
+        return "your own value (web app)".to_string();
+    }
+    if source == "cli_override" {
+        return "--intensity".to_string();
+    }
+    if let Some(rest) = source.strip_prefix("ember_") {
+        if let Some((region, year)) = rest.rsplit_once('_') {
+            return format!("Ember {year}, {region} grid");
+        }
+    }
+    if source.starts_with("static_WORLD") {
+        return "world average".to_string();
+    }
+    if let Some(code) = source.strip_prefix("static_") {
+        return format!("{code} country average (fallback)");
+    }
+    source.to_string()
+}
+
 /// Core monitoring loop for `ecocode run`.
 pub fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn Error>> {
     let period = check_interval(args.interval)?;
 
     let output = args.output.to_lowercase();
+    check_carbon_flags(&output, &args)?;
     let project_name = args.project;
     let collaborator = args
         .collaborator
@@ -78,37 +125,11 @@ pub fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn Error>> {
         Some(&full_command),
     )?;
 
-    if args.intensity.is_some() || args.price.is_some() || args.address.is_some() || args.use_api_cost {
-        exporter.update_project_config(
-            project.id,
-            args.intensity,
-            args.price,
-            args.address.clone(),
-            if args.use_api_cost { Some(true) } else { None },
-        )?;
-    }
-
+    exporter.set_local_config(args.intensity, args.price);
     let carbon_config = exporter.get_carbon_config(project.id)?;
 
-    if exporter.exporter_type() == ExporterType::Online
-        && (project.is_new || (carbon_config.manual_cost_per_kwh.is_none() && !carbon_config.use_api_for_cost))
-    {
-        if carbon_config.manual_cost_per_kwh.is_none()
-            && !carbon_config.use_api_for_cost
-            && args.price.is_none()
-            && !args.use_api_cost
-        {
-            return Err(
-                "Financial cost per kWh (--price or --cost) or --use-api-cost is required for new projects or if not already set."
-                    .into(),
-            );
-        }
-        if project.is_new && args.intensity.is_none() {
-            println!(
-                "Notice: No --intensity provided. Using default global average ({:.1} gCO2/kWh).",
-                carbon_config.resolved_intensity_g_per_kwh
-            );
-        }
+    if exporter.exporter_type() == ExporterType::Online && carbon_config.manual_cost_per_kwh.is_none() {
+        println!("Notice: {NO_PRICE_NOTICE}");
     }
 
     let detection = detect(args.sensors);
@@ -305,8 +326,55 @@ fn print_system_summary(
     println!("{}", box_row(&format!("  Interval: {:.1}s", interval)));
     println!("╠════════════════════════════════════════════════════╣");
     println!("{}", box_row(&format!("  Carbon Intensity: {:.1} gCO2/kWh", carbon_config.resolved_intensity_g_per_kwh)));
-    println!("{}", box_row(&format!("  Intensity Source: {}", carbon_config.intensity_source)));
+    println!("{}", box_row(&format!("  Intensity Source: {}", describe_intensity_source(&carbon_config.intensity_source))));
     println!("{}", box_row(&format!("  PUE Factor: {:.2}", carbon_config.pue_factor)));
     println!("╚════════════════════════════════════════════════════╝");
     println!();
+}
+
+#[cfg(test)]
+mod carbon_flag_tests {
+    use super::*;
+    use clap::Parser;
+
+    fn args(extra: &[&str]) -> RunArgs {
+        #[derive(Parser)]
+        struct Wrapper {
+            #[command(flatten)]
+            run: RunArgs,
+        }
+        let mut argv = vec!["ecocode"];
+        argv.extend_from_slice(extra);
+        argv.extend_from_slice(&["--", "true"]);
+        Wrapper::parse_from(argv).run
+    }
+
+    #[test]
+    fn local_outputs_accept_overrides() {
+        assert!(check_carbon_flags("terminal", &args(&["--intensity", "52", "--price", "0.12"])).is_ok());
+        assert!(check_carbon_flags("csv", &args(&["--cost", "0.12"])).is_ok());
+    }
+
+    #[test]
+    fn online_runs_point_to_the_web_app() {
+        let err = check_carbon_flags("online", &args(&["--price", "0.12"])).unwrap_err();
+        assert!(err.contains("Environmental settings"), "{err}");
+        assert!(check_carbon_flags("online", &args(&[])).is_ok());
+    }
+
+    #[test]
+    fn removed_flags_explain_themselves() {
+        let err = check_carbon_flags("terminal", &args(&["--address", "Paris"])).unwrap_err();
+        assert!(err.contains("were removed"), "{err}");
+        assert!(check_carbon_flags("online", &args(&["--use-api-cost"])).is_err());
+    }
+
+    #[test]
+    fn intensity_sources_read_naturally() {
+        assert_eq!(describe_intensity_source("ember_US-WA_2025"), "Ember 2025, US-WA grid");
+        assert_eq!(describe_intensity_source("manual"), "your own value (web app)");
+        assert_eq!(describe_intensity_source("static_FR"), "FR country average (fallback)");
+        assert_eq!(describe_intensity_source("static_WORLD_fallback"), "world average");
+        assert_eq!(describe_intensity_source("cli_override"), "--intensity");
+    }
 }

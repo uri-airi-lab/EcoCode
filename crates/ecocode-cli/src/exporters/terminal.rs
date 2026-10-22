@@ -235,7 +235,6 @@ impl Exporter for TerminalExporter {
             id: 0,
             selected_collaborator_name: collaborator_name.map(str::to_owned),
             collaborators: collaborator_name.into_iter().map(str::to_owned).collect(),
-            is_new: false,
         })
     }
     fn create_run(
@@ -265,16 +264,8 @@ impl Exporter for TerminalExporter {
     ) -> Result<(), Box<dyn std::error::Error>> {
         Ok(())
     }
-    fn update_project_config(
-        &mut self,
-        _project_id: i64,
-        intensity: Option<f64>,
-        price: Option<f64>,
-        _address: Option<String>,
-        _use_api_for_cost: Option<bool>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    fn set_local_config(&mut self, intensity: Option<f64>, price: Option<f64>) {
         self.tracker.update_config(intensity, price);
-        Ok(())
     }
     fn get_carbon_config(
         &mut self,
@@ -287,7 +278,6 @@ impl Exporter for TerminalExporter {
             intensity_source: if self.tracker.intensity.is_some() { "cli_override".to_string() } else { "static_WORLD_fallback".to_string() },
             manual_cost_per_kwh: self.tracker.price,
             manual_currency: Some("USD".to_string()),
-            use_api_for_cost: false,
         })
     }
     fn run_summary(&mut self, _run_id: i64) -> Result<(), Box<dyn std::error::Error>> {

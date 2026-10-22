@@ -53,7 +53,6 @@ pub struct ProjectInfo {
     pub selected_collaborator_name: Option<String>,
     #[allow(dead_code)]
     pub collaborators: Vec<String>,
-    pub is_new: bool,
 }
 
 /// Trait for different export formats
@@ -79,16 +78,9 @@ pub trait Exporter {
     ) -> Result<i64, Box<dyn Error>>;
     fn save_system_info(&mut self, run_id: i64, info: SystemInfo) -> Result<(), Box<dyn Error>>;
     fn complete_run(&mut self, run_id: i64, status: &str, ended_at: Option<&str>) -> Result<(), Box<dyn Error>>;
-    fn update_project_config(
-        &mut self,
-        _project_id: i64,
-        _intensity: Option<f64>,
-        _price: Option<f64>,
-        _address: Option<String>,
-        _use_api_for_cost: Option<bool>,
-    ) -> Result<(), Box<dyn Error>> {
-        Ok(())
-    }
+    /// Carbon intensity and price given on the command line, for local outputs. Online
+    /// exporters ignore it: those runs use the project's settings in the web app.
+    fn set_local_config(&mut self, _intensity: Option<f64>, _price: Option<f64>) {}
     fn run_summary(&mut self, run_id: i64) -> Result<(), Box<dyn Error>>;
     fn get_carbon_config(&mut self, _project_id: i64) -> Result<CarbonConfig, Box<dyn Error>> {
         // Default fallback for exporters that don't have a database connection (CSV, JSON, etc.)

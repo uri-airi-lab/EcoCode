@@ -105,11 +105,12 @@ scrape_configs:
 
 ```bash
 ecocode config set-api-key eco_...        # stored in ~/.ecocode/config.json
-ecocode run -o online --project efficiency-study --price 0.12 -- python train.py
+ecocode run -o online --project efficiency-study -- python train.py
 ```
 
-A project that has no electricity price configured yet needs `--price` (or `--use-api-cost`) on
-its first run.
+Create the project in the web app first. Its Environmental settings hold the grid region (or your
+own carbon intensity) and the electricity price that online runs use; `--intensity` and `--price`
+are only for local outputs.
 
 ## Instrument a training loop with the SDK
 
