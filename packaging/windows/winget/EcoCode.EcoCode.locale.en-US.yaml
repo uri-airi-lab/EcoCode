@@ -5,7 +5,7 @@ PackageLocale: en-US
 Publisher: EcoCode
 PackageName: EcoCode
 License: AGPL-3.0-only
-LicenseUrl: https://github.com/abdeltawab/EcoCode/blob/main/LICENSE
+LicenseUrl: https://github.com/uri-airi-lab/EcoCode/blob/main/LICENSE
 ShortDescription: Measure the energy and carbon footprint of programs and ML training runs.
 Moniker: ecocode
 Tags:

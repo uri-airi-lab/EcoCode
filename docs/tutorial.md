@@ -33,7 +33,7 @@ column of zeros later is almost always a sensor reported here.
 To build from source instead:
 
 ```bash
-git clone https://github.com/MohamedAziz-Khezami/EcoCode.git
+git clone https://github.com/uri-airi-lab/EcoCode.git
 cd EcoCode
 cargo build --release
 sudo cp target/release/ecocode /usr/local/bin/      # or add target/release to PATH

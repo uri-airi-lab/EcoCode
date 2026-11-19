@@ -6,11 +6,11 @@
 # Until then: `brew install --HEAD --formula packaging/macos/ecocode.rb`.
 class Ecocode < Formula
   desc "Measure the energy and carbon footprint of programs and ML training runs"
-  homepage "https://github.com/abdeltawab/EcoCode"
-  url "https://github.com/abdeltawab/EcoCode/archive/refs/tags/v1.0.0.tar.gz"
+  homepage "https://github.com/uri-airi-lab/EcoCode"
+  url "https://github.com/uri-airi-lab/EcoCode/archive/refs/tags/v1.0.0.tar.gz"
   sha256 "REPLACE_WITH_RELEASE_TARBALL_SHA256"
   license "AGPL-3.0-only"
-  head "https://github.com/abdeltawab/EcoCode.git", branch: "main"
+  head "https://github.com/uri-airi-lab/EcoCode.git", branch: "main"
 
   # Needs Rust 1.99 or newer (see rust-toolchain.toml).
   depends_on "rust" => :build

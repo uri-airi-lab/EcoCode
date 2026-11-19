@@ -39,7 +39,7 @@ or newer is required. Linux, macOS and Windows are supported; see the
 To build from source you need Rust (`rust-toolchain.toml` pins the version):
 
 ```bash
-git clone https://github.com/MohamedAziz-Khezami/EcoCode.git
+git clone https://github.com/uri-airi-lab/EcoCode.git
 cd EcoCode/python
 pip install -e ".[dev]"   # builds the binary with maturin
 pytest                    # unit and end-to-end tests with fake sensors

@@ -12,7 +12,7 @@ version = "1.0.0"
 edition = "2024"
 rust-version = "1.99"
 license = "AGPL-3.0-only"
-repository = "https://github.com/abdeltawab/EcoCode"
+repository = "https://github.com/uri-airi-lab/EcoCode"
 
 [workspace.dependencies]
 ecocode-sensors = { path = "crates/ecocode-sensors", version = "1.0.0", default-features = false }
