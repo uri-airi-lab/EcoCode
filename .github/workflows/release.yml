@@ -123,7 +123,12 @@ jobs:
 
   testpypi:
     name: publish to TestPyPI
-    if: github.event_name == 'workflow_dispatch'
+    # A dry run uploads whatever did build, so one platform stuck waiting for a
+    # GitHub runner does not block testing the others. The PyPI job below still
+    # needs every wheel.
+    if: >-
+      !cancelled() && github.event_name == 'workflow_dispatch'
+      && needs.sdist.result == 'success'
     needs: [wheels, sdist]
     runs-on: ubuntu-24.04
     environment:
