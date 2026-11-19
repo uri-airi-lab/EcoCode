@@ -12,9 +12,15 @@ Under the AGPL-3.0, you are free to:
 
 See the [LICENSE](LICENSE) file for the full license text, or visit <https://www.gnu.org/licenses/agpl-3.0.html>.
 
+## Commercial license
+
+If the AGPL does not fit your use, for example when you want to build EcoCode into a closed-source
+product or run a modified version as a service without publishing your changes, contact us about a
+commercial license.
+
 ## Contact
 
-For questions about the license or commercial partnerships, please contact:
+For a commercial license, questions about the license or partnerships, please contact:
 
 - **Mohamed Aziz Khezami: [mohamedaziz.khezami@uri.edu]** / **Professor Abdeltawab Hendawi: [hendawi@uri.edu]**
 - **University of Rhode Island**

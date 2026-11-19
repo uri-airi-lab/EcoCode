@@ -294,3 +294,7 @@ Apache-2.0 or MIT.
 ## License
 
 AGPL-3.0-only. See the [repository LICENSE](../LICENSE).
+
+If the AGPL does not fit your use, for example inside a closed-source product or service, contact
+us about a commercial license: Mohamed Aziz Khezami (mohamedaziz.khezami@uri.edu) or Professor
+Abdeltawab Hendawi (hendawi@uri.edu).
