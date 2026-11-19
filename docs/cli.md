@@ -31,7 +31,7 @@ The sampling loop, the attribution rules and the per-OS sensors are described in
 The simplest route is the Python package, whose wheels bundle the binary:
 
 ```bash
-pip install ecocode
+pip install ecocodes
 ecocode --version
 ```
 

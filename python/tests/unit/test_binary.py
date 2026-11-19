@@ -38,7 +38,7 @@ def test_falls_back_to_path(tmp_path, monkeypatch):
 def test_missing_binary_explains_how_to_install(tmp_path, monkeypatch):
     monkeypatch.setattr(sysconfig, "get_path", lambda name, *a: str(tmp_path))
     monkeypatch.setenv("PATH", str(tmp_path))
-    with pytest.raises(RuntimeError, match="pip install ecocode"):
+    with pytest.raises(RuntimeError, match="pip install ecocodes"):
         _binary.resolve_ecocode_binary()
 
 

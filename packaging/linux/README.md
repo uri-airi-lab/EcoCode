@@ -1,6 +1,6 @@
 # Linux packaging
 
-- **Python users:** `pip install ecocode`; the wheel includes the `ecocode` binary.
+- **Python users:** `pip install ecocodes`; the wheel includes the `ecocode` binary.
 - **From this checkout:** [`install.sh`](install.sh) builds the release binary, installs it to
   `/usr/local/bin` and runs `ecocode doctor`.
 - **Reading RAPL without sudo:** [`install-permissions.sh`](install-permissions.sh) installs the

@@ -1,7 +1,7 @@
 # macOS packaging
 
-- **Python users:** `pip install ecocode`; the wheel includes the `ecocode` binary (arm64 and
-  x86_64 wheels are built by CI, see `.github/workflows/ci.yml`).
+- **Python users:** `pip install ecocodes`; the wheel includes the `ecocode` binary (arm64 and
+  x86_64 wheels are built by `.github/workflows/release.yml`).
 - **Homebrew:** [`ecocode.rb`](ecocode.rb) builds the CLI from source. See the comment at the top of
   the file for how to publish it in a tap; to try it from a checkout:
   `brew install --HEAD --formula packaging/macos/ecocode.rb`.

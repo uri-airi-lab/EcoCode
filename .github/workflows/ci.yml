@@ -23,10 +23,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Python 3.9 is the oldest version the SDK supports. Ubuntu 26.04 (ubuntu-latest)
+        # has no 3.9 build, so that job stays on 24.04.
         include:
-          - { name: linux-x86_64,   os: ubuntu-latest,    python: "3.9" }
+          - { name: linux-x86_64,   os: ubuntu-24.04,     python: "3.9" }
           - { name: linux-arm64,    os: ubuntu-24.04-arm, python: "3.13" }
-          - { name: macos-arm64,    os: macos-latest,     python: "3.13" }
+          - { name: macos-arm64,    os: macos-15,         python: "3.13" }
           - { name: macos-x86_64,   os: macos-15-intel,   python: "3.13" }
           - { name: windows-x86_64, os: windows-latest,   python: "3.13" }
     steps:
@@ -103,7 +105,7 @@ jobs:
         include:
           - { name: linux-x86_64,   os: ubuntu-latest }
           - { name: linux-arm64,    os: ubuntu-24.04-arm }
-          - { name: macos-arm64,    os: macos-latest }
+          - { name: macos-arm64,    os: macos-15 }
           - { name: macos-x86_64,   os: macos-15-intel }
           - { name: windows-x86_64, os: windows-latest }
     steps:
@@ -117,8 +119,9 @@ jobs:
         with:
           python-version: "3.13"
 
-      # Linux wheels are built on the runner's glibc; build them in a manylinux
-      # container (e.g. PyO3/maturin-action) before publishing to PyPI.
+      # A quick check that every platform still builds a wheel. These Linux wheels
+      # use the runner's glibc, so PyPI would refuse them; release.yml builds the
+      # published ones in a manylinux container.
       - name: Build wheel (SDK + bundled ecocode binary)
         shell: bash
         run: |

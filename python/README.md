@@ -22,14 +22,17 @@ backend errors are reported on stderr and never interrupt your training loop.
 ## Install
 
 ```bash
-pip install ecocode              # SDK plus the ecocode binary for your platform
-pip install "ecocode[hf]"        # HuggingFace Trainer callback
-pip install "ecocode[trl]"       # TRL (SFT / DPO / GRPO)
-pip install "ecocode[lightning]" # PyTorch Lightning
-pip install "ecocode[keras]"     # Keras 3 / tf.keras
-pip install "ecocode[onnx]"      # ONNX Runtime
-pip install "ecocode[all]"       # all of the above
+pip install ecocodes              # SDK plus the ecocode binary for your platform
+pip install "ecocodes[hf]"        # HuggingFace Trainer callback
+pip install "ecocodes[trl]"       # TRL (SFT / DPO / GRPO)
+pip install "ecocodes[lightning]" # PyTorch Lightning
+pip install "ecocodes[keras]"     # Keras 3 / tf.keras
+pip install "ecocodes[onnx]"      # ONNX Runtime
+pip install "ecocodes[all]"       # all of the above
 ```
+
+The package is called `ecocodes` on PyPI because `ecocode` was already taken. You still
+`import ecocode` and run `ecocode` on the command line.
 
 The wheel installs the `ecocode` binary (`ecocode.exe` on Windows) into the environment's `bin/`
 or `Scripts\` directory next to `python`; the SDK looks there first, then on `PATH`. Python 3.9

@@ -1,12 +1,14 @@
 [build-system]
 # The wheel bundles the `ecocode` monitor binary (built from crates/ecocode-cli)
-# next to the Python package, so `pip install ecocode` is all a user needs.
+# next to the Python package, so `pip install ecocodes` is all a user needs.
 # Building from source requires Rust (rust-toolchain.toml pins the version).
 requires = ["maturin>=1.7,<2"]
 build-backend = "maturin"
 
 [project]
-name = "ecocode"
+# The PyPI name is "ecocodes" because "ecocode" was taken. The import name
+# (`import ecocode`) and the command (`ecocode`) are unchanged.
+name = "ecocodes"
 version = "1.0.0"
 description = "Python SDK for EcoCode, energy and carbon tracking for ML training and inference."
 readme = "README.md"
@@ -66,6 +68,8 @@ dev       = ["pytest>=7.0.0", "pytest-mock>=3.0.0", "maturin>=1.7,<2"]
 bindings = "bin"
 manifest-path = "../crates/ecocode-cli/Cargo.toml"
 python-source = "src"
+# The import name stays `ecocode` although the PyPI name is `ecocodes`.
+module-name = "ecocode"
 python-packages = ["ecocode"]
 locked = true
 

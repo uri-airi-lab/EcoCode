@@ -1,0 +1,168 @@
+name: Release
+
+# Builds the wheels and the source package and publishes them as `ecocodes`.
+#
+#   Push a tag such as v1.0.0  ->  PyPI      (GitHub environment "pypi")
+#   Run the workflow by hand   ->  TestPyPI  (GitHub environment "testpypi")
+#
+# Publishing uses PyPI trusted publishing, so no token is stored in the repository.
+# Each index needs a trusted publisher for this repository, this file and the
+# matching environment; packaging/README.md lists the steps.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: check version
+    runs-on: ubuntu-24.04
+    outputs:
+      rust: ${{ steps.rust.outputs.toolchain }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version numbers agree with each other and with the tag
+        shell: bash
+        run: |
+          cargo_v=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)
+          py_v=$(sed -n 's/^version = "\(.*\)"/\1/p' python/pyproject.toml | head -n1)
+          init_v=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' python/src/ecocode/__init__.py)
+          echo "Cargo.toml: $cargo_v, pyproject.toml: $py_v, __init__.py: $init_v"
+          if [ "$cargo_v" != "$py_v" ] || [ "$py_v" != "$init_v" ]; then
+            echo "::error::The three version numbers differ"
+            exit 1
+          fi
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "v$py_v" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match version $py_v"
+            exit 1
+          fi
+
+      # maturin-action installs Rust itself; hand it the version pinned in
+      # rust-toolchain.toml so releases build with the same compiler as CI.
+      - name: Read the pinned Rust version
+        id: rust
+        shell: bash
+        run: echo "toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+
+  wheels:
+    name: wheel (${{ matrix.name }})
+    needs: check
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux wheels are built inside a manylinux container so they install on
+          # older distributions; PyPI refuses plain linux_x86_64 wheels.
+          - { name: linux-x86_64,   os: ubuntu-24.04,     target: x86_64,  manylinux: auto }
+          - { name: linux-arm64,    os: ubuntu-24.04-arm, target: aarch64, manylinux: auto }
+          - { name: macos-arm64,    os: macos-15,         target: aarch64 }
+          - { name: macos-x86_64,   os: macos-15-intel,   target: x86_64 }
+          - { name: windows-x86_64, os: windows-latest,   target: x64 }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build wheel (SDK + bundled ecocode binary)
+        uses: PyO3/maturin-action@v1
+        with:
+          working-directory: python
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux }}
+          rust-toolchain: ${{ needs.check.outputs.rust }}
+          args: --release --out dist
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # Install the wheel just built, from the local folder only, and check that
+      # both the command and the import work before anything is uploaded.
+      - name: Smoke test the wheel
+        shell: bash
+        run: |
+          python -m pip install --no-index --find-links python/dist ecocodes
+          ecocode --version
+          ecocode doctor || true
+          python -c "import ecocode; print('ecocode', ecocode.__version__)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.name }}
+          path: python/dist/*.whl
+          if-no-files-found: error
+
+  sdist:
+    name: source package
+    needs: check
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # The source package carries the Rust crates, so it doubles as the
+      # corresponding source the AGPL asks for alongside the binaries.
+      - name: Build source package
+        uses: PyO3/maturin-action@v1
+        with:
+          working-directory: python
+          command: sdist
+          args: --out dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-sdist
+          path: python/dist/*.tar.gz
+          if-no-files-found: error
+
+  testpypi:
+    name: publish to TestPyPI
+    if: github.event_name == 'workflow_dispatch'
+    needs: [wheels, sdist]
+    runs-on: ubuntu-24.04
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/ecocodes
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          merge-multiple: true
+          path: dist
+
+      - run: ls -l dist
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          # A dry run can be repeated for the same version.
+          skip-existing: true
+
+  pypi:
+    name: publish to PyPI
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [wheels, sdist]
+    runs-on: ubuntu-24.04
+    environment:
+      name: pypi
+      url: https://pypi.org/p/ecocodes
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          merge-multiple: true
+          path: dist
+
+      - run: ls -l dist
+
+      - uses: pypa/gh-action-pypi-publish@release/v1

@@ -72,7 +72,7 @@ def resolve_ecocode_binary() -> str:
     if path is None:
         raise RuntimeError(
             f"[ecocode] The '{EXE_NAME}' monitor binary was not found.\n"
-            "It is installed with the SDK: pip install ecocode\n"
+            "It is installed with the SDK: pip install ecocodes\n"
             "When working from a source checkout, build it with `cargo build --release` "
             "and put target/release on your PATH."
         )

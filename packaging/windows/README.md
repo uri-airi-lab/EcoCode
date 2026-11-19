@@ -1,7 +1,7 @@
 # Windows packaging
 
-- **Python users:** `pip install ecocode`; the wheel includes `ecocode.exe` (built by CI, see
-  `.github/workflows/ci.yml`).
+- **Python users:** `pip install ecocodes`; the wheel includes `ecocode.exe` (built by
+  `.github/workflows/release.yml`).
 - **winget:** [`winget/`](winget/) holds manifest templates for a portable `ecocode.exe` in a zip.
   To publish: build with the MSVC toolchain (`cargo build --release`), sign `ecocode.exe`, zip it,
   attach it to a GitHub release, fill in the URL and SHA256, validate with

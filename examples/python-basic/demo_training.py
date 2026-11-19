@@ -11,7 +11,7 @@ A realistic image classification run that exercises every SDK marker:
 
 Setup:
   1. Generate an API key on the EcoCode dashboard (Settings, Developer, pick a project).
-  2. pip install ecocode
+  2. pip install ecocodes
      pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
   3. ECOCODE_API_KEY=eco_xxx python demo_training.py
 

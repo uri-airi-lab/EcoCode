@@ -21,7 +21,7 @@ elsewhere and is linked rather than repeated: [cli.md](cli.md) for every flag an
 The Python package bundles the CLI binary, so one install covers both:
 
 ```bash
-pip install ecocode
+pip install ecocodes
 ecocode --version
 ecocode doctor
 ```
@@ -218,7 +218,7 @@ The same pattern covers TRL (`EcoCodeSFTCallback`, `EcoCodeDPOCallback`, `EcoCod
 PyTorch Lightning and Keras (`EcoCodeCallback` from their modules), DeepSpeed
 (`EcoCodeDeepSpeedCallback`, whose hooks you call from your loop), vLLM
 (`EcoCodeVLLMMiddleware`) and ONNX Runtime (`EcoCodeORTWrapper`). Install the matching extra
-(`pip install "ecocode[hf]"`, `[trl]`, `[lightning]`, `[keras]`, `[onnx]` or `[all]`); snippets
+(`pip install "ecocodes[hf]"`, `[trl]`, `[lightning]`, `[keras]`, `[onnx]` or `[all]`); snippets
 for each are in [python/README.md](../python/README.md#integrations).
 
 ## Troubleshooting

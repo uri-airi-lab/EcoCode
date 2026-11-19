@@ -29,11 +29,12 @@ to 5 based on energy-normalised utilisation, grid carbon intensity and data-cent
 ## Install
 
 ```bash
-pip install ecocode
+pip install ecocodes
 ```
 
-The wheel includes the `ecocode` binary. To build from source instead, see
-[CONTRIBUTING.md](CONTRIBUTING.md).
+The package is called `ecocodes` on PyPI because `ecocode` was already taken; you still
+`import ecocode` and run `ecocode`. The wheel includes the `ecocode` binary. To build from source
+instead, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Usage
 
