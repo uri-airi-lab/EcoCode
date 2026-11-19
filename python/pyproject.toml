@@ -38,6 +38,12 @@ classifiers = [
 # energy monitoring via the bundled ecocode CLI binary.
 dependencies = []
 
+[project.urls]
+Homepage = "https://ecocode.harmonyhpc.io"
+Documentation = "https://github.com/uri-airi-lab/EcoCode/tree/main/docs"
+Source = "https://github.com/uri-airi-lab/EcoCode"
+Issues = "https://github.com/uri-airi-lab/EcoCode/issues"
+
 [project.optional-dependencies]
 hf        = ["transformers>=4.30.0"]
 trl       = ["trl>=0.7.0"]

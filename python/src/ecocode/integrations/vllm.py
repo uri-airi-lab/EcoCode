@@ -20,14 +20,14 @@ Usage (wrapping AsyncLLMEngine):
 
     engine = AsyncLLMEngine.from_engine_args(engine_args)
 
-    with ecocode.run("vllm-serving", project_id=42, api_key="eco_...") as eco_run:
+    with ecocode.run("vllm-serving", project_id=42, api_key="ecocode_...") as eco_run:
         eco_engine = EcoCodeVLLMMiddleware(engine, eco_run)
 
         async for output in eco_engine.generate(prompt, sampling_params, request_id):
             yield output
 
 Usage (standalone inference loop without vLLM):
-    with ecocode.run("inference", project_id=42, api_key="eco_...") as eco_run:
+    with ecocode.run("inference", project_id=42, api_key="ecocode_...") as eco_run:
         tracker = InferencePhaseTracker(eco_run)
         tracker.on_prefill_begin(prompt_tokens=512)
         # ... run prefill ...

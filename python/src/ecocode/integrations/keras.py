@@ -9,7 +9,7 @@ Usage::
     import ecocode
     from ecocode.integrations.keras import EcoCodeCallback
 
-    with ecocode.run("keras-train", project_id=42, api_key="eco_...") as eco_run:
+    with ecocode.run("keras-train", project_id=42, api_key="ecocode_...") as eco_run:
         model.fit(x, y, callbacks=[EcoCodeCallback(eco_run)])
 """
 from __future__ import annotations

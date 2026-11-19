@@ -14,7 +14,7 @@ Usage:
     import ecocode
     from ecocode.integrations.trl import EcoCodeSFTCallback
 
-    with ecocode.run("sft-run", project_id=42, api_key="eco_...") as eco_run:
+    with ecocode.run("sft-run", project_id=42, api_key="ecocode_...") as eco_run:
         trainer = SFTTrainer(
             model=model,
             args=args,

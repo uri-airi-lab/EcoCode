@@ -69,7 +69,7 @@ passed `--price`, electricity cost.
 
 ```bash
 ecocode run -o csv -f results.csv -- python train.py       # one row per sample, written live
-ecocode run -o json -f results.json -- python train.py     # a JSON array, written at exit
+ecocode run -o json -f results.json -- python train.py     # a JSON array, complete at exit
 ecocode run -o logfile -f run.log -- python train.py       # human-readable log
 ```
 
@@ -104,7 +104,7 @@ scrape_configs:
 ### Send to the dashboard
 
 ```bash
-ecocode config set-api-key eco_...        # stored in ~/.ecocode/config.json
+ecocode config set-api-key ecocode_...    # stored in ~/.ecocode/config.json
 ecocode run -o online --project efficiency-study -- python train.py
 ```
 

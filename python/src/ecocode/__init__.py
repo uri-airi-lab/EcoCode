@@ -135,7 +135,7 @@ def track(
         def train():
             ...
 
-        @ecocode.track(exporter="online", api_key="eco_...")
+        @ecocode.track(exporter="online", api_key="ecocode_...")
         def train():
             ...
     """

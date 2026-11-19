@@ -22,7 +22,7 @@ also records steps, loss and training phases alongside the energy data.
 
 ![EcoCode live run dashboard](docs/assets/live-run-dashboard.png)
 
-Runs can be streamed to the EcoCode web dashboard, where each run gets a leaf rating from 0.5
+Runs can be streamed to the [EcoCode web dashboard](https://ecocode.harmonyhpc.io), where each run gets a leaf rating from 0.5
 to 5 based on energy-normalised utilisation, grid carbon intensity and data-centre overhead
 (PUE), so runs of different length and size can be compared.
 
@@ -53,7 +53,7 @@ ecocode run -- python train.py
 Send results to the web dashboard:
 
 ```bash
-ecocode config set-api-key eco_your_key
+ecocode config set-api-key ecocode_your_key
 ecocode run -o online --project efficiency-study -- python train.py
 ```
 
@@ -62,7 +62,7 @@ From Python, with ML markers:
 ```python
 import ecocode
 
-with ecocode.run("llama3-finetune", exporter="online", api_key="eco_...") as run:
+with ecocode.run("llama3-finetune", exporter="online", api_key="ecocode_...") as run:
     for epoch in range(epochs):
         run.log_epoch(epoch)
         for batch in loader:
@@ -79,11 +79,11 @@ Other exporters: `terminal` (default), `csv`, `json`, `logfile` and `prometheus`
 
 | | Linux (x86_64, arm64) | macOS (Apple Silicon, Intel) | Windows (x86_64) |
 |---|---|---|---|
-| CPU energy | ✅ RAPL (Intel, AMD); hwmon on ARM servers | ✅ Apple Silicon; ✅ Intel via SMC (estimated) | ✅ where the PC has an Energy Meter Interface (many laptops); ❌ most desktops |
-| DRAM energy | ✅ where RAPL exposes it | ✅ Apple Silicon | ✅ where EMI exposes it |
-| GPU energy | ✅ NVIDIA (NVML) | ✅ Apple GPU | ✅ NVIDIA (NVML) |
-| Per-process CPU / memory | ✅ | ✅ | ✅ |
-| Python SDK + markers | ✅ | ✅ | ✅ |
+| CPU energy | Yes: RAPL (Intel, AMD); hwmon on ARM servers | Yes: Apple Silicon; Intel via SMC (estimated) | Where the PC has an Energy Meter Interface (many laptops); not on most desktops |
+| DRAM energy | Where RAPL exposes it | Apple Silicon | Where EMI exposes it |
+| GPU energy | NVIDIA (NVML) | Apple GPU | NVIDIA (NVML) |
+| Per-process CPU / memory | Yes | Yes | Yes |
+| Python SDK + markers | Yes | Yes | Yes |
 | Needs admin/root | Once, to install the RAPL udev rule (or never, if RAPL is already readable) | No | No |
 
 How each value is measured: [Linux](docs/platforms/linux.md), [macOS](docs/platforms/macos.md),

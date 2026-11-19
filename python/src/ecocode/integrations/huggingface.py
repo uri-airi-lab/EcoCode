@@ -9,7 +9,7 @@ Usage:
     import ecocode
     from ecocode.integrations.huggingface import EcoCodeCallback
 
-    with ecocode.run("sft-llama3", project_id=42, api_key="eco_...") as eco_run:
+    with ecocode.run("sft-llama3", project_id=42, api_key="ecocode_...") as eco_run:
         trainer = Trainer(
             model=model,
             args=training_args,

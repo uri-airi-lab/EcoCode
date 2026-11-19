@@ -11,7 +11,7 @@ Usage::
     from ecocode.integrations.onnxruntime import EcoCodeORTWrapper
 
     session = ort.InferenceSession("model.onnx")
-    with ecocode.run("ort-inference", api_key="eco_...") as eco_run:
+    with ecocode.run("ort-inference", api_key="ecocode_...") as eco_run:
         eco_session = EcoCodeORTWrapper(session, eco_run)
         result = eco_session.run(None, {"input": data})
 """

@@ -81,8 +81,8 @@ slow backend never delays sampling.
 | Apple GPU | The whole GPU's energy while the tree is using the GPU (last 5 s), else none |
 | Apple Neural Engine | CPU share |
 
-Golden tests (`crates/ecocode-monitor/tests/golden_attribution.rs`) pin the Linux numbers to those
-of the pre-restructure implementation.
+Golden tests (`crates/ecocode-monitor/tests/golden_attribution.rs`) pin the attributed energy for
+fixed inputs, so any change to these rules shows up as a failing test.
 
 ## Platforms
 
@@ -114,4 +114,6 @@ Details: [Linux](platforms/linux.md) · [macOS](platforms/macos.md) · [Windows]
 - `pytest` in `python/`: SDK unit tests and end-to-end tests against the built binary.
 - `scripts/selftest.sh` / `scripts/selftest.ps1`: all of the above plus measured runs, with a report.
 - CI (`.github/workflows/ci.yml`) runs the tests on Linux x86_64/arm64, macOS arm64/x86_64 and
-  Windows x86_64, and builds the wheels.
+  Windows x86_64, and checks that each platform builds a wheel.
+- Releases (`.github/workflows/release.yml`) build the published wheels and source package and
+  upload them to PyPI as `ecocodes`; see [packaging/README.md](../packaging/README.md).

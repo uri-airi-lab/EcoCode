@@ -13,10 +13,10 @@ Setup:
   1. Generate an API key on the EcoCode dashboard (Settings, Developer, pick a project).
   2. pip install ecocodes
      pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-  3. ECOCODE_API_KEY=eco_xxx python demo_training.py
+  3. ECOCODE_API_KEY=ecocode_xxx python demo_training.py
 
 Hyperparameters can be overridden from the environment:
-  EPOCHS=30 BATCH_SIZE=256 LR=3e-4 ECOCODE_API_KEY=eco_xxx python demo_training.py
+  EPOCHS=30 BATCH_SIZE=256 LR=3e-4 ECOCODE_API_KEY=ecocode_xxx python demo_training.py
 
 What to expect on the dashboard:
   Phases    data_loading, warmup, forward, backward, optimizer_step, eval,
@@ -68,7 +68,7 @@ def check_config():
             "\n[error] Missing API key.\n"
             "  Generate a project-scoped key from the dashboard\n"
             "  (Settings, Developer, select a project, Generate Key), then run:\n"
-            "    ECOCODE_API_KEY=eco_xxx python demo_training.py\n"
+            "    ECOCODE_API_KEY=ecocode_xxx python demo_training.py\n"
         )
         sys.exit(1)
 

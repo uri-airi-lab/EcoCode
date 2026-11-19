@@ -8,7 +8,7 @@ energy sample.
 ```python
 import ecocode
 
-with ecocode.run("llama-finetune", exporter="online", api_key="eco_...") as run:
+with ecocode.run("llama-finetune", exporter="online", api_key="ecocode_...") as run:
     run.mark("phase", "forward")
     run.log_step(100)
     run.log_loss(1.45)
@@ -28,7 +28,9 @@ pip install "ecocodes[trl]"       # TRL (SFT / DPO / GRPO)
 pip install "ecocodes[lightning]" # PyTorch Lightning
 pip install "ecocodes[keras]"     # Keras 3 / tf.keras
 pip install "ecocodes[onnx]"      # ONNX Runtime
-pip install "ecocodes[all]"       # all of the above
+pip install "ecocodes[deepspeed]" # DeepSpeed (Linux with CUDA)
+pip install "ecocodes[vllm]"      # vLLM (Linux with CUDA)
+pip install "ecocodes[all]"       # HF, TRL, Lightning, Keras and ONNX Runtime
 ```
 
 The package is called `ecocodes` on PyPI because `ecocode` was already taken. You still
@@ -37,7 +39,7 @@ The package is called `ecocodes` on PyPI because `ecocode` was already taken. Yo
 The wheel installs the `ecocode` binary (`ecocode.exe` on Windows) into the environment's `bin/`
 or `Scripts\` directory next to `python`; the SDK looks there first, then on `PATH`. Python 3.9
 or newer is required. Linux, macOS and Windows are supported; see the
-[platform notes](../docs/platforms/) for what each OS can measure.
+[platform notes](https://github.com/uri-airi-lab/EcoCode/tree/main/docs/platforms) for what each OS can measure.
 
 To build from source you need Rust (`rust-toolchain.toml` pins the version):
 
@@ -110,7 +112,7 @@ ecocode run -o csv -f results.csv --project efficiency-study -- python train.py
 ```
 
 Use attached mode when you want the CLI's exporters (including `prometheus`) or the `canceled`
-status on Ctrl+C. See [docs/cli.md](../docs/cli.md).
+status on Ctrl+C. See [docs/cli.md](https://github.com/uri-airi-lab/EcoCode/blob/main/docs/cli.md).
 
 On multi-process jobs (`torchrun`, DeepSpeed) only rank 0 records; other ranks see `RANK` or
 `LOCAL_RANK` and do nothing.
@@ -277,12 +279,12 @@ attributed to your process tree, CPU and memory usage, and the current marker va
 core count, total RAM and GPU names are sent once at run start. Which sensors exist depends on
 the OS and hardware: RAPL and NVML on Linux, IOReport on Apple Silicon, the Energy Meter
 Interface and NVML on Windows. Run `ecocode doctor` to see what your machine can measure, and
-read [docs/architecture.md](../docs/architecture.md) for how energy is attributed to a process.
+read [docs/architecture.md](https://github.com/uri-airi-lab/EcoCode/blob/main/docs/architecture.md) for how energy is attributed to a process.
 
 ## Example
 
-`examples/python-basic/demo_training.py` trains a ResNet-18 on CIFAR-10 with every marker
-exercised. Run it with `ECOCODE_API_KEY=eco_... python demo_training.py` to see the run on the
+[`examples/python-basic/demo_training.py`](https://github.com/uri-airi-lab/EcoCode/blob/main/examples/python-basic/demo_training.py) trains a ResNet-18 on CIFAR-10 with every marker
+exercised. Run it with `ECOCODE_API_KEY=ecocode_... python demo_training.py` to see the run on the
 dashboard; `EPOCHS`, `BATCH_SIZE` and `LR` can be set from the environment.
 
 ## Third-party dependencies
@@ -293,7 +295,7 @@ Apache-2.0 or MIT.
 
 ## License
 
-AGPL-3.0-only. See the [repository LICENSE](../LICENSE).
+AGPL-3.0-only. See the [repository LICENSE](https://github.com/uri-airi-lab/EcoCode/blob/main/LICENSE).
 
 If the AGPL does not fit your use, for example inside a closed-source product or service, contact
 us about a commercial license: Mohamed Aziz Khezami (mohamedaziz.khezami@uri.edu) or Professor

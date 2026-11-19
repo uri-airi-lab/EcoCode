@@ -6,7 +6,7 @@ Usage:
     import pytorch_lightning as pl
     from ecocode.integrations.lightning import EcoCodeCallback
 
-    with ecocode.run("pretrain", project_id=42, api_key="eco_...") as eco_run:
+    with ecocode.run("pretrain", project_id=42, api_key="ecocode_...") as eco_run:
         trainer = pl.Trainer(
             callbacks=[EcoCodeCallback(eco_run)],
         )

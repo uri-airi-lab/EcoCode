@@ -14,7 +14,7 @@ Usage:
     import ecocode
     from ecocode.integrations.deepspeed import EcoCodeDeepSpeedCallback
 
-    with ecocode.run("pretrain-70b", project_id=42, api_key="eco_...") as eco_run:
+    with ecocode.run("pretrain-70b", project_id=42, api_key="ecocode_...") as eco_run:
         ds_cb = EcoCodeDeepSpeedCallback(eco_run, zero_stage=3)
 
         for step, batch in enumerate(loader):

@@ -66,7 +66,7 @@ ecocode run -o json -f results.json -- python train.py
 ecocode run -o logfile -f run.log -- python train.py
 
 # Send to the web dashboard (carbon intensity and price come from the project in the web app)
-ecocode run -o online --api-key eco_... --project my-project -- python train.py
+ecocode run -o online --api-key ecocode_... --project my-project -- python train.py
 
 # Prometheus gauges on http://localhost:9091/metrics
 ecocode run -o prometheus -- python train.py
@@ -126,7 +126,7 @@ while the run is still going. Columns: `ID`, `Run ID`, `PID`, `Timestamp`, `CPU%
 device, then `Phase`, `TokensProcessed`, `TrainingStep`, `Loss`, `LearningRate` and
 `SequenceLength`.
 
-`json` writes a single JSON array of records to `--file` when the run ends.
+`json` writes the records to `--file` as one JSON array, which is complete once the run ends.
 
 `logfile` writes a human-readable log to `--file`, one block per sample.
 
@@ -156,8 +156,8 @@ With the `online` exporter the intensity, price and PUE come from the project's 
 settings in the web app, and `--intensity` and `--price` are rejected. There, a project uses the
 Ember grid intensity of its country or US state (picked, or detected from an address) or a value
 you enter yourself. Projects are created in the web app too; a run whose project has no price yet
-still records energy and carbon, without cost. The `--address` and `--use-api-cost` flags were
-removed along with the Electricity Maps integration.
+still records energy and carbon, without cost. `--address` and `--use-api-cost` are not supported;
+passing either stops the run with a message that points to the project settings.
 
 ## Third-party dependencies
 

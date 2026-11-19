@@ -29,8 +29,7 @@ your program's (and its child processes') share:
 
 ### CPU = core domain
 RAPL's CPU value is the **core** sub-domain (PP0, the cores themselves). The package-level counter,
-which also includes caches, memory controller and other uncore parts, is not read. This matches
-earlier EcoCode versions. On CPUs that expose only a package counter (some AMD models), CPU energy
+which also includes caches, memory controller and other uncore parts, is not read. On CPUs that expose only a package counter (some AMD models), CPU energy
 is reported as unavailable. Switching to the package counter is an open decision.
 
 ## Permissions: reading RAPL without sudo

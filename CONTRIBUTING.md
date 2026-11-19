@@ -94,7 +94,8 @@ powershell -ExecutionPolicy Bypass -File scripts\selftest.ps1
 ```
 
 CI (`.github/workflows/ci.yml`) runs the tests on Linux x86_64/arm64, macOS arm64/x86_64 and
-Windows x86_64, and builds the wheels.
+Windows x86_64, and checks that each platform builds a wheel. Releases to PyPI go through
+`.github/workflows/release.yml`; [packaging/README.md](packaging/README.md) describes the steps.
 
 ## Pull requests
 
