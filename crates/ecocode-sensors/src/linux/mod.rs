@@ -39,11 +39,9 @@ fn detect_powercap(detection: &mut Detection, root: &Path) -> bool {
     }
     match powercap::RaplSensor::open(root) {
         Ok(sensor) => {
-            let domains: Vec<String> =
-                sensor.channels_ref().iter().map(|c| format!("socket {} {}", c.socket, c.domain)).collect();
             detection.diagnostics.push(diagnostic(
                 Status::Available,
-                format!("RAPL: {}", domains.join(", ")),
+                format!("RAPL: {}", sensor.describe().join(", ")),
                 None,
             ));
             detection.sensors.push(Box::new(sensor));

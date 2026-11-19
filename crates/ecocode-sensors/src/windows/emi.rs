@@ -7,8 +7,8 @@
 //! and AMD systems have no EMI device; then CPU energy is unavailable.
 //!
 //! Each channel reports cumulative energy in picowatt-hours (`IOCTL_EMI_GET_MEASUREMENT`).
-//! Channels are mapped like on Linux: CPU = cores (PP0), falling back to the
-//! package when no core channel exists; PP1 → integrated GPU; DRAM → memory.
+//! Channels are mapped as CPU = cores (PP0), falling back to the package when no
+//! core channel exists; PP1 → integrated GPU; DRAM → memory.
 //!
 //! The byte formats below follow `emi.h` and are parsed without Windows APIs,
 //! so they are tested on every OS.

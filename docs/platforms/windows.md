@@ -12,8 +12,8 @@ Supported on Windows 10/11, x86_64. Run `ecocode doctor` to see what your machin
 | CPU usage | `GetProcessTimes` | |
 | Memory usage | Private working set (Task Manager's "Memory" column) | Working set on Windows older than 10 1809 |
 
-EMI channels map like Linux RAPL: CPU = cores (`PP0`), or the package (`PKG`) when there is no
-core channel; `PP1` → integrated GPU; `DRAM` → memory. Platform totals (`PSYS`) are not used.
+EMI channels map as follows: CPU = cores (`PP0`), or the package (`PKG`) when there is no core
+channel; `PP1` → integrated GPU; `DRAM` → memory. Platform totals (`PSYS`) are not used.
 
 There is no kernel driver: without EMI, Windows gives normal programs no access to the CPU's energy
 registers. See [drivers/windows/README.md](../../drivers/windows/README.md) for the options and why
