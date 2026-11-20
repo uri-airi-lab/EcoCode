@@ -4,6 +4,8 @@
 //! - `TreeGuard::attach(child)`: track the child's whole process tree, and
 //!   `TreeGuard::stop(child, tree)` to end it when a run is cancelled
 //! - `kill(pid)`: forcefully terminate one process (used by the panic hook)
+//! - `has_exited(child)`: whether the child exited, leaving it readable for a
+//!   last sample; `exit_code(status)`: the code `ecocode run` passes on
 
 #[cfg(unix)]
 mod unix;

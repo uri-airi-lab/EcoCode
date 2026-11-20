@@ -2,9 +2,11 @@
 //! Requires a workspace-scoped API key (`ecocode_...`) for authentication.
 //!
 //! The sampling loop never waits on the network: records go into a bounded
-//! [`UploadQueue`] and a background thread posts them. If the backend is slow
-//! or down, the oldest queued records are dropped (and counted) rather than
-//! delaying measurements.
+//! [`UploadQueue`] and a background thread posts them. When the network or the
+//! backend is down, records stay queued and are retried with a growing wait,
+//! so a short outage loses nothing; only an outage longer than the queue holds
+//! drops the oldest records (and counts them). A record the backend rejects
+//! outright is not retried.
 
 use std::collections::VecDeque;
 use std::env;
@@ -19,10 +21,16 @@ use ecocode_api::types::{GpuMetric as WireGpuMetric, IngestRecord, SocketMetric 
 use crate::config;
 use crate::exporters::{CarbonConfig, Exporter, ExporterType, ProjectInfo, Record, SystemInfo};
 
-/// Records waiting to be uploaded; beyond this the oldest are dropped.
-pub const QUEUE_CAPACITY: usize = 300;
+/// Records waiting to be uploaded, about an hour at the default 1 s interval
+/// (a record is under 1 KB); beyond this the oldest are dropped.
+pub const QUEUE_CAPACITY: usize = 3600;
 /// How long the end of a run waits for queued records to be uploaded.
-pub const FLUSH_TIMEOUT: Duration = Duration::from_secs(10);
+pub const FLUSH_TIMEOUT: Duration = Duration::from_secs(30);
+/// Wait before the first retry after a failed upload; it doubles up to [`RETRY_MAX`].
+pub const RETRY_FIRST: Duration = Duration::from_secs(1);
+pub const RETRY_MAX: Duration = Duration::from_secs(30);
+/// Waits between the attempts to mark a run complete.
+const COMPLETE_RETRY_WAITS: [Duration; 2] = [Duration::from_secs(2), Duration::from_secs(8)];
 
 pub struct OnlineExporter {
     client: Arc<EcoCodeHttpClient>,
@@ -87,7 +95,10 @@ impl OnlineExporter {
         let client = Arc::clone(&self.client);
         self.queue.get_or_insert_with(|| {
             UploadQueue::start(QUEUE_CAPACITY, move |(run_id, record): &(i64, IngestRecord)| {
-                client.add_record(*run_id, record).map_err(|e| e.to_string())
+                client.add_record(*run_id, record).map_err(|e| SendError {
+                    retry: ecocode_api::is_retryable(e.as_ref()),
+                    message: e.to_string(),
+                })
             })
         })
     }
@@ -146,8 +157,8 @@ impl Exporter for OnlineExporter {
             let stats = queue.finish(FLUSH_TIMEOUT);
             if stats.lost() > 0 {
                 eprintln!(
-                    "Warning: {} of {} records were not uploaded ({} dropped while the backend was slow, \
-                     {} failed, {} still queued at exit).{}",
+                    "Warning: {} of {} records were not uploaded ({} dropped after the queue filled during a \
+                     long outage, {} rejected by the backend, {} still queued at exit).{}",
                     stats.lost(),
                     stats.total(),
                     stats.dropped,
@@ -206,8 +217,23 @@ impl Exporter for OnlineExporter {
         Ok(self.client.save_system_info(run_id, &info).map_err(|e| e.to_string())?)
     }
 
+    /// Retried a few times when the backend is unreachable, so a network blip at
+    /// the end of a run does not leave it "running" on the dashboard.
     fn complete_run(&mut self, run_id: i64, status: &str, ended_at: Option<&str>) -> Result<(), Box<dyn Error>> {
-        Ok(self.client.complete_run(run_id, status, ended_at).map_err(|e| e.to_string())?)
+        let mut waits = COMPLETE_RETRY_WAITS.iter();
+        loop {
+            match self.client.complete_run(run_id, status, ended_at) {
+                Ok(()) => return Ok(()),
+                Err(e) if ecocode_api::is_retryable(e.as_ref()) => match waits.next() {
+                    Some(wait) => {
+                        eprintln!("[ecocode] Could not close the run ({e}); trying again in {} s.", wait.as_secs());
+                        thread::sleep(*wait);
+                    }
+                    None => return Err(e.to_string().into()),
+                },
+                Err(e) => return Err(e.to_string().into()),
+            }
+        }
     }
 
     fn run_summary(&mut self, _run_id: i64) -> Result<(), Box<dyn Error>> {
@@ -224,15 +250,25 @@ impl Exporter for OnlineExporter {
     }
 }
 
+/// Why one upload failed, and whether it is worth sending again.
+#[derive(Debug)]
+pub struct SendError {
+    pub message: String,
+    pub retry: bool,
+}
+
 /// Upload outcome counts.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct UploadStats {
     pub sent: u64,
+    /// Rejected by the backend and not retried.
     pub failed: u64,
     /// Dropped because the queue was full.
     pub dropped: u64,
     /// Still queued when the flush timed out.
     pub unsent: u64,
+    /// Upload attempts that failed and were tried again.
+    pub retries: u64,
     pub last_error: Option<String>,
 }
 
@@ -259,7 +295,17 @@ pub struct UploadQueue<T> {
 }
 
 impl<T: Send + 'static> UploadQueue<T> {
-    pub fn start(capacity: usize, mut send: impl FnMut(&T) -> Result<(), String> + Send + 'static) -> Self {
+    pub fn start(capacity: usize, send: impl FnMut(&T) -> Result<(), SendError> + Send + 'static) -> Self {
+        Self::with_retry(capacity, RETRY_FIRST, RETRY_MAX, send)
+    }
+
+    /// [`start`](Self::start) with the retry waits given explicitly.
+    pub fn with_retry(
+        capacity: usize,
+        retry_first: Duration,
+        retry_max: Duration,
+        mut send: impl FnMut(&T) -> Result<(), SendError> + Send + 'static,
+    ) -> Self {
         let shared = Arc::new((
             Mutex::new(QueueState {
                 items: VecDeque::new(),
@@ -272,6 +318,8 @@ impl<T: Send + 'static> UploadQueue<T> {
         let worker = Arc::clone(&shared);
         thread::spawn(move || {
             let (lock, cvar) = &*worker;
+            let mut wait = retry_first;
+            let mut outage_since: Option<Instant> = None;
             loop {
                 let item = {
                     let mut st = lock.lock().unwrap();
@@ -290,13 +338,50 @@ impl<T: Send + 'static> UploadQueue<T> {
                 let mut st = lock.lock().unwrap();
                 st.in_flight = false;
                 match result {
-                    Ok(()) => st.stats.sent += 1,
+                    Ok(()) => {
+                        st.stats.sent += 1;
+                        if let Some(since) = outage_since.take() {
+                            eprintln!(
+                                "[ecocode] EcoCode backend reachable again after {:.0} s; uploading the {} records kept meanwhile.",
+                                since.elapsed().as_secs_f64(),
+                                st.items.len() + 1
+                            );
+                        }
+                        wait = retry_first;
+                    }
+                    Err(e) if e.retry => {
+                        if outage_since.is_none() {
+                            eprintln!(
+                                "[ecocode] Cannot reach the EcoCode backend ({}); keeping records and retrying.",
+                                e.message
+                            );
+                            outage_since = Some(Instant::now());
+                        }
+                        st.stats.retries += 1;
+                        st.stats.last_error = Some(e.message);
+                        // Back to the front, so records still arrive in order.
+                        st.items.push_front(item);
+                        // New records wake the condvar, so wait out the full delay;
+                        // once the run is closing, retry at least every second.
+                        let mut until = Instant::now() + wait;
+                        loop {
+                            if st.closed {
+                                until = until.min(Instant::now() + Duration::from_secs(1));
+                            }
+                            let now = Instant::now();
+                            if now >= until {
+                                break;
+                            }
+                            st = cvar.wait_timeout(st, until - now).unwrap().0;
+                        }
+                        wait = (wait * 2).min(retry_max);
+                    }
                     Err(e) => {
                         if st.stats.failed == 0 {
-                            eprintln!("[ecocode] Failed to send record: {e}");
+                            eprintln!("[ecocode] The EcoCode backend rejected a record: {}", e.message);
                         }
                         st.stats.failed += 1;
-                        st.stats.last_error = Some(e);
+                        st.stats.last_error = Some(e.message);
                     }
                 }
                 cvar.notify_all();
@@ -395,14 +480,74 @@ mod tests {
     }
 
     #[test]
-    fn failures_are_counted_with_the_last_error() {
-        let q = UploadQueue::start(10, |i: &u32| if i.is_multiple_of(2) { Err(format!("bad {i}")) } else { Ok(()) });
+    fn rejected_records_are_counted_not_retried() {
+        let q = UploadQueue::start(10, |i: &u32| {
+            if i.is_multiple_of(2) { Err(SendError { message: format!("bad {i}"), retry: false }) } else { Ok(()) }
+        });
         for i in 0..4 {
             q.push(i);
         }
         let stats = q.finish(Duration::from_secs(5));
-        assert_eq!((stats.sent, stats.failed), (2, 2));
+        assert_eq!((stats.sent, stats.failed, stats.retries), (2, 2, 0));
         assert_eq!(stats.last_error.as_deref(), Some("bad 2"));
+    }
+
+    /// The network is down for the first attempts: nothing is lost and the
+    /// records still arrive in the order they were measured.
+    #[test]
+    fn an_outage_loses_nothing_and_keeps_order() {
+        let delivered = Arc::new(Mutex::new(Vec::new()));
+        let log = Arc::clone(&delivered);
+        let mut attempts = 0;
+        let q = UploadQueue::with_retry(100, Duration::from_millis(10), Duration::from_millis(40), move |i: &u32| {
+            attempts += 1;
+            if attempts <= 6 {
+                return Err(SendError { message: "connection refused".into(), retry: true });
+            }
+            log.lock().unwrap().push(*i);
+            Ok(())
+        });
+        for i in 0..10 {
+            q.push(i);
+        }
+        let stats = q.finish(Duration::from_secs(5));
+        assert_eq!((stats.sent, stats.failed, stats.dropped, stats.unsent, stats.retries), (10, 0, 0, 0, 6));
+        assert_eq!(*delivered.lock().unwrap(), (0..10).collect::<Vec<_>>());
+    }
+
+    /// Retries back off: a long outage does not hammer the backend.
+    #[test]
+    fn retries_wait_longer_each_time() {
+        let times = Arc::new(Mutex::new(Vec::new()));
+        let log = Arc::clone(&times);
+        let q = UploadQueue::with_retry(10, Duration::from_millis(20), Duration::from_millis(80), move |_: &u32| {
+            log.lock().unwrap().push(Instant::now());
+            Err(SendError { message: "timed out".into(), retry: true })
+        });
+        q.push(1);
+        thread::sleep(Duration::from_millis(400));
+        let gaps: Vec<u128> = times.lock().unwrap().windows(2).map(|w| (w[1] - w[0]).as_millis()).collect();
+        assert!(gaps.len() >= 3, "{gaps:?}");
+        assert!(gaps[0] >= 18 && gaps[1] >= 38 && gaps[2] >= 78, "waits did not grow: {gaps:?}");
+        assert!(gaps.iter().all(|&g| g < 500), "a wait went far past the maximum: {gaps:?}");
+        drop(q.finish(Duration::from_millis(10)));
+    }
+
+    /// Still offline when the run ends: the records are reported as unsent and
+    /// the run does not hang past the flush timeout.
+    #[test]
+    fn finish_during_an_outage_reports_unsent_records() {
+        let q = UploadQueue::with_retry(10, Duration::from_millis(10), Duration::from_secs(30), |_: &u32| {
+            Err(SendError { message: "offline".into(), retry: true })
+        });
+        for i in 0..3 {
+            q.push(i);
+        }
+        let started = Instant::now();
+        let stats = q.finish(Duration::from_millis(300));
+        assert!(started.elapsed() < Duration::from_millis(1500), "finish took {:?}", started.elapsed());
+        assert_eq!((stats.sent, stats.failed, stats.unsent), (0, 0, 3), "{stats:?}");
+        assert_eq!(stats.last_error.as_deref(), Some("offline"));
     }
 
     /// A slow mock backend: records keep flowing to the exporter at full speed
@@ -444,5 +589,44 @@ mod tests {
         assert_eq!(received.len(), 5);
         assert!(received[0].starts_with("/api/ingest/run/9/record "));
         assert!(received[0].contains(r#""phase":"eval""#) && received[0].contains(r#""accuracy":0.5"#));
+    }
+
+    /// Through real HTTP: a 503 is retried and the record arrives, while a 404
+    /// (the backend rejecting the request) is not retried.
+    #[test]
+    fn exporter_retries_unavailable_and_gives_up_on_rejected() {
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", server.server_addr().to_ip().unwrap());
+        let hits = Arc::new(Mutex::new(Vec::<String>::new()));
+        let log = Arc::clone(&hits);
+        thread::spawn(move || {
+            for (n, req) in server.incoming_requests().enumerate() {
+                log.lock().unwrap().push(req.url().to_string());
+                let code = match (n, req.url().contains("/run/404/")) {
+                    (_, true) => 404,
+                    (0, false) => 503,
+                    _ => 200,
+                };
+                req.respond(tiny_http::Response::empty(code)).unwrap();
+            }
+        });
+
+        let client = EcoCodeHttpClient::with_base_url(&url, "ecocode_test").unwrap();
+        let mut exporter = OnlineExporter::with_client(client);
+        let mut record: Record = serde_json::from_str(
+            r#"{"id":1,"run_id":9,"pid":5,"timestamp":"t","elapsed_secs":1.0,"cpu_usage":1.0,"cpu_energy":2.0,
+                "gpu_usage":0.0,"gpu_energy":0.0,"mem_usage":3.0,"mem_energy":null,"igpu_usage":null,
+                "igpu_energy":null,"gpu_metrics":[],"socket_metrics":[],"phase":null,"tokens_processed":null,
+                "training_step":null,"loss":null,"learning_rate":null,"sequence_length":null}"#,
+        )
+        .unwrap();
+        exporter.add_record(record.clone()).unwrap();
+        record.run_id = 404;
+        exporter.add_record(record).unwrap();
+        let stats = exporter.queue.take().unwrap().finish(Duration::from_secs(10));
+
+        assert_eq!((stats.sent, stats.failed, stats.retries), (1, 1, 1), "{stats:?}");
+        let hits = hits.lock().unwrap();
+        assert_eq!(*hits, ["/api/ingest/run/9/record", "/api/ingest/run/9/record", "/api/ingest/run/404/record"]);
     }
 }

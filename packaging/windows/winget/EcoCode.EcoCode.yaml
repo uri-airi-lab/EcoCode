@@ -1,7 +1,7 @@
 # winget version manifest (template). Fill in the version, then submit the three
 # files to https://github.com/microsoft/winget-pkgs (manifests/e/EcoCode/EcoCode/<version>/).
 PackageIdentifier: EcoCode.EcoCode
-PackageVersion: 1.1.1
+PackageVersion: 1.2.0
 DefaultLocale: en-US
 ManifestType: version
 ManifestVersion: 1.6.0

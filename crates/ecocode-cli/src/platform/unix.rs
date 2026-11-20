@@ -3,7 +3,8 @@
 
 use std::io;
 use std::os::unix::io::AsRawFd;
-use std::process::{Child, Command};
+use std::os::unix::process::ExitStatusExt;
+use std::process::{Child, Command, ExitStatus};
 use std::time::{Duration, Instant};
 
 use super::STOP_GRACE;
@@ -24,6 +25,25 @@ pub fn pass_marker_pipe(cmd: &mut Command, writer: &os_pipe::PipeWriter) -> io::
     }
     cmd.env(MARKER_ENV, fd.to_string());
     Ok(())
+}
+
+/// Whether `child` has exited, without reaping it. Until it is reaped the
+/// kernel keeps its final CPU time (and on macOS its energy), so a last sample
+/// can still measure the end of the command.
+pub fn has_exited(child: &mut Child) -> io::Result<bool> {
+    let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+    let flags = libc::WEXITED | libc::WNOHANG | libc::WNOWAIT;
+    if unsafe { libc::waitid(libc::P_PID, child.id() as libc::id_t, &mut info, flags) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // With WNOHANG, a child that is still running leaves si_pid at 0.
+    Ok(unsafe { info.si_pid() } != 0)
+}
+
+/// The exit code a shell would report: the command's own code, or 128 plus
+/// the signal number when a signal ended it.
+pub fn exit_code(status: ExitStatus) -> i32 {
+    status.code().or_else(|| status.signal().map(|s| 128 + s)).unwrap_or(1)
 }
 
 /// Sends SIGKILL to `pid`.

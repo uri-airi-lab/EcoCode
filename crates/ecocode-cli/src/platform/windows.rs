@@ -3,7 +3,7 @@
 
 use std::io;
 use std::os::windows::io::AsRawHandle;
-use std::process::{Child, Command};
+use std::process::{Child, Command, ExitStatus};
 use std::time::{Duration, Instant};
 
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, HANDLE_FLAG_INHERIT, SetHandleInformation};
@@ -29,6 +29,18 @@ pub fn pass_marker_pipe(cmd: &mut Command, writer: &os_pipe::PipeWriter) -> io::
     }
     cmd.env(MARKER_ENV, (handle as usize).to_string());
     Ok(())
+}
+
+/// Whether `child` has exited. `Child` holds the process handle, so an exited
+/// child's CPU time stays readable until the handle is dropped, which lets a
+/// last sample measure the end of the command.
+pub fn has_exited(child: &mut Child) -> io::Result<bool> {
+    Ok(child.try_wait()?.is_some())
+}
+
+/// The command's exit code.
+pub fn exit_code(status: ExitStatus) -> i32 {
+    status.code().unwrap_or(1)
 }
 
 /// Terminates `pid` immediately.

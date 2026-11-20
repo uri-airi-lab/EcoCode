@@ -155,7 +155,7 @@ fn hw_run_measures_cpu_energy() {
 }
 
 #[test]
-fn run_stops_promptly_when_child_exits() {
+fn run_stops_promptly_and_passes_on_the_exit_code() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("out.json");
     let started = Instant::now();
@@ -166,9 +166,29 @@ fn run_stops_promptly_when_child_exits() {
     } else {
         cmd.args(["sh", "-c", "exit 3"]);
     }
-    run_ok(&mut cmd);
+    let out = cmd.output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", String::from_utf8_lossy(&out.stderr));
     assert!(started.elapsed() < Duration::from_secs(5));
     read_json(&file); // the array is closed even with zero or one records
+}
+
+#[test]
+fn last_sample_covers_the_end_of_the_command() {
+    // At a 0.7 s interval a 1 s command ends between ticks; the records must
+    // still cover all of it, not stop at the last tick before it exited.
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("out.json");
+    let started = Instant::now();
+    run_ok(
+        ecocode()
+            .args(["run", "--sensors", "fake", "-o", "json", "-i", "0.7", "-f"])
+            .arg(&file)
+            .arg("--")
+            .args(sleeper(1)),
+    );
+    let covered: f64 = read_json(&file).iter().map(|r| r["elapsed_secs"].as_f64().unwrap()).sum();
+    assert!(covered >= 0.95, "records cover {covered} s of a 1 s command");
+    assert!(covered <= started.elapsed().as_secs_f64(), "records cover {covered} s, longer than the run");
 }
 
 #[test]

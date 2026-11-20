@@ -66,6 +66,22 @@ _SUBPROCESS_ENV_PASSTHROUGH = frozenset({
 # Exporters that are handled entirely locally (no API key, no network).
 _LOCAL_EXPORTERS = frozenset({"terminal", "csv", "json", "logfile"})
 
+# How long the end of a run waits for the monitor, which itself waits up to
+# 30 s for queued records to upload (FLUSH_TIMEOUT in the CLI).
+_MONITOR_EXIT_SECS = 45
+
+# Waits between attempts to mark a run complete when the backend is unreachable.
+_CLOSE_RETRY_WAITS = (2, 8)
+
+
+def _worth_retrying(exc: Exception) -> bool:
+    """True when the backend was unreachable or unavailable, False when it
+    rejected the request itself (an HTTP 4xx other than 408 and 429)."""
+    code = getattr(exc, "code", None)
+    if isinstance(code, int):
+        return code in (408, 429) or code >= 500
+    return isinstance(exc, OSError)
+
 
 class EcoCodeRun:
     """Context manager for tracking an ML run's energy and semantic markers."""
@@ -208,7 +224,9 @@ class EcoCodeRun:
             cmd,
             stdin=subprocess.PIPE,
             stdout=None if self._exporter == "terminal" else subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            # Inherited, so the monitor's warnings reach the user; it prints
+            # nothing to stderr when all is well.
+            stderr=None,
             env=safe_env,
         )
 
@@ -243,56 +261,103 @@ class EcoCodeRun:
                 started_at=started_at,
                 command=command,
             )
-            self._client.save_system_info(self._run_id, collect_system_info())
         except Exception as exc:
             warnings.warn(
                 f"[ecocode] EcoCode backend unreachable or failed to initialize run: {exc}. "
-                "Running in local fallback mode.",
+                "This run is not being measured; your code keeps running.",
                 category=UserWarning,
                 stacklevel=3,
             )
             self._mode = "noop"
             return self
 
-        ecocode_bin = resolve_ecocode_binary()
-
-        # Build a minimal environment for the monitor subprocess.
-        safe_env: dict[str, str] = {
-            k: v
-            for k, v in os.environ.items()
-            if k in _SUBPROCESS_ENV_PASSTHROUGH
-        }
-        safe_env["ECOCODE_API_KEY"] = self._api_key  # type: ignore[assignment]
-
-        self._mode = "standalone_online"
-        self._monitor_proc = subprocess.Popen(
-            [
-                ecocode_bin,
-                "monitor",
-                "--run-id",
-                str(self._run_id),
-                "--pid",
-                str(os.getpid()),
-                "--interval",
-                str(self._interval),
-            ],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            env=safe_env,
-        )
-
-        import time as _time
-        _time.sleep(0.2)
-        rc = self._monitor_proc.poll()
-        if rc is not None:
-            raise RuntimeError(
-                f"[ecocode] monitor subprocess exited immediately (code {rc}).\n"
-                "Check that ECOCODE_API_KEY is valid and the backend is reachable."
+        # The run exists from here on, so it is measured even if the details
+        # below fail, and if it cannot be measured it is closed as failed
+        # instead of being left "running" on the dashboard.
+        try:
+            self._client.save_system_info(self._run_id, collect_system_info())
+        except Exception as exc:
+            warnings.warn(
+                f"[ecocode] Could not save system info for run {self._run_id} ({exc}). "
+                "Measuring anyway; the dashboard will not show this machine's hardware.",
+                category=UserWarning,
+                stacklevel=3,
             )
 
+        try:
+            ecocode_bin = resolve_ecocode_binary()
+
+            # Build a minimal environment for the monitor subprocess.
+            safe_env: dict[str, str] = {
+                k: v
+                for k, v in os.environ.items()
+                if k in _SUBPROCESS_ENV_PASSTHROUGH
+            }
+            safe_env["ECOCODE_API_KEY"] = self._api_key  # type: ignore[assignment]
+
+            self._monitor_proc = subprocess.Popen(
+                [
+                    ecocode_bin,
+                    "monitor",
+                    "--run-id",
+                    str(self._run_id),
+                    "--pid",
+                    str(os.getpid()),
+                    "--interval",
+                    str(self._interval),
+                ],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                # Inherited, so upload failures and sensor warnings reach the user.
+                stderr=None,
+                env=safe_env,
+            )
+
+            import time as _time
+            _time.sleep(0.2)
+            rc = self._monitor_proc.poll()
+            if rc is not None:
+                raise RuntimeError(
+                    f"[ecocode] monitor subprocess exited immediately (code {rc}).\n"
+                    "Check that ECOCODE_API_KEY is valid and the backend is reachable."
+                )
+        except BaseException:
+            self._close_run("failed")
+            raise
+
+        self._mode = "standalone_online"
         self._pipe = PipeWriter(self._monitor_proc.stdin)
         return self
+
+    def _close_run(self, status: str) -> None:
+        """Marks the run complete on the backend, retrying while it is
+        unreachable; never raises."""
+        if not (self._client and self._run_id):
+            return
+        import time as _time
+
+        ended_at = datetime.now(timezone.utc).isoformat()
+        waits = list(_CLOSE_RETRY_WAITS)
+        while True:
+            try:
+                self._client.complete_run(self._run_id, status, ended_at)
+                return
+            except Exception as exc:
+                if waits and _worth_retrying(exc):
+                    wait = waits.pop(0)
+                    print(
+                        f"[ecocode] Could not close run {self._run_id} ({exc}); trying again in {wait} s.",
+                        file=sys.stderr,
+                    )
+                    _time.sleep(wait)
+                    continue
+                warnings.warn(
+                    f"[ecocode] Could not mark run {self._run_id} as {status} ({exc}); "
+                    "it may stay 'running' on the dashboard.",
+                    category=UserWarning,
+                    stacklevel=3,
+                )
+                return
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
         if self._mode == "noop":
@@ -302,18 +367,15 @@ class EcoCodeRun:
 
         if self._monitor_proc is not None:
             try:
-                self._monitor_proc.wait(timeout=10)
+                # The monitor spends up to 30 s uploading records it still holds.
+                self._monitor_proc.wait(timeout=_MONITOR_EXIT_SECS)
             except subprocess.TimeoutExpired:
                 self._monitor_proc.kill()
                 self._monitor_proc.wait()
 
-        if self._mode == "standalone_online" and self._client and self._run_id:
-            status = "failed" if exc_type else "finished"
-            ended_at = datetime.now(timezone.utc).isoformat()
-            try:
-                self._client.complete_run(self._run_id, status, ended_at)
-            except Exception:
-                pass  # Don't mask the original exception
+        if self._mode == "standalone_online":
+            # _close_run never raises, so the original exception is not masked.
+            self._close_run("failed" if exc_type else "finished")
 
         return False  # Never suppress exceptions
 
@@ -324,6 +386,13 @@ class EcoCodeRun:
     def stop(self) -> None:
         """Stop tracking and finalize the run. Alternative to context manager exit."""
         self.__exit__(None, None, None)
+
+    @property
+    def is_recording(self) -> bool:
+        """Whether this run is being measured. False on non-zero DDP ranks and
+        when the online backend could not create the run; markers are then
+        accepted and ignored."""
+        return self._mode in ("attached", "standalone_local", "standalone_online")
 
     def mark(self, key: str, value: Any) -> None:
         self._pipe.send({"event": str(key), "value": str(value)})

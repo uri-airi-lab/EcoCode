@@ -1,5 +1,7 @@
 import os
 import socket
+import subprocess
+import sys
 import urllib.request
 
 import pytest
@@ -20,13 +22,14 @@ def test_backend_url_is_fixed(monkeypatch):
     seen = []
 
     def fake_urlopen(req, timeout, context):
-        seen.append(req.full_url)
+        seen.append((req.full_url, timeout))
         raise OSError("offline")
 
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
     with pytest.raises(OSError):
         _http.EcoCodeHTTPClient("ecocode_testkey123").create_run(1, "r", "2026-01-01T00:00:00Z")
-    assert seen == ["https://ecocode.harmonyhpc.io/api/ingest/run"]
+    # A slow backend gets 30 s before the SDK gives up on a call.
+    assert seen == [("https://ecocode.harmonyhpc.io/api/ingest/run", 30)]
 
 
 def test_base_url_and_env_override_are_ignored_with_a_warning(monkeypatch):
@@ -65,6 +68,124 @@ def test_unreachable_backend_falls_back_to_noop(monkeypatch):
         with ecocode.run("offline", exporter="online") as r:
             r.log_step(1)
     assert r._mode == "noop"
+    assert not r.is_recording
+
+
+class FakeBackend:
+    """Stands in for EcoCodeHTTPClient; `fail` names the calls that time out."""
+
+    def __init__(self, fail=()):
+        self.fail = set(fail)
+        self.calls = []
+
+    def _call(self, name):
+        self.calls.append(name)
+        if name in self.fail:
+            raise TimeoutError("The read operation timed out")
+
+    def create_run(self, **kwargs):
+        self._call("create_run")
+        return 42
+
+    def save_system_info(self, run_id, info):
+        self._call("save_system_info")
+
+    def complete_run(self, run_id, status, ended_at):
+        self._call(f"complete_run:{status}")
+
+
+@pytest.fixture
+def online(monkeypatch):
+    """An online run against FakeBackend, with a stand-in monitor process that
+    reads its stdin until the run closes it (or exits at once with `exit_now`)."""
+    from ecocode import _run
+
+    monkeypatch.setenv("ECOCODE_API_KEY", "eco_12345678901234567890123456789012")
+    monkeypatch.setattr(_run, "resolve_ecocode_binary", lambda: sys.executable)
+    monkeypatch.setattr(_run, "_CLOSE_RETRY_WAITS", (0, 0))
+    real_popen = subprocess.Popen
+    state = {"monitor_args": None, "exit_now": False}
+
+    def fake_popen(args, **kwargs):
+        state["monitor_args"] = args
+        code = "pass" if state["exit_now"] else "import sys; sys.stdin.read()"
+        return real_popen([sys.executable, "-c", code], **kwargs)
+
+    monkeypatch.setattr(_run.subprocess, "Popen", fake_popen)
+
+    def start(backend):
+        monkeypatch.setattr(_run, "EcoCodeHTTPClient", lambda key: backend)
+        return ecocode.run("online-test", exporter="online")
+
+    state["start"] = start
+    return state
+
+
+def test_run_is_measured_when_only_system_info_fails(online):
+    backend = FakeBackend(fail={"save_system_info"})
+    with pytest.warns(UserWarning, match="Could not save system info for run 42"):
+        with online["start"](backend) as r:
+            assert r.is_recording
+            r.log_step(1)
+    assert online["monitor_args"][1:3] == ["monitor", "--run-id"] and online["monitor_args"][3] == "42"
+    assert backend.calls == ["create_run", "save_system_info", "complete_run:finished"]
+
+
+def test_run_that_cannot_be_measured_is_closed_as_failed(online):
+    online["exit_now"] = True
+    backend = FakeBackend()
+    with pytest.raises(RuntimeError, match="exited immediately"):
+        online["start"](backend).start()
+    assert backend.calls == ["create_run", "save_system_info", "complete_run:failed"]
+
+
+def test_error_in_user_code_closes_the_run_as_failed(online):
+    backend = FakeBackend()
+    with pytest.raises(ZeroDivisionError):
+        with online["start"](backend):
+            1 / 0
+    assert backend.calls[-1] == "complete_run:failed"
+
+
+def test_closing_is_retried_while_offline_then_reported_not_raised(online, capsys):
+    backend = FakeBackend(fail={"complete_run:finished"})
+    with pytest.warns(UserWarning, match="may stay 'running'"):
+        with online["start"](backend):
+            pass
+    assert backend.calls.count("complete_run:finished") == 3
+    assert "trying again" in capsys.readouterr().err
+
+
+def test_closing_succeeds_once_the_network_is_back(online):
+    backend = FakeBackend()
+    attempts = []
+
+    def flaky_complete(run_id, status, ended_at):
+        attempts.append(status)
+        if len(attempts) == 1:
+            raise TimeoutError("The read operation timed out")
+
+    backend.complete_run = flaky_complete
+    with online["start"](backend):
+        pass
+    assert attempts == ["finished", "finished"]
+
+
+def test_rejected_close_is_not_retried(online):
+    import urllib.error
+
+    backend = FakeBackend()
+    attempts = []
+
+    def rejected(run_id, status, ended_at):
+        attempts.append(status)
+        raise urllib.error.HTTPError("u", 404, "Not Found", None, None)
+
+    backend.complete_run = rejected
+    with pytest.warns(UserWarning, match="may stay 'running'"):
+        with online["start"](backend):
+            pass
+    assert attempts == ["finished"]
 
 
 @pytest.mark.skipif(os.name == "nt", reason="file descriptors are POSIX")

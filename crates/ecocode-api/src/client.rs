@@ -75,7 +75,9 @@ impl EcoCodeHttpClient {
 
         let client = Client::builder()
             .default_headers(headers)
-            .timeout(std::time::Duration::from_secs(10))
+            // Generous, so a slow backend costs some waiting rather than a failed
+            // run; record uploads happen off the sampling thread.
+            .timeout(std::time::Duration::from_secs(30))
             .build()?;
 
         Ok(Self {
@@ -176,10 +178,59 @@ impl EcoCodeHttpClient {
     }
 }
 
-fn check(res: Response, what: &str) -> Result<(), Error> {
+fn check(res: Response, what: &'static str) -> Result<(), Error> {
     if res.status().is_success() {
         Ok(())
     } else {
-        Err(format!("{}: {}", what, res.status()).into())
+        Err(Box::new(StatusError { what, status: res.status() }))
+    }
+}
+
+/// The backend answered with an error status.
+#[derive(Debug)]
+pub struct StatusError {
+    what: &'static str,
+    status: reqwest::StatusCode,
+}
+
+impl std::fmt::Display for StatusError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.what, self.status)
+    }
+}
+
+impl std::error::Error for StatusError {}
+
+/// Whether a failed request is worth sending again: the network or the
+/// backend was unavailable (no answer, timeout, 408, 429 or a 5xx), as opposed
+/// to the backend rejecting the request itself.
+pub fn is_retryable(err: &(dyn std::error::Error + Send + Sync + 'static)) -> bool {
+    match err.downcast_ref::<StatusError>() {
+        Some(e) => matches!(e.status.as_u16(), 408 | 429 | 500..=599),
+        None => err.downcast_ref::<reqwest::Error>().is_some(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejections_are_final_and_outages_are_retried() {
+        let status = |code| -> Error {
+            Box::new(StatusError { what: "Failed to ingest record", status: reqwest::StatusCode::from_u16(code).unwrap() })
+        };
+        for code in [408, 429, 500, 502, 503, 504] {
+            assert!(is_retryable(status(code).as_ref()), "{code}");
+        }
+        for code in [400, 401, 403, 404, 413, 422] {
+            assert!(!is_retryable(status(code).as_ref()), "{code}");
+        }
+        assert_eq!(status(503).to_string(), "Failed to ingest record: 503 Service Unavailable");
+
+        let refused = Client::new().get("http://127.0.0.1:1/").send().unwrap_err();
+        assert!(is_retryable(&refused));
+        let other: Error = "malformed".into();
+        assert!(!is_retryable(other.as_ref()));
     }
 }

@@ -13,6 +13,11 @@ _MAX_RESPONSE_BYTES = 1_048_576  # 1 MiB
 # One strict SSL context (CERT_REQUIRED + check_hostname) shared by every request.
 _SSL_CONTEXT = ssl.create_default_context()
 
+# The SDK only calls the backend to create, describe and complete a run; records
+# go through the monitor. A slow backend at those moments should cost a little
+# waiting, not the whole run, so the limit is generous.
+_TIMEOUT_SECS = 30
+
 
 # The EcoCode backend. Fixed on purpose: it cannot be changed by arguments or
 # environment variables, so run data and API keys can't be sent elsewhere by
@@ -38,7 +43,7 @@ class EcoCodeHTTPClient:
         )
         # Explicit SSL context so certificate validation is always enforced;
         # the read is capped so a bad backend cannot exhaust memory.
-        with urllib.request.urlopen(req, timeout=10, context=_SSL_CONTEXT) as resp:
+        with urllib.request.urlopen(req, timeout=_TIMEOUT_SECS, context=_SSL_CONTEXT) as resp:
             if resp.status in (200, 201):
                 raw = resp.read(_MAX_RESPONSE_BYTES)
                 if raw:

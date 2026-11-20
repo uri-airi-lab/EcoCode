@@ -98,8 +98,12 @@ run.stop()
 
 `ecocode.track()` takes the same keyword arguments. The `online` exporter sends records to
 https://ecocode.harmonyhpc.io; the backend address is fixed and `base_url=` and
-`ECOCODE_API_URL` are ignored with a warning. If the backend is unreachable at startup the run
-continues without recording.
+`ECOCODE_API_URL` are ignored with a warning. If the backend cannot create the run at startup,
+your code continues without recording and `run.is_recording` is `False`. Once the run exists it
+is measured even if saving the machine's hardware details fails, and if the monitor cannot start
+the run is marked failed rather than left running. If the connection drops during the run,
+records are kept and uploaded in order once it is back (up to an hour of them at the default
+interval), and the monitor prints a line when uploads stop and resume.
 
 ### Attached mode
 
@@ -179,7 +183,8 @@ with ecocode.run("grpo-qwen") as eco_run:
 ### PyTorch Lightning
 
 Lightning has an `on_before_backward` hook, so `forward` and `backward` are marked separately.
-Assumes automatic optimization.
+Assumes automatic optimization. The loss recorded at each optimizer step is the metric your
+module logs as `train_loss` if there is one, otherwise the loss `training_step` returned.
 
 ```python
 from ecocode.integrations.lightning import EcoCodeCallback

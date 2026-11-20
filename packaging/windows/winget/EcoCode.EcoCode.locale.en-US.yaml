@@ -1,6 +1,6 @@
 # winget default locale manifest (template).
 PackageIdentifier: EcoCode.EcoCode
-PackageVersion: 1.1.1
+PackageVersion: 1.2.0
 PackageLocale: en-US
 Publisher: EcoCode
 PackageName: EcoCode

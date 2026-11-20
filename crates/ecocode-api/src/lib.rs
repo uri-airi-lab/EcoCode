@@ -6,4 +6,4 @@
 pub mod client;
 pub mod types;
 
-pub use client::{BASE_URL, EcoCodeHttpClient};
+pub use client::{BASE_URL, EcoCodeHttpClient, StatusError, is_retryable};

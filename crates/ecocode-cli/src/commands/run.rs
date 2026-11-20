@@ -69,8 +69,9 @@ fn describe_intensity_source(source: &str) -> String {
     source.to_string()
 }
 
-/// Core monitoring loop for `ecocode run`.
-pub fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn Error>> {
+/// Core monitoring loop for `ecocode run`. Returns the exit code to pass on:
+/// the command's own when it exited by itself, 0 when the run was cancelled.
+pub fn run_monitoring(args: RunArgs) -> Result<i32, Box<dyn Error>> {
     let period = check_interval(args.interval)?;
 
     let output = args.output.to_lowercase();
@@ -218,12 +219,11 @@ pub fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn Error>> {
         |_| {
             // The child handle itself tells whether the root process exited
             // (avoids PID-reuse false positives from a process-table lookup).
-            match child.try_wait() {
-                Ok(Some(status)) => {
-                    println!("Process {} finished (status: {:?})", child_pid, status);
-                    Control::Stop
-                }
-                Ok(None) => Control::Continue,
+            // The exited child is not reaped yet, so one last sample still reads
+            // its final CPU time and covers the time since the previous tick.
+            match platform::has_exited(&mut child) {
+                Ok(true) => Control::LastSample,
+                Ok(false) => Control::Continue,
                 Err(e) => {
                     eprintln!("Warning: failed to check child status ({e})");
                     Control::Continue
@@ -231,6 +231,17 @@ pub fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn Error>> {
             }
         },
     );
+
+    let mut exit_code = 0;
+    if matches!(loop_result, Ok(LoopEnd::Finished)) {
+        match child.wait() {
+            Ok(status) => {
+                println!("Process {} finished (status: {:?})", child_pid, status);
+                exit_code = platform::exit_code(status);
+            }
+            Err(e) => eprintln!("Warning: failed to read the command's exit status ({e})"),
+        }
+    }
 
     let canceled = matches!(loop_result, Ok(LoopEnd::Interrupted));
     if canceled {
@@ -279,7 +290,7 @@ pub fn run_monitoring(args: RunArgs) -> Result<(), Box<dyn Error>> {
     // Restore the default panic hook now that the child is done.
     let _ = std::panic::take_hook();
 
-    execution_result
+    execution_result.map(|()| exit_code)
 }
 
 fn print_system_summary(

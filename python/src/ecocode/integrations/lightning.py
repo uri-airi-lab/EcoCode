@@ -34,7 +34,7 @@ class EcoCodeCallback(_Base):
       on_train_epoch_start       → log epoch (no phase change)
       on_train_batch_start       → phase = "forward"
       on_before_backward         → phase = "backward"
-      on_before_optimizer_step   → phase = "optimizer_step", log step
+      on_before_optimizer_step   → phase = "optimizer_step", log step, loss, lr
       on_validation_epoch_start  → phase = "eval"
       on_save_checkpoint         → phase = "checkpoint_save"
       on_train_end               → phase = "done"
@@ -51,10 +51,14 @@ class EcoCodeCallback(_Base):
     invoked when a LightningModule sets ``self.automatic_optimization =
     False`` and calls ``self.manual_backward(loss)`` itself; this callback
     assumes automatic optimization, the default and common case.
+
+    The loss logged is the module's ``train_loss`` metric when it logs one,
+    otherwise the loss returned by ``training_step``.
     """
 
     def __init__(self, run: "EcoCodeRun") -> None:
         self._run = run
+        self._last_loss = None
 
     def on_train_start(self, trainer, pl_module):
         self._run.mark("phase", "data_loading")
@@ -67,14 +71,20 @@ class EcoCodeCallback(_Base):
 
     def on_before_backward(self, trainer, pl_module, loss):
         self._run.mark("phase", "backward")
+        # Kept as a tensor: converting here would sync the GPU on every micro-batch.
+        self._last_loss = loss.detach()
 
     def on_before_optimizer_step(self, trainer, pl_module, optimizer):
         self._run.mark("phase", "optimizer_step")
         self._run.log_step(trainer.global_step)
-        # Pull loss from the callback metrics if available
         logged = trainer.callback_metrics
         if "train_loss" in logged:
             self._run.log_loss(float(logged["train_loss"]))
+        elif self._last_loss is not None:
+            # Lightning divides the loss by accumulate_grad_batches before backward;
+            # undo it so the value matches what training_step returned.
+            self._run.log_loss(float(self._last_loss) * trainer.accumulate_grad_batches)
+            self._last_loss = None
         # Pull lr from the optimizer
         for pg in optimizer.param_groups:
             if "lr" in pg:

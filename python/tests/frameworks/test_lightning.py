@@ -11,7 +11,7 @@ VAL_BATCHES = 2
 EPOCHS = 2
 
 
-def _module(torch):
+def _module(torch, log_name="train_loss"):
     from torch.utils.data import DataLoader, TensorDataset
 
     class Mlp(pl.LightningModule):
@@ -23,7 +23,7 @@ def _module(torch):
         def training_step(self, batch, batch_idx):
             x, y = batch
             loss = torch.nn.functional.cross_entropy(self.net(x), y)
-            self.log("train_loss", loss, on_step=True, on_epoch=False, prog_bar=False)
+            self.log(log_name, loss, on_step=True, on_epoch=False, prog_bar=False)
             self.step_losses.append(loss.item())
             return loss
 
@@ -84,3 +84,30 @@ def test_lightning_callback_real_trainer(torch, tmp_path, marker_tap, json_run):
     }
     assert json_run.max_of("training_step") == n_steps - 1
     assert json_run.last()["learning_rate"] == LR
+
+
+def test_lightning_loss_without_train_loss_metric(torch, tmp_path, marker_tap, json_run):
+    """A module that logs its loss under another name still gets it recorded,
+    unscaled by gradient accumulation: the last micro-batch's training_step loss."""
+    accumulate = 2
+    model, train, _ = _module(torch, log_name="loss")
+    with json_run("lightning-loss") as run:
+        trainer = pl.Trainer(
+            max_epochs=1,
+            limit_train_batches=TRAIN_BATCHES,
+            accumulate_grad_batches=accumulate,
+            accelerator="cpu",
+            devices=1,
+            logger=False,
+            enable_checkpointing=False,
+            enable_progress_bar=False,
+            enable_model_summary=False,
+            default_root_dir=str(tmp_path),
+            callbacks=[EcoCodeCallback(run)],
+        )
+        trainer.fit(model, train)
+
+    assert trainer.global_step == TRAIN_BATCHES // accumulate
+    expected = model.step_losses[accumulate - 1::accumulate]
+    assert marker_tap.values("loss") == pytest.approx(expected, rel=1e-6)
+    assert json_run.last()["loss"] == pytest.approx(expected[-1], rel=1e-6)

@@ -15,9 +15,14 @@ ecocode run [OPTIONS] -- <COMMAND> [ARGS...]
 starts the command as a child process and then samples on a fixed interval (default 1 s). Each
 sample reads the hardware energy counters, the CPU and memory use of the command's process tree,
 and the latest marker values, attributes a share of the energy to the process tree, and hands a
-record to the exporter. When the command exits (or on Ctrl+C) the exporter is flushed and a
-summary is printed. A warm-up pass of every sensor before the command starts keeps start-up costs
-such as CUDA context creation out of the first interval.
+record to the exporter. When the command exits, one last sample covers the time since the
+previous one, the exporter is flushed and a summary is printed; on Ctrl+C the same happens
+without the last sample. A warm-up pass of every sensor before the command starts keeps start-up
+costs such as CUDA context creation out of the first interval.
+
+`ecocode run` exits with the command's exit code, or 128 plus the signal number when a signal
+ended it, so it can stand in for the command in scripts and CI. It exits 0 after Ctrl+C, once the
+run is saved, and 1 when EcoCode itself fails.
 
 The child inherits two environment variables: `ECOCODE_RUN_ID` and a marker pipe
 (`ECOCODE_MARKER_FD` on Linux and macOS, `ECOCODE_MARKER_HANDLE` on Windows). The Python SDK
@@ -133,9 +138,13 @@ device, then `Phase`, `TokensProcessed`, `TrainingStep`, `Loss`, `LearningRate` 
 `online` posts each record to https://ecocode.harmonyhpc.io with `Authorization: Bearer <key>`.
 The backend address is fixed and cannot be changed by flags, environment variables or the config
 file. Records are queued and uploaded by a background thread so a slow backend never delays
-sampling; if more than 300 records are waiting the oldest are dropped and the count is reported at
-the end. The run is created at start-up and marked finished, failed or canceled after the queue
-is flushed (up to 10 s).
+sampling. When the network or the backend is down, records stay queued and are retried with a
+wait that grows from 1 s to 30 s, so they arrive in order once it is back; a message says when
+uploads stop and when they resume. The queue holds 3600 records (an hour at the default
+interval); beyond that the oldest are dropped. A record the backend rejects (for example a revoked
+key) is not retried. The run is created at start-up and marked finished, failed or canceled after
+the queue is flushed (up to 30 s), retrying twice if the backend is unreachable; any records not
+uploaded are counted in a warning at the end.
 
 `prometheus` serves gauges on `0.0.0.0:9091/metrics` from a background thread and fails at
 start-up if the port is taken. Gauges cover CPU, GPU, memory and iGPU usage and power, per-device

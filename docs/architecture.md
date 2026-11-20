@@ -66,8 +66,9 @@ Every interval (`--interval`, default 1 s), `Sampler::sample`:
 5. Attaches the latest markers (phase, step, loss, …) and emits one `Record` to the sink.
 
 The loop runs on a plain thread at a fixed interval; a late tick schedules the next one a full
-interval later. The online exporter only enqueues records (a background thread uploads them), so a
-slow backend never delays sampling.
+interval later. The online exporter only enqueues records (a background thread uploads them, and
+retries them while the network or backend is down), so a slow or unreachable backend never delays
+sampling.
 
 ## Attribution
 
@@ -99,7 +100,8 @@ Details: [Linux](platforms/linux.md) · [macOS](platforms/macos.md) · [Windows]
 ## Modes
 
 - **`ecocode run -- <command>`**: the CLI spawns the command, passes it a marker pipe and
-  `ECOCODE_RUN_ID`, and samples it until it exits (or Ctrl+C).
+  `ECOCODE_RUN_ID`, and samples it until it exits (or Ctrl+C). The exited command is not reaped
+  until one last sample has read its final CPU time, so the end of the command is measured.
 - **Python SDK, standalone**: `ecocode.run(...)` starts `ecocode monitor` (online) or
   `ecocode monitor-local` (terminal/CSV/JSON/logfile) on the Python process itself and writes
   markers to its stdin. Closing stdin ends the run after one final sample.

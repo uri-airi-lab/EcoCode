@@ -206,10 +206,15 @@ def main():
         interval=1.0,
     ) as eco:
 
-        # Give the viewer time to open the run on the dashboard before training starts.
-        print("\nRun started. You have 20 seconds to open the dashboard...")
-        print(f"URL: {DASHBOARD_URL}")
-        time.sleep(20)
+        if eco.is_recording:
+            # Give the viewer time to open the run on the dashboard before training starts.
+            print("\nRun started. You have 20 seconds to open the dashboard...")
+            print(f"URL: {DASHBOARD_URL}")
+            time.sleep(20)
+        else:
+            print("\n[warn] EcoCode could not start the run (see the warning above).")
+            print("[warn] Training continues, but nothing will appear on the dashboard.")
+            print("[warn] Press Ctrl+C and run the script again to try once more.")
 
         eco.mark("phase", "data_loading")
         print("\n[phase] data_loading")
