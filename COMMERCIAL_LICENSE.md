@@ -22,5 +22,5 @@ commercial license.
 
 For a commercial license, questions about the license or partnerships, please contact:
 
-- **Mohamed Aziz Khezami: [mohamedaziz.khezami@uri.edu]** / **Professor Abdeltawab Hendawi: [hendawi@uri.edu]**
+- **Mohamed Aziz Khezami: [mohamedazizkhezami@gmail.com]** / **Professor Abdeltawab Hendawi: [hendawi@uri.edu]**
 - **University of Rhode Island**

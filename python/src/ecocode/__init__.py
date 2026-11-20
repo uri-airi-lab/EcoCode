@@ -57,7 +57,7 @@ from typing import Callable, Optional, TypeVar
 
 from ._run import EcoCodeRun
 
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 __all__ = ["run", "track", "EcoCodeRun"]
 
 F = TypeVar("F", bound=Callable)

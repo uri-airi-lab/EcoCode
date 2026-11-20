@@ -298,5 +298,5 @@ Apache-2.0 or MIT.
 AGPL-3.0-only. See the [repository LICENSE](https://github.com/uri-airi-lab/EcoCode/blob/main/LICENSE).
 
 If the AGPL does not fit your use, for example inside a closed-source product or service, contact
-us about a commercial license: Mohamed Aziz Khezami (mohamedaziz.khezami@uri.edu) or Professor
+us about a commercial license: Mohamed Aziz Khezami (mohamedazizkhezami@gmail.com) or Professor
 Abdeltawab Hendawi (hendawi@uri.edu).

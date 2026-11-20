@@ -104,5 +104,5 @@ EcoCode is licensed under the [GNU Affero General Public License v3.0](LICENSE).
 modified version as a network service, you must make the source available to its users.
 
 If the AGPL does not fit your use, for example inside a closed-source product or service, contact
-us about a commercial license: Mohamed Aziz Khezami (mohamedaziz.khezami@uri.edu) or Professor
+us about a commercial license: Mohamed Aziz Khezami (mohamedazizkhezami@gmail.com) or Professor
 Abdeltawab Hendawi (hendawi@uri.edu). See [COMMERCIAL_LICENSE.md](COMMERCIAL_LICENSE.md).
